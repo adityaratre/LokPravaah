@@ -44,7 +44,7 @@ export default function RewardsPage({ userId, enabled, notify }: { userId: strin
     if (failures.length) setError('Rewards could not be refreshed. Please try again shortly.')
     if (!ledgerResult.error) setLedger((ledgerResult.data ?? []) as LedgerRow[])
     if (!withdrawalResult.error) setWithdrawals((withdrawalResult.data ?? []) as Withdrawal[])
-    if (!configResult.error && configResult.data) setConfig({ max_withdrawal_points: 1000000, ...configResult.data, points_per_rupee: Number(configResult.data.points_per_rupee) } as RewardConfig)
+    if (!configResult.error && configResult.data) setConfig({ ...configResult.data, max_withdrawal_points: Number(configResult.data.max_withdrawal_points ?? 1000000), points_per_rupee: Number(configResult.data.points_per_rupee) } as RewardConfig)
     if (!giftCardsResult.error) { setGiftCards((giftCardsResult.data ?? []).map((item: any) => ({ ...item, min_amount_inr: Number(item.min_amount_inr), max_amount_inr: Number(item.max_amount_inr) })) as GiftCardOption[]); setGiftCardOptionsError('') }
     else { setGiftCards([]); setGiftCardOptionsError(['42P01', 'PGRST205'].includes(giftCardsResult.error.code ?? '') ? 'Gift-card options are not installed in the database yet. The administrator must apply the LokPravaah gift-card SQL migration.' : 'Gift-card options could not load. Please ask an administrator to check the database permissions.') }
     if (!balanceResult.error) {

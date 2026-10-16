@@ -20,5 +20,9 @@ Run the entire raw file `supabase/lokpravaah_ai_giftcard_repair.sql` from Supaba
 - Deploy `supabase/functions/janwatch-ai/index.ts` as the `janwatch-ai` Edge Function after updating it.
 - Confirm `OPENROUTER_API_KEY` or `GEMINI_API_KEY` is configured in Supabase Edge Function Secrets.
 
+## Build error correction
+- Fixed `src/components/RewardsPage.tsx` duplicate `max_withdrawal_points` object property (TS2783). The value now reads from the database and falls back to `1000000` only when missing.
+
 ## Verification status
-Source changes and migration presence were checked. A production build could not be certified in this environment because the package dependencies are not installed and network installation is unavailable. Live Supabase migration and AI provider execution must be verified in the user's project.
+- Confirmed the duplicate-property expression was replaced in source.
+- The Cloudflare build log supplied by the user fails at the TypeScript step before Vite runs. A complete production build and live Supabase migration/provider execution still need verification in the deployed project.
