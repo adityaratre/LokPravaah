@@ -28,8 +28,15 @@ function limitRequest(userId: string): boolean {
   recent.push(now); hits.set(userId, recent)
   return true
 }
-function systemPrompt(task: string) {
-  const common = `You are LokPravaah AI, a helpful, honest assistant inside an independent public-use civic platform. Reply in the user's language; understand Hindi, English and Hinglish. Be practical, clear, respectful and conversational. Never invent facts, laws, sections, penalties, deadlines, official contacts, citations, evidence or case numbers. Distinguish confirmed information from assumptions and suggestions. Never claim that a complaint has been submitted or a claim independently verified. Protect privacy: never ask for passwords, OTPs, PINs, full Aadhaar numbers or unnecessary sensitive data. Keep the answer structured and ask a focused follow-up when essential facts are missing. This platform is not a government portal.`
+function systemPrompt(task: string, responseLanguage: string) {
+  const languageRule = responseLanguage === 'hindi'
+    ? 'MANDATORY RESPONSE LANGUAGE: Hindi written in Devanagari. Reply in Hindi, even if technical terms are in English. Do not default to Hinglish or English.'
+    : responseLanguage === 'hinglish'
+      ? 'MANDATORY RESPONSE LANGUAGE: Hinglish, using natural Roman-script Hindi mixed with English like the user. Do not switch to Devanagari Hindi or formal English unless asked.'
+      : responseLanguage === 'english'
+        ? 'MANDATORY RESPONSE LANGUAGE: English. Answer in English only unless the user explicitly asks you to translate or answer in another language. Do not default to Hindi.'
+        : 'Detect the language and script of the latest user question. English question = English answer; Hindi/Devanagari question = Hindi answer; Roman Hindi mixed with English = Hinglish answer. Keep the same language throughout.'
+  const common = `You are LokPravaah AI, a helpful, honest assistant inside an independent public-use civic platform. ${languageRule} Understand Hindi, English and Hinglish. Be practical, clear, respectful and conversational. Never invent facts, laws, sections, penalties, deadlines, official contacts, citations, evidence or case numbers. Distinguish confirmed information from assumptions and suggestions. Never claim that a complaint has been submitted or a claim independently verified. Protect privacy: never ask for passwords, OTPs, PINs, full Aadhaar numbers or unnecessary sensitive data. Keep the answer structured and ask a focused follow-up when essential facts are missing. This platform is not a government portal.`
   const instructions: Record<string, string> = {
     general_chat: `Answer general questions like a capable general-purpose chatbot: education, coding, writing, technology, planning, explanations, brainstorming and everyday topics. Follow the user's requested format and level of detail. For current facts or specialized high-stakes topics, be transparent about limitations and suggest checking reliable primary sources.`,
     legal_rights: `Provide general legal information, not legal representation. First establish country/state and relevant facts when they change the answer. For India-specific queries, distinguish central law from state rules and local procedures. Cite an exact Act/section or official source only when reasonably confident; if not verified, say so and explain how to verify it. Explain what facts would change the answer, practical lawful next steps and relevant official complaint/payment channels. For police/traffic questions, distinguish an official challan/receipt from a demand for unofficial cash; do not assert misconduct without facts. Do not guarantee outcomes.`,
@@ -62,13 +69,13 @@ async function readError(response: Response): Promise<string> {
     return String(data?.error?.message ?? data?.error ?? data?.message ?? `HTTP ${response.status}`).slice(0, 300)
   } catch { return `HTTP ${response.status}` }
 }
-async function openRouterCall(model: string, apiKey: string, prompt: string, task: string, deadlineMs: number): Promise<string> {
+async function openRouterCall(model: string, apiKey: string, prompt: string, task: string, responseLanguage: string, deadlineMs: number): Promise<string> {
   const requestHeaders: Record<string, string> = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-Title': 'LokPravaah Civic Assistant' }
   const siteUrl = env('LOKPRAVAAH_SITE_URL') || env('JANWATCH_SITE_URL')
   if (siteUrl) requestHeaders['HTTP-Referer'] = siteUrl
   const response = await timedFetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST', headers: requestHeaders,
-    body: JSON.stringify({ model, temperature: 0.25, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'system', content: systemPrompt(task) }, { role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model, temperature: 0.25, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'system', content: systemPrompt(task, responseLanguage) }, { role: 'user', content: prompt }] }),
   }, deadlineMs)
   if (!response.ok) throw Object.assign(new Error(await readError(response)), { status: response.status })
   const data = await response.json()
@@ -76,10 +83,10 @@ async function openRouterCall(model: string, apiKey: string, prompt: string, tas
   if (typeof answer !== 'string' || !answer.trim()) throw new Error('Provider returned an empty answer')
   return answer.trim()
 }
-async function geminiCall(model: string, apiKey: string, prompt: string, task: string, deadlineMs: number): Promise<string> {
+async function geminiCall(model: string, apiKey: string, prompt: string, task: string, responseLanguage: string, deadlineMs: number): Promise<string> {
   const response = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(task) }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.25, maxOutputTokens: MAX_OUTPUT_TOKENS } }),
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(task, responseLanguage) }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.25, maxOutputTokens: MAX_OUTPUT_TOKENS } }),
   }, deadlineMs)
   if (!response.ok) throw Object.assign(new Error(await readError(response)), { status: response.status })
   const data = await response.json()
@@ -87,10 +94,10 @@ async function geminiCall(model: string, apiKey: string, prompt: string, task: s
   if (typeof answer !== 'string' || !answer.trim()) throw new Error('Provider returned an empty answer')
   return answer.trim()
 }
-async function groqCall(model: string, apiKey: string, prompt: string, task: string, deadlineMs: number): Promise<string> {
+async function groqCall(model: string, apiKey: string, prompt: string, task: string, responseLanguage: string, deadlineMs: number): Promise<string> {
   const response = await timedFetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, temperature: 0.25, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'system', content: systemPrompt(task) }, { role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model, temperature: 0.25, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'system', content: systemPrompt(task, responseLanguage) }, { role: 'user', content: prompt }] }),
   }, deadlineMs)
   if (!response.ok) throw Object.assign(new Error(await readError(response)), { status: response.status })
   const data = await response.json()
@@ -120,12 +127,14 @@ Deno.serve(async (req) => {
     return json({ ai_available: false, code: 'ai_paused', message: 'The AI assistant is paused for now. You can still use the complaint and RTI drafting tools.' }, 200)
   }
 
-  let body: { prompt?: unknown; task?: unknown }
+  let body: { prompt?: unknown; task?: unknown; response_language?: unknown }
   try { body = await req.json() } catch { return json({ error: 'Request body must be valid JSON.' }, 400) }
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   const acceptedTasks = new Set(['general_chat', 'legal_rights', 'civic_assistant', 'document_drafting', 'admin_connection_test'])
   const requestedTask = typeof body.task === 'string' ? body.task.slice(0, 80) : 'civic_assistant'
   const task = acceptedTasks.has(requestedTask) ? requestedTask : 'general_chat'
+  const requestedLanguage = typeof body.response_language === 'string' ? body.response_language : 'auto'
+  const responseLanguage = ['english', 'hindi', 'hinglish'].includes(requestedLanguage) ? requestedLanguage : 'auto'
   if (!prompt) return json({ error: 'Enter a question first.' }, 400)
   if (prompt.length > MAX_PROMPT_LENGTH) return json({ error: `Question must be no longer than ${MAX_PROMPT_LENGTH} characters.` }, 400)
 
@@ -147,7 +156,7 @@ Deno.serve(async (req) => {
       if (Date.now() >= deadlineMs) break
       level++
       try {
-        const answer = await openRouterCall(model, routerKey, prompt, task, deadlineMs)
+        const answer = await openRouterCall(model, routerKey, prompt, task, responseLanguage, deadlineMs)
         console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'openrouter', model, fallback_level: level, prompt_chars: prompt.length }))
         return json({ answer, provider: 'OpenRouter', model, fallback_level: level, ai_available: true })
       } catch (error) {
@@ -167,7 +176,7 @@ Deno.serve(async (req) => {
       if (Date.now() >= deadlineMs) break
       level++
       try {
-        const answer = await geminiCall(model, geminiKey, prompt, task, deadlineMs)
+        const answer = await geminiCall(model, geminiKey, prompt, task, responseLanguage, deadlineMs)
         console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'gemini', model, fallback_level: level, prompt_chars: prompt.length }))
         return json({ answer, provider: 'Gemini', model, fallback_level: level, ai_available: true })
       } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'gemini', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }
@@ -179,7 +188,7 @@ Deno.serve(async (req) => {
     const model = env('GROQ_MODEL', 'llama-3.3-70b-versatile')
     level++
     try {
-      const answer = await groqCall(model, groqKey, prompt, task, deadlineMs)
+      const answer = await groqCall(model, groqKey, prompt, task, responseLanguage, deadlineMs)
       console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'groq', model, fallback_level: level, prompt_chars: prompt.length }))
       return json({ answer, provider: 'Groq', model, fallback_level: level, ai_available: true })
     } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'groq', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }

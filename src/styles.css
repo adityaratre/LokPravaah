@@ -560,3 +560,6 @@ body{overflow-x:hidden}
 .gift-card-code-panel { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--border, #d9e0e8); border-radius: 10px; }
 .gift-card-code-panel code { overflow-wrap: anywhere; user-select: all; padding: 10px; border-radius: 8px; background: var(--surface-muted, #f2f4f7); }
 @media (max-width: 700px) { .ops-gift-card-list article { grid-template-columns: 1fr 1fr; } .ops-gift-card-list article > label:first-child { grid-column: 1 / -1; } }
+
+.ai-answer-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}.ai-answer-actions .ai-clear-history{margin-top:0}.gift-card-migration-warning{align-items:flex-start}.gift-card-migration-warning span{flex:1;line-height:1.6}
+.ai-chat-message .ai-copy-message{margin-top:8px;padding:5px 8px;font-size:10px}.ai-chat-message.assistant .ai-copy-message{opacity:.78}.ai-chat-message.assistant .ai-copy-message:hover{opacity:1}.gift-card-migration-warning{display:flex;gap:10px;flex-wrap:wrap}

@@ -17,6 +17,7 @@ export default function RewardsPage({ userId, enabled, notify }: { userId: strin
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([])
   const [config, setConfig] = useState<RewardConfig | null>(null)
   const [giftCards, setGiftCards] = useState<GiftCardOption[]>([])
+  const [giftCardOptionsError, setGiftCardOptionsError] = useState('')
   const [giftCardBrand, setGiftCardBrand] = useState('')
   const [balance, setBalance] = useState<Balance>(EMPTY_BALANCE)
   const [loading, setLoading] = useState(true)
@@ -44,7 +45,8 @@ export default function RewardsPage({ userId, enabled, notify }: { userId: strin
     if (!ledgerResult.error) setLedger((ledgerResult.data ?? []) as LedgerRow[])
     if (!withdrawalResult.error) setWithdrawals((withdrawalResult.data ?? []) as Withdrawal[])
     if (!configResult.error && configResult.data) setConfig({ max_withdrawal_points: 1000000, ...configResult.data, points_per_rupee: Number(configResult.data.points_per_rupee) } as RewardConfig)
-    if (!giftCardsResult.error) setGiftCards((giftCardsResult.data ?? []).map((item: any) => ({ ...item, min_amount_inr: Number(item.min_amount_inr), max_amount_inr: Number(item.max_amount_inr) })) as GiftCardOption[])
+    if (!giftCardsResult.error) { setGiftCards((giftCardsResult.data ?? []).map((item: any) => ({ ...item, min_amount_inr: Number(item.min_amount_inr), max_amount_inr: Number(item.max_amount_inr) })) as GiftCardOption[]); setGiftCardOptionsError('') }
+    else { setGiftCards([]); setGiftCardOptionsError(['42P01', 'PGRST205'].includes(giftCardsResult.error.code ?? '') ? 'Gift-card options are not installed in the database yet. The administrator must apply the LokPravaah gift-card SQL migration.' : 'Gift-card options could not load. Please ask an administrator to check the database permissions.') }
     if (!balanceResult.error) {
       const result = Array.isArray(balanceResult.data) ? balanceResult.data[0] : balanceResult.data
       if (result) setBalance({ earned_points: Number(result.earned_points ?? 0), reserved_points: Number(result.reserved_points ?? 0), available_points: Number(result.available_points ?? 0) })
@@ -106,6 +108,7 @@ export default function RewardsPage({ userId, enabled, notify }: { userId: strin
     <section className="rewards-heading"><div><div className="section-kicker">CONTRIBUTION RECOGNITION</div><h1>Rewards & withdrawals<span>.</span></h1><p>Eligible contributions may earn points under the programme rules. A report must be reviewed before it can qualify; submission alone does not guarantee points.</p></div><button className="btn btn-secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={15}/> Refresh</button></section>
     {currentConfig && !currentConfig.enabled && <div className="data-warning"><Info size={17}/><div><b>Rewards are paused by an administrator</b><span>Your historical balance remains visible, but automatic and manual awards are paused.</span></div></div>}
     {error && <div className="data-warning"><Info size={17}/><div><b>Some rewards data could not be refreshed</b><span>{error}</span></div><button className="btn btn-secondary" onClick={() => void load()}><RefreshCw size={15}/> Retry</button></div>}
+    {giftCardOptionsError && <div className="data-warning"><Info size={17}/><div><b>Gift-card options are not available</b><span>{giftCardOptionsError}</span></div><button className="btn btn-secondary" onClick={() => void load()}><RefreshCw size={15}/> Retry</button></div>}
     <div className="reward-principle"><ShieldCheck size={18}/><div><b>Quality over quantity</b><span>Verified/resolved means an authorised LokPravaah reviewer changed the status. It is not an independent government verification. Rewards depend on an organisation's published rules and available funding.</span></div></div>
     <section className="rewards-balance-grid"><article className="panel reward-balance-card"><div className="reward-icon"><Coins size={20}/></div><span>Net points before reservations</span><b>{loading ? '…' : balance.earned_points.toLocaleString()}</b><small>Total points recorded</small></article><article className="panel reward-balance-card"><div className="reward-icon"><Wallet size={20}/></div><span>Available points</span><b>{loading ? '…' : available.toLocaleString()}</b><small>{balance.reserved_points.toLocaleString()} points reserved/spent on pending, approved or paid requests</small></article><article className="panel reward-balance-card"><div className="reward-icon"><BadgeIndianRupee size={20}/></div><span>Indicative value</span><b>{loading || !currentConfig ? '…' : money(available / currentConfig.points_per_rupee)}</b><small>{currentConfig ? `${currentConfig.points_per_rupee} points per ₹1` : 'Current redemption rate'} · not guaranteed cash</small></article></section>
     <div className="rewards-main-grid">
