@@ -29,15 +29,32 @@ function limitRequest(userId: string): boolean {
   return true
 }
 function systemPrompt(task: string) {
-  return `You are LokPravaah AI, a careful civic-reporting assistant. Task: ${task}. Help users write clear, neutral, practical civic reports and organise observations. Never invent facts, laws, deadlines, official contacts, evidence, or case numbers. Distinguish user-provided facts from suggestions and uncertainties. Do not claim that a complaint has been submitted or an allegation verified. Avoid legal certainty; encourage checking the responsible authority's official instructions. Never ask for passwords, Aadhaar numbers, payment credentials, or unnecessary sensitive data. Reply in the user's language when clear, otherwise use simple English. Use concise headings and actionable steps.`
+  const common = `You are LokPravaah AI, a helpful, honest assistant inside an independent public-use civic platform. Reply in the user's language; understand Hindi, English and Hinglish. Be practical, clear, respectful and conversational. Never invent facts, laws, sections, penalties, deadlines, official contacts, citations, evidence or case numbers. Distinguish confirmed information from assumptions and suggestions. Never claim that a complaint has been submitted or a claim independently verified. Protect privacy: never ask for passwords, OTPs, PINs, full Aadhaar numbers or unnecessary sensitive data. Keep the answer structured and ask a focused follow-up when essential facts are missing. This platform is not a government portal.`
+  const instructions: Record<string, string> = {
+    general_chat: `Answer general questions like a capable general-purpose chatbot: education, coding, writing, technology, planning, explanations, brainstorming and everyday topics. Follow the user's requested format and level of detail. For current facts or specialized high-stakes topics, be transparent about limitations and suggest checking reliable primary sources.`,
+    legal_rights: `Provide general legal information, not legal representation. First establish country/state and relevant facts when they change the answer. For India-specific queries, distinguish central law from state rules and local procedures. Cite an exact Act/section or official source only when reasonably confident; if not verified, say so and explain how to verify it. Explain what facts would change the answer, practical lawful next steps and relevant official complaint/payment channels. For police/traffic questions, distinguish an official challan/receipt from a demand for unofficial cash; do not assert misconduct without facts. Do not guarantee outcomes.`,
+    civic_assistant: `Help users organise civic observations, prepare neutral complaints, identify evidence to preserve and understand grievance channels. Separate observed facts from allegations. Do not claim that the platform submits an official complaint.`,
+    document_drafting: `Draft and improve civic complaints, RTI applications, representations, formal letters and document summaries. Use placeholders for unknown facts, do not invent names or dates, and clearly label drafts as not submitted. Explain that RTI processes and authorities depend on jurisdiction.`,
+    admin_connection_test: `Reply with exactly: LokPravaah AI connection test successful.`,
+  }
+  return `${common}\n\nMode-specific instructions: ${instructions[task] ?? instructions.civic_assistant}`
 }
 async function timedFetch(url: string, init: RequestInit, deadlineMs: number): Promise<Response> {
   const controller = new AbortController()
   const remainingMs = Math.max(0, Math.min(TIMEOUT_MS, deadlineMs - Date.now()))
   if (remainingMs <= 0) throw new Error('AI request time budget exhausted')
   const timer = setTimeout(() => controller.abort(), remainingMs)
-  try { return await fetch(url, { ...init, signal: controller.signal }) }
-  finally { clearTimeout(timer) }
+  try {
+    // Keep the timeout active until the response body has been received as well as its headers.
+    // fetch() alone resolves at headers, so clearing the timer there can leave response.json() hanging.
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    const body = await response.arrayBuffer()
+    const headers = new Headers(response.headers)
+    // fetch transparently decompresses bodies; do not copy stale wire-level size/encoding metadata.
+    headers.delete('content-length')
+    headers.delete('content-encoding')
+    return new Response(body, { status: response.status, statusText: response.statusText, headers })
+  } finally { clearTimeout(timer) }
 }
 async function readError(response: Response): Promise<string> {
   try {
@@ -60,8 +77,8 @@ async function openRouterCall(model: string, apiKey: string, prompt: string, tas
   return answer.trim()
 }
 async function geminiCall(model: string, apiKey: string, prompt: string, task: string, deadlineMs: number): Promise<string> {
-  const response = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const response = await timedFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(task) }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.25, maxOutputTokens: MAX_OUTPUT_TOKENS } }),
   }, deadlineMs)
   if (!response.ok) throw Object.assign(new Error(await readError(response)), { status: response.status })
@@ -106,7 +123,9 @@ Deno.serve(async (req) => {
   let body: { prompt?: unknown; task?: unknown }
   try { body = await req.json() } catch { return json({ error: 'Request body must be valid JSON.' }, 400) }
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
-  const task = typeof body.task === 'string' ? body.task.slice(0, 80) : 'civic_assistant'
+  const acceptedTasks = new Set(['general_chat', 'legal_rights', 'civic_assistant', 'document_drafting', 'admin_connection_test'])
+  const requestedTask = typeof body.task === 'string' ? body.task.slice(0, 80) : 'civic_assistant'
+  const task = acceptedTasks.has(requestedTask) ? requestedTask : 'general_chat'
   if (!prompt) return json({ error: 'Enter a question first.' }, 400)
   if (prompt.length > MAX_PROMPT_LENGTH) return json({ error: `Question must be no longer than ${MAX_PROMPT_LENGTH} characters.` }, 400)
 
@@ -140,15 +159,15 @@ Deno.serve(async (req) => {
   // safeModels always includes openrouter/free when a primary key exists.
 
   const geminiKey = env('GEMINI_API_KEY')
-  if (Date.now() < deadlineMs && enabled('AI_ENABLE_GEMINI_BACKUP', false) && geminiKey) {
-    const model = env('GEMINI_MODEL', 'gemini-2.5-flash')
+  if (Date.now() < deadlineMs && enabled('AI_ENABLE_GEMINI_BACKUP', true) && geminiKey) {
+    const model = env('GEMINI_MODEL', 'gemini-3.8-flash')
     level++
     try {
       const answer = await geminiCall(model, geminiKey, prompt, task, deadlineMs)
       console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'gemini', model, fallback_level: level, prompt_chars: prompt.length }))
       return json({ answer, provider: 'Gemini', model, fallback_level: level, ai_available: true })
     } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'gemini', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }
-  } else failures.push({ provider: 'gemini', model: env('GEMINI_MODEL', 'gemini-2.5-flash'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GEMINI_BACKUP', false) ? 'backup disabled by default' : 'GEMINI_API_KEY missing' })
+  } else failures.push({ provider: 'gemini', model: env('GEMINI_MODEL', 'gemini-3.8-flash'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GEMINI_BACKUP', true) ? 'backup disabled by configuration' : 'GEMINI_API_KEY missing' })
 
   const groqKey = env('GROQ_API_KEY')
   if (Date.now() < deadlineMs && enabled('AI_ENABLE_GROQ_BACKUP', false) && groqKey) {
@@ -163,6 +182,6 @@ Deno.serve(async (req) => {
 
   // Do not fabricate an answer when every real provider fails.
   console.warn(JSON.stringify({ event: 'janwatch_ai_all_providers_failed', user_id: authData.user.id, failures }))
-  const missingPrimaryConfig = !routerKey && !enabled('AI_ENABLE_GEMINI_BACKUP', false) && !enabled('AI_ENABLE_GROQ_BACKUP', false)
+  const missingPrimaryConfig = !routerKey && !(enabled('AI_ENABLE_GEMINI_BACKUP', true) && geminiKey) && !(enabled('AI_ENABLE_GROQ_BACKUP', false) && groqKey)
   return json({ ai_available: false, code: missingPrimaryConfig ? 'ai_not_configured' : 'ai_temporarily_unavailable', message: 'LokPravaah AI is temporarily unavailable. Please try again shortly, or continue with the complaint and RTI drafting tools.' }, 200)
 })

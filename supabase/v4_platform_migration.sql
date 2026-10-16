@@ -155,6 +155,7 @@ create table if not exists public.reward_settings (
   cash_redemption_enabled boolean not null default false,
   points_per_rupee numeric(12,2) not null default 100 check (points_per_rupee > 0 and points_per_rupee <= 100000000),
   min_withdrawal_points integer not null default 10000 check (min_withdrawal_points > 0),
+  enabled_payout_methods text[] not null default array['UPI']::text[],
   auto_reward_on_verified boolean not null default true,
   points_for_verified_report integer not null default 25 check (points_for_verified_report between 0 and 100000),
   auto_reward_on_resolved boolean not null default true,
@@ -163,6 +164,7 @@ create table if not exists public.reward_settings (
   updated_at timestamptz not null default now()
 );
 alter table public.reward_settings add column if not exists cash_redemption_enabled boolean not null default false;
+alter table public.reward_settings add column if not exists enabled_payout_methods text[] not null default array['UPI']::text[];
 alter table public.reward_settings add column if not exists auto_reward_on_verified boolean not null default true;
 alter table public.reward_settings add column if not exists points_for_verified_report integer not null default 25 check (points_for_verified_report between 0 and 100000);
 alter table public.reward_settings add column if not exists auto_reward_on_resolved boolean not null default true;
@@ -394,6 +396,7 @@ begin
     jsonb_build_object(
       'enabled', new.enabled,
       'cash_redemption_enabled', new.cash_redemption_enabled,
+      'enabled_payout_methods', new.enabled_payout_methods,
       'points_per_rupee', new.points_per_rupee,
       'min_withdrawal_points', new.min_withdrawal_points,
       'auto_reward_on_verified', new.auto_reward_on_verified,

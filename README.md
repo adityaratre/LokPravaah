@@ -63,9 +63,9 @@ supabase functions deploy janwatch-ai
 
 Then configure server-side Edge Function secrets in Supabase Dashboard → Edge Functions → Secrets (never in `.env` or any `VITE_*` variable):
 
-- `OPENROUTER_API_KEY` — a valid OpenRouter API key
+- `OPENROUTER_API_KEY` — a valid OpenRouter API key for the primary provider (the Gemini key can still provide backup if OpenRouter is temporarily unavailable)
 - `OPENROUTER_MODELS` — comma-separated, current model IDs that are available on your OpenRouter account; use `:free` IDs unless you intentionally enable paid models
-- Optional backup: `GEMINI_API_KEY` and `AI_ENABLE_GEMINI_BACKUP=true`, or `GROQ_API_KEY` and `AI_ENABLE_GROQ_BACKUP=true`
+- Gemini backup: `GEMINI_API_KEY` (enabled by default when the key exists; set `AI_ENABLE_GEMINI_BACKUP=false` to disable). Optional Groq backup: `GROQ_API_KEY` and `AI_ENABLE_GROQ_BACKUP=true`.
 - Optional: `LOKPRAVAAH_AI_ENABLED=true`
 
 Redeploy the function after changing code. Then test while signed in, inspect Supabase → Edge Functions → `janwatch-ai` → Logs, and test the manual fallback path too. If the CORS change was the cause, redeploying this version may fix it; if the function is not deployed or provider secrets/models are invalid, frontend code alone cannot make a live provider reply.
@@ -192,14 +192,14 @@ Evidence files are private by default. Use only test data until policies have be
 The public welcome page now includes a **Creator of this website** section for Aditya Ratre. Its portfolio link opens in a separate tab, so visitors do not get redirected away from LokPravaah.
 
 ## LokPravaah AI — 5-stage fallback
-The Civic toolkit includes a LokPravaah AI panel. Real model calls run only through the Supabase Edge Function `janwatch-ai`; provider keys must never be placed in Vite/client environment variables.
+LokPravaah AI has its own dedicated sidebar section. Real model calls run only through the Supabase Edge Function `janwatch-ai`; provider keys must never be placed in Vite/client environment variables.
 
 ### Configure and deploy
 1. In Supabase Dashboard → Edge Functions → Secrets, configure these server-side secrets:
    - `OPENROUTER_API_KEY` — required for the primary provider.
-   - `OPENROUTER_MODELS` — comma-separated model IDs in preference order. Use up to three currently available unique OpenRouter free model IDs ending in `:free`, in fallback preference order.
-   - `AI_ENABLE_GEMINI_BACKUP` — optional, defaults to `false`.
-   - `GEMINI_API_KEY` and optionally `GEMINI_MODEL` — only needed if enabling Gemini.
+   - `OPENROUTER_MODELS` — comma-separated model IDs in preference order. List up to two currently available OpenRouter model IDs in fallback preference order; the function reserves a third attempt for `openrouter/free`.
+   - `AI_ENABLE_GEMINI_BACKUP` — optional; defaults to `true` when `GEMINI_API_KEY` is configured (set `false` to disable Gemini backup).
+   - `GEMINI_API_KEY` and optionally `GEMINI_MODEL` — configure this key to activate the automatic Gemini backup; it is enabled by default when the key exists.
    - `AI_ENABLE_GROQ_BACKUP` — optional, defaults to `false`.
    - `GROQ_API_KEY` and optionally `GROQ_MODEL` — only needed if enabling Groq.
    - `LOKPRAVAAH_AI_ENABLED` — new preferred global switch (defaults to `true`); set to `false` to disable AI globally. The legacy `JANWATCH_AI_ENABLED` variable remains accepted for backward compatibility.
@@ -208,15 +208,15 @@ The Civic toolkit includes a LokPravaah AI panel. Real model calls run only thro
 2. Deploy from the project folder with Supabase CLI linked to your project:
    `supabase functions deploy janwatch-ai`
 3. Add/confirm the relevant secrets in the Supabase Dashboard. Do not commit keys or share them in chat.
-4. Run the app, sign in, open **Civic toolkit → LokPravaah AI**, and ask a test question.
+4. Run the app, sign in, open the dedicated **LokPravaah AI** sidebar section, and ask a test question.
 
 ### What the fallback does
 1. Attempts each configured OpenRouter model sequentially, respecting the configured order.
-2. Attempts Gemini only if `AI_ENABLE_GEMINI_BACKUP=true` and its key exists.
+2. Attempts Gemini after OpenRouter fails, whenever `GEMINI_API_KEY` exists (backup is enabled by default; `AI_ENABLE_GEMINI_BACKUP=false` disables it).
 3. Attempts Groq only if `AI_ENABLE_GROQ_BACKUP=true` and its key exists.
 4. If all attempts fail or are not configured, returns an explicit unavailable state and does not invent an AI answer; manual civic drafting tools remain available.
 
-The function applies a best-effort per-isolate request guard, limits prompts to 4,000 characters, caps generated output, limits each provider attempt to 12 seconds and total provider attempts to about 50 seconds, tries up to three unique OpenRouter models, checks the signed-in Supabase user, and logs provider/model/fallback level without logging prompt text or API keys. The request guard is best-effort per running isolate, not a global rate-limit service. Provider quotas, model availability, and any costs depend on your provider account and chosen models. Gemini/Groq backups are disabled by default, and paid OpenRouter models are blocked by default.
+The function applies a best-effort per-isolate request guard, limits prompts to 4,000 characters, caps generated output, limits each provider attempt to 12 seconds and total provider attempts to about 50 seconds, tries up to three unique OpenRouter models, checks the signed-in Supabase user, and logs provider/model/fallback level without logging prompt text or API keys. The request guard is best-effort per running isolate, not a global rate-limit service. Provider quotas, model availability, and any costs depend on your provider account and chosen models. Gemini backup is attempted automatically when `GEMINI_API_KEY` is configured (unless explicitly disabled); Groq backup remains opt-in. Paid OpenRouter models are blocked by default.
 
 **Deployment status:** Source code is included in this ZIP, but the function is not deployed to your Supabase project from here. AI cannot answer until you configure server-side secrets and deploy the function.
 

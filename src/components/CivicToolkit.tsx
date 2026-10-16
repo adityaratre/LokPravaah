@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ArrowDownToLine, ArrowUpRight, BookOpen, Check, CheckCircle2, ClipboardCheck, FileText, Landmark, Link2, ListChecks, ShieldAlert, Trash2, Sparkles } from 'lucide-react'
-import JanwatchAI from './JanwatchAI'
+import { ArrowDownToLine, ArrowUpRight, BookOpen, Check, CheckCircle2, ClipboardCheck, FileText, Landmark, Link2, ListChecks, ShieldAlert, Trash2 } from 'lucide-react'
 
-type ToolkitTab = 'complaint' | 'rti' | 'project' | 'channels' | 'ai'
+type ToolkitTab = 'complaint' | 'rti' | 'project' | 'channels'
 type ProfileDefaults = { city?: string | null; ward?: string | null; phone?: string | null }
 
 const PROJECT_CHECKS = [
@@ -30,7 +29,7 @@ function downloadText(filename: string, text: string) {
 
 function clean(value: string, fallback = '[Please add details]') { return value.trim() || fallback }
 
-export default function CivicToolkit({ userName, profile, aiEnabled = true }: { userName: string; profile: ProfileDefaults | null; aiEnabled?: boolean }) {
+export default function CivicToolkit({ userName, profile }: { userName: string; profile: ProfileDefaults | null }) {
   const [tab, setTab] = useState<ToolkitTab>('complaint')
   const [notice, setNotice] = useState('')
   const [busyCopy, setBusyCopy] = useState(false)
@@ -106,7 +105,6 @@ export default function CivicToolkit({ userName, profile, aiEnabled = true }: { 
     { id: 'rti', label: 'RTI request', subtitle: 'Ask for existing records', icon: BookOpen },
     { id: 'project', label: 'Project review', subtitle: 'Organise evidence carefully', icon: ListChecks },
     { id: 'channels', label: 'Official channels', subtitle: 'Continue on an official portal', icon: Landmark },
-    { id: 'ai', label: 'LokPravaah AI', subtitle: 'Help preparing clear civic drafts', icon: Sparkles },
   ]
 
   return <div className="toolkit-page">
@@ -120,7 +118,6 @@ export default function CivicToolkit({ userName, profile, aiEnabled = true }: { 
 
     {tab === 'project' && <section className="panel toolkit-panel"><div className="toolkit-panel-heading"><div className="toolkit-icon"><ListChecks size={21}/></div><div><div className="section-kicker">PUBLIC INTEREST REVIEW</div><h2>Project evidence checklist</h2><p>Organise what you have and identify which official records are still missing.</p></div></div><div className="toolkit-form-grid"><label>Project / work name<input value={project.name} onChange={e => setProject(v => ({ ...v, name: e.target.value }))} maxLength={180} placeholder="Name shown on public board / tender"/></label><label>Location<input value={project.location} onChange={e => setProject(v => ({ ...v, location: e.target.value }))} maxLength={250} placeholder="Site, ward, city"/></label><label className="toolkit-full">Responsible authority (if known)<input value={project.authority} onChange={e => setProject(v => ({ ...v, authority: e.target.value }))} maxLength={250} placeholder="Department / local body"/></label><label className="toolkit-full">Your observations and source notes<textarea value={project.observations} onChange={e => setProject(v => ({ ...v, observations: e.target.value }))} maxLength={6000} rows={4} placeholder="Write dates, what you personally observed, source links, and what remains uncertain."/></label></div><div className="checklist-heading"><div><div className="section-kicker">RECORDS TO LOOK FOR</div><h3>Mark records you have located</h3></div><span>{project.checks.length} of {PROJECT_CHECKS.length}</span></div><div className="project-checklist">{PROJECT_CHECKS.map(item => <label key={item.id} className={project.checks.includes(item.id) ? 'checked' : ''}><input type="checkbox" checked={project.checks.includes(item.id)} onChange={e => setProject(v => ({ ...v, checks: e.target.checked ? [...v.checks, item.id] : v.checks.filter(id => id !== item.id) }))}/><span className="project-check-copy"><b>{item.label}</b><small>{item.why}</small></span><Check size={15}/></label>)}</div><DraftActions onDownload={() => downloadText('LokPravaah-project-evidence-review.txt', projectReview)} onCopy={() => void copyText(projectReview)} busyCopy={busyCopy} onClear={() => { setProject({ name: '', location: '', authority: '', observations: '', checks: [] }); notify('Project review fields cleared.') }}/><div className="toolkit-disclaimer">A checked box means you marked a record as located; LokPravaah has not independently verified it. Missing information or a discrepancy is not by itself proof of fraud or wrongdoing.</div><div className="toolkit-preview"><b>Review note preview</b><pre>{projectReview}</pre></div></section>}
 
-    {tab === 'ai' && (aiEnabled ? <JanwatchAI /> : <section className="panel toolkit-panel"><div className="toolkit-panel-heading"><div className="toolkit-icon"><Sparkles size={21}/></div><div><div className="section-kicker">TEMPORARILY PAUSED</div><h2>LokPravaah AI is disabled</h2><p>An administrator has paused the AI assistant. You can still use the complaint, RTI, and project review tools.</p></div></div></section>)}
 
     {tab === 'channels' && <section className="panel toolkit-panel"><div className="toolkit-panel-heading"><div className="toolkit-icon"><Landmark size={21}/></div><div><div className="section-kicker">OFFICIAL DESTINATIONS</div><h2>Choose the right next channel</h2><p>Open the authoritative portal in a separate tab. LokPravaah does not send data to these websites.</p></div></div><div className="channel-list"><OfficialChannel title="CPGRAMS — Public Grievance Portal" scope="Central / state public service grievances; check exclusions and the relevant department before filing." url="https://pgportal.gov.in/" label="Open CPGRAMS"/><OfficialChannel title="Chhattisgarh NIDAAN 1100" scope="Urban local-body grievance services in Chhattisgarh. Check that the issue and local body fall within the portal's service scope." url="https://nidaan.cg.gov.in/website/" label="Open NIDAAN"/><OfficialChannel title="Chhattisgarh CM Helpline" scope="State grievance registration and status information. Review current eligibility and instructions on the portal." url="https://cmhelpline.cg.gov.in/Home/" label="Open CM Helpline"/><OfficialChannel title="RTI Online — Central Government authorities" scope="For Central Government public authorities. The portal explicitly says not to use it for State Government authorities, including state departments and local bodies." url="https://rtionline.gov.in/" label="Open RTI Online"/></div><div className="toolkit-disclaimer">Portal availability, eligibility, department coverage, required documents and procedure can change. Check the official site itself. Keep LokPravaah report references separate from official portal registration numbers.</div></section>}
 

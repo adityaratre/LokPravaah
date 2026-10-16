@@ -9,15 +9,15 @@
 - Branded 1200×630 social preview image; production build generates `robots.txt` and `sitemap.xml` when `VITE_SITE_URL` is configured. The build deliberately avoids inventing a production domain.
 - Existing citizen workflows: Supabase email/password and Google auth, onboarding/profile, civic reports and status updates, optional evidence storage, public report browsing, map focus, support voting and export.
 - Existing public community chat/moderation, admin feature switches and announcements, reward ledger and manual withdrawal request workflow, and editable complaint/RTI/project-review toolkit.
-- LokPravaah AI source using server-side provider keys, authentication checks, admin feature-flag check, prompt/output limits, request throttling, bounded provider timeouts, and fallback across up to three configured OpenRouter free models, optional Gemini, optional Groq, then an honest manual fallback without fabricated answers.
+- LokPravaah AI has its own sidebar workspace with General AI, Legal & Rights, Civic Assistant, and Document AI modes; it supports in-session per-mode conversation context, clear-current-chat/new-chat controls, provider attribution, a typing indicator, and reduced-motion-aware animation.
 - Preferred server settings are `LOKPRAVAAH_AI_ENABLED` and `LOKPRAVAAH_SITE_URL`; legacy `JANWATCH_AI_ENABLED` and `JANWATCH_SITE_URL` remain accepted for compatibility.
 
 ## Required operational setup / limitations
 
 - AI Edge Function is included in source but is **not deployed from this environment**. Configure server-side keys in Supabase Edge Function Secrets and deploy `supabase functions deploy janwatch-ai` before AI requests can work.
-- Actual AI responses depend on valid provider keys, current model IDs, provider quotas, and optional backup switches. Gemini and Groq backup switches are off by default, and paid OpenRouter models are blocked by default.
+- AI calls run through the authenticated Supabase Edge Function. OpenRouter is tried first (configured models, then `openrouter/free`); Gemini is automatically tried when `GEMINI_API_KEY` exists unless explicitly disabled. Groq remains opt-in. Actual responses still depend on valid server-side keys, model availability, quotas and successful function deployment; paid OpenRouter models are blocked by default.
 - Money withdrawal is a request/approval tracker only. Transfers must be made externally; there is no automatic UPI/bank payout integration.
-- Reports and complaint/RTI drafts are not automatically submitted to government departments. LokPravaah is an independent civic-tech project, not an official government service or emergency channel.
+- The Rewards repair SQL now adds/normalises `enabled_payout_methods` before selecting it and inserts a default singleton setting only when absent; the V4 schema migration also includes the field for future installations. Reports and complaint/RTI drafts are not automatically submitted to government departments. LokPravaah is an independent civic-tech project, not an official government service or emergency channel.
 - Retrieval-grounded legal answers with maintained legal citations, OCR/document analysis, official department dispatch/status sync, public-project data ingestion and independent verification are not included.
 - Production domain, real SEO indexing, OAuth redirects, database policies, evidence storage, provider API calls, rewards, and real-device responsiveness must be tested against the user's deployment.
 
@@ -29,10 +29,10 @@
 
 ## First run
 
-1. Extract `LokPravaah_Premium_MVP_FINAL.zip` and copy the existing safe `.env` containing only the public Supabase URL/key into the project root. Never put service-role, provider or payment secrets in Vite variables.
+1. Extract this LokPravaah source archive. Copy `.env.example` to `.env` and fill only the public Supabase project URL and publishable/anon key. Never put service-role, OpenRouter, Gemini or payment secrets in Vite variables.
 2. Run `npm install`, then `npm run build`, then `npm run dev`.
 3. For production SEO, set `VITE_SITE_URL` to the actual HTTPS site origin before building. Submit the generated `sitemap.xml` in Google Search Console after deploying to that same domain.
-4. Review and apply `supabase/v4_platform_migration.sql` if the platform migration has not already been applied; use `supabase/lokpravaah_branding_patch.sql` only for an existing feature-label update. Review the existing project schema/policies before modifying a live database.
+4. Review/apply the required Supabase migrations against your existing database. For the previously reported Rewards error, run `supabase/lokpravaah_rewards_repair.sql` after confirming `public.reward_settings` exists. Review the current schema and policies before modifying a live database.
 5. Configure Edge Function secrets and deploy `janwatch-ai`, then test citizen and admin flows on desktop and real mobile devices before public launch.
 
 
@@ -44,3 +44,12 @@
 - Added database-stamped chat role tags and Enter-to-send / Shift+Enter newline to community chat and AI prompt; send failures now reset composer loading state and show a retry-oriented error.
 - Expanded AI Edge Function CORS headers and made network/function deployment errors more actionable in the UI. Also aligned the `janwatch_ai` feature flag with the database check constraint so its admin toggle can persist.
 - Syntax transpilation checks pass for TS/TSX source. `npm install --no-audit --no-fund` timed out in this environment, so a full dependency-backed production build and browser/Supabase live test remain unverified. The AI function still needs deployment and valid server-side provider secrets in the user's Supabase project.
+
+
+## 16 October 2026 — General AI and Rewards compatibility repair
+
+- Added LokPravaah AI as a separate sidebar section controlled by the existing `janwatch_ai` feature flag, instead of nesting it under Civic toolkit.
+- Added General AI, Legal & Rights, Civic Assistant and Document AI mode navigation; chat history is separated by mode, the clear-chat action only clears the active mode, New Chat clears all modes, and provider attribution displays OpenRouter/Gemini when returned by the server.
+- Automatic Gemini fallback is enabled by default whenever `GEMINI_API_KEY` exists, unless explicitly disabled; the configured OpenRouter model tries and `openrouter/free` fallback are preserved.
+- Fixed the Rewards repair SQL to add `enabled_payout_methods` before selecting it, normalise old values, and preserve existing reward thresholds/toggles; updated the V4 migration for new databases.
+- TypeScript/TSX syntax transpilation passed for the app and Edge Function. Full Vite/TypeScript build, deployed Supabase migration, live provider requests and live browser behavior remain unverified because dependency installation timed out and this workspace has no access to the user's hosted project or secrets.

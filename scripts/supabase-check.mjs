@@ -27,7 +27,7 @@ const result = (name, ok, detail) => {
 
 if (!url || !anonKey) {
   console.log('FAIL  Local .env configuration — missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY')
-  console.log('Copy .env.example to .env and fill in the Supabase Project URL and publishable/anon key. Do not use a service_role/secret key here.')
+  console.log('Copy .env.example to .env and fill in the Supabase Project URL and publishable/anon key. Do not use a service_role/secret key here. AI provider keys belong only in Supabase Edge Function Secrets.')
   process.exit(1)
 }
 
