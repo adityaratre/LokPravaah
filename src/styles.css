@@ -549,3 +549,14 @@ body{overflow-x:hidden}
 .ai-provider-tag{display:inline-flex;margin-left:8px;padding:2px 6px;border:1px solid var(--border);border-radius:999px;font-size:8px;letter-spacing:0;font-weight:700;color:var(--muted);vertical-align:middle}.ai-typing-indicator{display:flex;align-items:center;gap:5px;justify-self:start;padding:10px 13px;border:1px solid var(--border);border-radius:12px;background:var(--panel2);color:var(--muted);font-size:10px;animation:ai-message-in .2s ease both}.ai-typing-indicator span{width:5px;height:5px;border-radius:50%;background:var(--mint-strong);animation:ai-typing-bounce .9s ease-in-out infinite}.ai-typing-indicator span:nth-child(2){animation-delay:.15s}.ai-typing-indicator span:nth-child(3){animation-delay:.3s}@keyframes ai-typing-bounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}@media(prefers-reduced-motion:reduce){.ai-typing-indicator span{animation:none!important}}
 
 .ai-chat-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-left:auto;flex-wrap:wrap}.ai-new-chat{margin-left:0}.ai-clear-chat{white-space:nowrap}.ai-clear-chat:hover{color:var(--text)}@media(max-width:560px){.ai-chat-actions{width:100%;margin-left:0}.ai-chat-actions .btn{flex:1;justify-content:center}}
+
+/* Configurable gift-card redemption controls */
+.ops-gift-card-admin { display: grid; gap: 14px; margin: 18px 0; padding: 16px; border: 1px solid var(--border, #d9e0e8); border-radius: 14px; }
+.ops-gift-card-admin h4 { margin: 0; }
+.ops-gift-card-list { display: grid; gap: 10px; }
+.ops-gift-card-list article { display: grid; grid-template-columns: minmax(130px, 1.5fr) repeat(2, minmax(90px, .7fr)) auto auto; gap: 10px; align-items: end; padding: 12px; border: 1px solid var(--border, #d9e0e8); border-radius: 10px; }
+.ops-gift-card-list label { display: grid; gap: 5px; font-size: .82rem; }
+.ops-gift-card-list input:not([type=checkbox]) { width: 100%; min-width: 0; }
+.gift-card-code-panel { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--border, #d9e0e8); border-radius: 10px; }
+.gift-card-code-panel code { overflow-wrap: anywhere; user-select: all; padding: 10px; border-radius: 8px; background: var(--surface-muted, #f2f4f7); }
+@media (max-width: 700px) { .ops-gift-card-list article { grid-template-columns: 1fr 1fr; } .ops-gift-card-list article > label:first-child { grid-column: 1 / -1; } }

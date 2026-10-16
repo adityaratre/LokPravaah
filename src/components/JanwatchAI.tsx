@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, CheckCircle2, LoaderCircle, Send, Sparkles, ShieldCheck, RefreshCw, MessageCircle, Scale, Landmark, FileText, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
-type AIResult = { answer?: string; ai_available?: boolean; message?: string; provider?: string }
+type AIResult = { answer?: string; ai_available?: boolean; message?: string; provider?: string; code?: string }
 type Mode = 'general' | 'legal' | 'civic' | 'documents'
 type ChatMessage = { id: string; role: 'user' | 'assistant'; text: string; mode: Mode; provider?: string }
 
@@ -22,7 +22,7 @@ async function friendlyInvokeFailure(error: unknown): Promise<string> {
     if (response.status === 401) return 'Your session may have expired. Sign in again and retry.'
     if (response.status === 404) return 'The AI assistant is not connected to this site yet. Please try again later.'
     if (response.status === 429) return 'You have sent several requests in a short time. Please wait a moment and try again.'
-    if (response.status >= 500) return UNAVAILABLE_MESSAGE
+    if (response.status >= 500) return 'LokPravaah AI server error. Supabase Edge Function configuration/deployment needs checking; open Supabase → Edge Functions → janwatch-ai → Logs.'
   }
   const message = String(value?.message ?? '').toLowerCase()
   if (message.includes('failed to fetch') || message.includes('network') || message.includes('fetch')) return 'We could not reach the AI assistant. Check your connection and try again.'
@@ -80,10 +80,7 @@ export default function JanwatchAI() {
       const assistantMessage: ChatMessage = { id: `${Date.now()}-a`, role: 'assistant', text: answerText, mode: requestMode, ...(result.provider ? { provider: result.provider } : {}) }
       setAnswer(answerText)
       setAnswerMode(requestMode)
-      setMessages((prev: ChatMessage[]): ChatMessage[] => {
-        const nextMessages: ChatMessage[] = [...prev, userMessage, assistantMessage]
-        return nextMessages.slice(-24)
-      })
+      setMessages(prev => [...prev, userMessage, assistantMessage].slice(-24))
       setPrompt('')
     } catch (e) {
       // Never expose secret names, model IDs or provider details in the public interface.

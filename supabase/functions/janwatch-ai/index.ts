@@ -8,9 +8,9 @@ const corsHeaders = {
 }
 const MAX_PROMPT_LENGTH = 4000
 const MAX_OUTPUT_TOKENS = 1200
-const TIMEOUT_MS = 12000
+const TIMEOUT_MS = 8000
 const MAX_TOTAL_AI_MS = 50000
-const MAX_OPENROUTER_MODELS = 3
+const MAX_OPENROUTER_MODELS = 2
 const hits = new Map<string, number[]>()
 
 type ProviderResult = { answer: string; provider: string; model: string; fallback_level: number }
@@ -160,17 +160,22 @@ Deno.serve(async (req) => {
 
   const geminiKey = env('GEMINI_API_KEY')
   if (Date.now() < deadlineMs && enabled('AI_ENABLE_GEMINI_BACKUP', true) && geminiKey) {
-    const model = env('GEMINI_MODEL', 'gemini-3.8-flash')
-    level++
-    try {
-      const answer = await geminiCall(model, geminiKey, prompt, task, deadlineMs)
-      console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'gemini', model, fallback_level: level, prompt_chars: prompt.length }))
-      return json({ answer, provider: 'Gemini', model, fallback_level: level, ai_available: true })
-    } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'gemini', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }
-  } else failures.push({ provider: 'gemini', model: env('GEMINI_MODEL', 'gemini-3.8-flash'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GEMINI_BACKUP', true) ? 'backup disabled by configuration' : 'GEMINI_API_KEY missing' })
+    // If an old/invalid model name was saved in Secrets, retry with a known current model.
+    const configuredGeminiModel = env('GEMINI_MODEL')
+    const geminiModels = [...new Set([configuredGeminiModel, 'gemini-2.5-flash'].filter(Boolean))]
+    for (const model of geminiModels) {
+      if (Date.now() >= deadlineMs) break
+      level++
+      try {
+        const answer = await geminiCall(model, geminiKey, prompt, task, deadlineMs)
+        console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'gemini', model, fallback_level: level, prompt_chars: prompt.length }))
+        return json({ answer, provider: 'Gemini', model, fallback_level: level, ai_available: true })
+      } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'gemini', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }
+    }
+  } else failures.push({ provider: 'gemini', model: env('GEMINI_MODEL', 'gemini-2.5-flash'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GEMINI_BACKUP', true) ? 'backup disabled by configuration' : 'GEMINI_API_KEY missing' })
 
   const groqKey = env('GROQ_API_KEY')
-  if (Date.now() < deadlineMs && enabled('AI_ENABLE_GROQ_BACKUP', false) && groqKey) {
+  if (Date.now() < deadlineMs && enabled('AI_ENABLE_GROQ_BACKUP', true) && groqKey) {
     const model = env('GROQ_MODEL', 'llama-3.3-70b-versatile')
     level++
     try {
@@ -178,10 +183,19 @@ Deno.serve(async (req) => {
       console.log(JSON.stringify({ event: 'janwatch_ai_success', user_id: authData.user.id, provider: 'groq', model, fallback_level: level, prompt_chars: prompt.length }))
       return json({ answer, provider: 'Groq', model, fallback_level: level, ai_available: true })
     } catch (error) { const failure = error as Error & { status?: number }; failures.push({ provider: 'groq', model, status: failure.status, reason: (failure.message || 'request failed').slice(0, 180) }) }
-  } else failures.push({ provider: 'groq', model: env('GROQ_MODEL', 'llama-3.3-70b-versatile'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GROQ_BACKUP', false) ? 'backup disabled by default' : 'GROQ_API_KEY missing' })
+  } else failures.push({ provider: 'groq', model: env('GROQ_MODEL', 'llama-3.3-70b-versatile'), reason: Date.now() >= deadlineMs ? 'total AI time budget exhausted' : !enabled('AI_ENABLE_GROQ_BACKUP', true) ? 'backup disabled by default' : 'GROQ_API_KEY missing' })
 
-  // Do not fabricate an answer when every real provider fails.
+  // Never fabricate a response. Return a useful, non-secret diagnostic so the UI can distinguish
+  // missing provider credentials from provider/model/rate-limit failures. Full provider errors stay in Edge Function logs.
   console.warn(JSON.stringify({ event: 'janwatch_ai_all_providers_failed', user_id: authData.user.id, failures }))
-  const missingPrimaryConfig = !routerKey && !(enabled('AI_ENABLE_GEMINI_BACKUP', true) && geminiKey) && !(enabled('AI_ENABLE_GROQ_BACKUP', false) && groqKey)
-  return json({ ai_available: false, code: missingPrimaryConfig ? 'ai_not_configured' : 'ai_temporarily_unavailable', message: 'LokPravaah AI is temporarily unavailable. Please try again shortly, or continue with the complaint and RTI drafting tools.' }, 200)
+  const hasAnyKey = Boolean(routerKey || geminiKey || groqKey)
+  const missingPrimaryConfig = !hasAnyKey
+  const failureCodes = failures.map(f => `${f.provider}${f.status ? `:${f.status}` : ''}`).join(', ')
+  return json({
+    ai_available: false,
+    code: missingPrimaryConfig ? 'ai_not_configured' : 'ai_provider_failed',
+    message: missingPrimaryConfig
+      ? 'AI is not configured on the server yet. Add OPENROUTER_API_KEY or GEMINI_API_KEY in Supabase Edge Function Secrets, then redeploy janwatch-ai.'
+      : `AI providers did not return a response (${failureCodes || 'timeout or configuration error'}). Check Supabase Edge Function logs for janwatch-ai; the issue is in provider configuration, model access, quota, or network—not your question.`,
+  }, 200)
 })
