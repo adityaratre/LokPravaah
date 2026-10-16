@@ -241,9 +241,9 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     if (!Number.isFinite(rate) || rate <= 0 || rate > 100000000 || !Number.isInteger(minimum) || minimum < 1 || !Number.isInteger(verified) || verified < 0 || verified > 100000 || !Number.isInteger(resolved) || resolved < 0 || resolved > 100000) {
       setError('Check the reward conversion rate, minimum withdrawal, and milestone points.'); return
     }
+    if (rewardSettings.cash_redemption_enabled && !rewardSettings.enabled_payout_methods.length) { setError('Enable at least one payout method before opening withdrawals.'); return }
     if (rewardSettings.cash_redemption_enabled && !window.confirm('Enable cash withdrawal requests? Confirm that your organisation has a funded rewards pool and a real, authorised manual payout process. This does not send money automatically.')) return
     setBusyId('reward-settings'); setError('')
-    if (rewardSettings.cash_redemption_enabled && !rewardSettings.enabled_payout_methods.length) { setError('Enable at least one payout method before opening withdrawals.'); return }
     const payload = { ...rewardSettings, enabled_payout_methods: rewardSettings.enabled_payout_methods, points_per_rupee: rate, min_withdrawal_points: minimum, points_for_verified_report: verified, points_for_resolved_report: resolved, updated_by: userId, updated_at: new Date().toISOString() }
     const { error: updateError } = await supabase.from('reward_settings').update(payload).eq('id', true)
     setBusyId('')
@@ -322,7 +322,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
   const allTabs = [
     ['features', 'Feature switches', CirclePower], ['alerts', 'Website alerts', BellRing], ['moderation', 'Chat moderation', MessageCircle], ['rewards', 'Rewards & withdrawals', Wallet], ['roles', 'User roles', Users], ['audit', 'Audit history', ShieldCheck], ['content', 'Content & blog', FileText],
   ] as const
-  const tabs = role === 'moderator' ? [allTabs[2]] : role === 'super_admin' ? allTabs : allTabs.filter(([key]) => key !== 'roles' && key !== 'content')
+  const tabs: ReadonlyArray<(typeof allTabs)[number]> = role === 'moderator' ? [allTabs[2]] : role === 'super_admin' ? allTabs : allTabs.filter(([key]) => key !== 'roles' && key !== 'content')
 
   return <div className="ops-admin">
     <div className="ops-subhead"><div><div className="section-kicker">PLATFORM OPERATIONS</div><h2>Control every live feature</h2><p>Manage public-facing features, alerts, rewards, moderation and website content. Withdrawal requests require an authorised administrator to complete payment.</p></div><button className="btn btn-secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={15}/> Refresh controls</button></div>

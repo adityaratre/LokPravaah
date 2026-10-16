@@ -53,3 +53,14 @@
 - Automatic Gemini fallback is enabled by default whenever `GEMINI_API_KEY` exists, unless explicitly disabled; the configured OpenRouter model tries and `openrouter/free` fallback are preserved.
 - Fixed the Rewards repair SQL to add `enabled_payout_methods` before selecting it, normalise old values, and preserve existing reward thresholds/toggles; updated the V4 migration for new databases.
 - TypeScript/TSX syntax transpilation passed for the app and Edge Function. Full Vite/TypeScript build, deployed Supabase migration, live provider requests and live browser behavior remain unverified because dependency installation timed out and this workspace has no access to the user's hosted project or secrets.
+
+## 16 October 2026 — follow-up fix pass on latest uploaded source
+
+- Fixed the CI TypeScript error in `src/components/JanwatchAI.tsx`: user and assistant messages are built as explicit `ChatMessage` objects so `role` remains the `'user' | 'assistant'` union rather than widening to `string` inside the React state updater.
+- Fixed cross-mode AI UI state: an in-flight response and its typing indicator are associated with the mode that initiated the request, so changing modes does not show the response/loader in the wrong chat. Clear/New Chat controls are disabled while a request is in flight, and validation errors clear while the user edits the prompt.
+- Fixed the Rewards payout-method fallback so a missing/empty legacy value shows UPI consistently in the selector and request validation.
+- Fixed the Admin Rewards save path so the no-payout-method validation runs before setting the busy/loading state; it no longer leaves the save button stuck when validation fails.
+- Added an explicit readonly tuple-array type for Admin Console tabs, avoiding a tuple inference issue under stricter TypeScript checking.
+- Static TS/TSX transpilation passed for all 9 source files, and targeted strict TypeScript checking passed for the modified AI, Rewards and Admin components with temporary ambient declarations. JavaScript syntax and JSON manifest checks passed.
+- A full dependency-backed production build could not be run here: `npm ci` attempted to download dependencies but the registry lookup failed with `EAI_AGAIN`. This is a sandbox network limitation, not a successful build. Re-run `npm ci && npm run build` in the repository CI/deployment environment to confirm the complete build with the actual dependency types.
+- SQL migrations, live Supabase policies, provider API calls and browser/device behavior were not executed against the hosted project. Apply migrations and deploy the Edge Function only after reviewing the target project's migration history and server-side secrets.
