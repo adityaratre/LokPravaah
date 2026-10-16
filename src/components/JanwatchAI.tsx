@@ -80,7 +80,10 @@ export default function JanwatchAI() {
       const assistantMessage: ChatMessage = { id: `${Date.now()}-a`, role: 'assistant', text: answerText, mode: requestMode, ...(result.provider ? { provider: result.provider } : {}) }
       setAnswer(answerText)
       setAnswerMode(requestMode)
-      setMessages(prev => [...prev, userMessage, assistantMessage].slice(-24))
+      setMessages((prev: ChatMessage[]): ChatMessage[] => {
+        const nextMessages: ChatMessage[] = [...prev, userMessage, assistantMessage]
+        return nextMessages.slice(-24)
+      })
       setPrompt('')
     } catch (e) {
       // Never expose secret names, model IDs or provider details in the public interface.
