@@ -1,0 +1,63 @@
+name: Deploy Janwatch AI Edge Function
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'supabase/functions/janwatch-ai/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/deploy-supabase-functions.yml'
+      - 'LokPravaah-main/supabase/functions/janwatch-ai/**'
+      - 'LokPravaah-main/supabase/config.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy janwatch-ai to Supabase
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate required secrets and locate project
+        shell: bash
+        run: |
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" ]]; then
+            echo "Missing GitHub Actions secret: SUPABASE_ACCESS_TOKEN"
+            exit 1
+          fi
+          if [[ -z "$SUPABASE_PROJECT_ID" ]]; then
+            echo "Missing GitHub Actions secret: SUPABASE_PROJECT_ID"
+            exit 1
+          fi
+
+          if [[ -f "supabase/functions/janwatch-ai/index.ts" ]]; then
+            echo "DEPLOY_DIR=." >> "$GITHUB_ENV"
+            echo "Found Supabase function in repository root."
+          elif [[ -f "LokPravaah-main/supabase/functions/janwatch-ai/index.ts" ]]; then
+            echo "DEPLOY_DIR=LokPravaah-main" >> "$GITHUB_ENV"
+            echo "Found Supabase function in LokPravaah-main/ folder."
+          else
+            echo "Cannot find supabase/functions/janwatch-ai/index.ts. Make sure the repository contains the extracted project files, not only a ZIP archive."
+            exit 1
+          fi
+
+      - name: Deploy janwatch-ai Edge Function
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE/$DEPLOY_DIR"
+          supabase functions deploy janwatch-ai --project-ref "$SUPABASE_PROJECT_ID"
