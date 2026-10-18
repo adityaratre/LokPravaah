@@ -103,6 +103,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
       return DEFAULT_FEATURES.map(f => ({ ...f, ...(byKey.get(f.flag_key) ?? {}) }))
     })
     if (!alertResult.error) setAnnouncements((alertResult.data ?? []) as Announcement[])
+    else setError(current => current || `Announcements could not be loaded${alertResult.error.code ? ` (${alertResult.error.code})` : ''}: ${alertResult.error.message}`)
     if (!messageResult.error) setMessages((messageResult.data ?? []) as MessageRow[])
     if (!flagResult.error) setFlags((flagResult.data ?? []) as MessageFlag[])
     if (!withdrawalResult.error) setWithdrawals((withdrawalResult.data ?? []) as Withdrawal[])
@@ -114,7 +115,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     if (!rewardSettingsResult.error && rewardSettingsResult.data) setRewardSettings({ ...DEFAULT_REWARD_SETTINGS, ...(rewardSettingsResult.data as RewardSettings), max_withdrawal_points: Number(rewardSettingsResult.data.max_withdrawal_points ?? 1000000), enabled_payout_methods: Array.isArray(rewardSettingsResult.data.enabled_payout_methods) && rewardSettingsResult.data.enabled_payout_methods.length ? rewardSettingsResult.data.enabled_payout_methods : ['UPI'], points_per_rupee: Number(rewardSettingsResult.data.points_per_rupee) })
     else if (rewardSettingsResult.error) setError(current => current || 'Reward settings could not be loaded. Please refresh and try again.')
     if (!postsResult.error) setPosts((postsResult.data ?? []) as SitePost[])
-    else if (role === 'super_admin') setError(current => current || 'Blog & Updates could not be loaded. Please refresh and try again.')
+    else if (role === 'super_admin') setError(current => current || `Blog & Updates could not be loaded${postsResult.error.code ? ` (${postsResult.error.code})` : ''}: ${postsResult.error.message}`)
     setLoading(false)
   }, [role])
 
@@ -167,7 +168,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     setBusyId('create-alert'); setError('')
     const { error: insertError } = await supabase.from('site_announcements').insert({ title: alertTitle.trim(), body: alertBody.trim(), severity: alertSeverity, is_active: true, created_by: userId, expires_at: alertExpiry ? new Date(alertExpiry).toISOString() : null })
     setBusyId('')
-    if (insertError) { setError('This item could not be saved. Please try again.'); return }
+    if (insertError) { setError(`Announcement save failed${insertError.code ? ` (${insertError.code})` : ''}: ${insertError.message}`); return }
     setAlertTitle(''); setAlertBody(''); setAlertExpiry(''); setAlertSeverity('info')
     notify('Site announcement published.'); await load(); onChanged()
   }
@@ -177,7 +178,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     setBusyId(alert.id); setError('')
     const { error: updateError } = await supabase.from('site_announcements').update({ is_active: !alert.is_active }).eq('id', alert.id)
     setBusyId('')
-    if (updateError) { setError('This change could not be saved. Please try again.'); return }
+    if (updateError) { setError(`Announcement update failed${updateError.code ? ` (${updateError.code})` : ''}: ${updateError.message}`); return }
     notify(alert.is_active ? 'Announcement hidden.' : 'Announcement published.')
     await load(); onChanged()
   }
@@ -223,7 +224,11 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     setBusyId('grant-reward'); setError('')
     const { error: rpcError } = await supabase.rpc('janwatch_admin_adjust_reward_points', { p_target_user_id: selectedUser, p_delta_points: delta, p_reason: grantReason.trim() })
     setBusyId('')
-    if (rpcError) { setError('This points adjustment could not be completed. Check the selected account and available balance, then try again.'); return }
+    if (rpcError) {
+      const detail = [rpcError.message, rpcError.details, rpcError.hint].filter(Boolean).join(' — ')
+      setError(`Points adjustment failed${rpcError.code ? ` (${rpcError.code})` : ''}: ${detail || 'Unknown database error. Check the Supabase reward-points migration and admin role.'}`)
+      return
+    }
     notify(`${actionWord}ed ${Number(grantPoints).toLocaleString()} points and recorded the adjustment.`); await load()
   }
 
@@ -322,7 +327,7 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
       ? await supabase.from('site_posts').update(payload).eq('id', editingPostId)
       : await supabase.from('site_posts').insert(payload)
     setBusyId('')
-    if (result.error) { setError('This post could not be saved. Please try again.'); return }
+    if (result.error) { setError(`Post save failed${result.error.code ? ` (${result.error.code})` : ''}: ${result.error.message}`); return }
     setPostTitle(''); setPostExcerpt(''); setPostBody(''); setPostLink(''); setPostType('app_update'); setPublishNow(true); setEditingPostId('')
     notify(editingPostId ? 'Post updated.' : publishNow ? 'Blog/update published on the public page.' : 'Draft saved privately.'); await load()
   }

@@ -8,7 +8,7 @@ import {
   ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
   CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, CircleAlert, UserRound, FileDown, ClipboardCheck,
-  PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower
+  PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import CivicToolkit from './components/CivicToolkit'
@@ -16,10 +16,11 @@ import JanwatchAI from './components/JanwatchAI'
 import CommunityChat from './components/CommunityChat'
 import RewardsPage from './components/RewardsPage'
 import AdminOperations from './components/AdminOperations'
+import WorkerReferralHub, { ReferralStudio } from './components/WorkerReferralHub'
 
 type DbStatus = 'submitted' | 'under_review' | 'verified' | 'in_progress' | 'resolved' | 'rejected'
 type SuggestedSeverity = 'normal' | 'high' | 'urgent'
-type ViewName = 'Overview' | 'Explore map' | 'My reports' | 'Community' | 'Public chat' | 'Rewards' | 'Civic toolkit' | 'LokPravaah AI' | 'My profile'
+type ViewName = 'Overview' | 'Explore map' | 'My reports' | 'Community' | 'Public chat' | 'Rewards' | 'Civic toolkit' | 'LokPravaah AI' | 'Worker Hub' | 'Refer & Earn' | 'My profile'
 const PRIVILEGED_PLATFORM_ROLES = ['moderator', 'admin', 'super_admin'] as const
 type Language = 'EN' | 'HI'
 type Theme = 'dark' | 'light'
@@ -69,6 +70,8 @@ const VIEW_ITEMS: { label: ViewName; icon: typeof LayoutDashboard }[] = [
   { label: 'Rewards', icon: Coins },
   { label: 'Civic toolkit', icon: ClipboardCheck },
   { label: 'LokPravaah AI', icon: Sparkles },
+  { label: 'Worker Hub', icon: HandHeart },
+  { label: 'Refer & Earn', icon: Gift },
 ]
 const DEFAULT_FEATURE_FLAGS: Record<FeatureKey, boolean> = { reporting: true, public_chat: true, rewards: true, civic_toolkit: true, evidence_upload: true, community_support: true, janwatch_ai: true }
 function getSavedSidebarCollapsed(): boolean { try { return localStorage.getItem('janwatch.sidebarCollapsed') === 'true' } catch { return false } }
@@ -145,6 +148,22 @@ function friendlyAuthError(error: unknown): string {
     return "We could not connect just now. Check your internet connection and try again."
   }
   return 'We could not complete that action. Please check your details and try again.'
+}
+
+function getCapturedReferralCode(metadataCode = ''): string {
+  try {
+    const urlCode = new URLSearchParams(window.location.search).get('ref')?.trim().toUpperCase() || ''
+    if (/^[A-Z0-9]{8}$/.test(urlCode)) {
+      try { sessionStorage.setItem('janwatch.pendingReferralCode', urlCode) } catch { /* optional session storage */ }
+      return urlCode
+    }
+  } catch { /* optional URL access */ }
+  try {
+    const savedCode = String(sessionStorage.getItem('janwatch.pendingReferralCode') || '').trim().toUpperCase()
+    if (/^[A-Z0-9]{8}$/.test(savedCode)) return savedCode
+  } catch { /* optional session storage */ }
+  const metaCode = String(metadataCode || '').trim().toUpperCase()
+  return /^[A-Z0-9]{8}$/.test(metaCode) ? metaCode : ''
 }
 
 function getSavedTheme(): Theme {
@@ -556,7 +575,7 @@ export default function App() {
           password: authPassword,
           options: {
             emailRedirectTo: `${window.location.origin}/`,
-            data: { full_name: authFullName.trim(), janwatch_onboarding_complete: false },
+            data: { full_name: authFullName.trim(), janwatch_onboarding_complete: false, referral_code: getCapturedReferralCode() || undefined },
           },
         })
         if (error) throw error
@@ -641,8 +660,15 @@ export default function App() {
       const { data: updatedAuth, error: metadataError } = await client.auth.updateUser({ data: {
         full_name: nameValue, city: cityValue, ward: wardValue, phone: phoneValue,
         account_type: typeValue, preferred_service: serviceValue, janwatch_onboarding_complete: true,
+        referral_code: getCapturedReferralCode(String(meta.referral_code || '')) || undefined,
       } })
       if (metadataError) throw metadataError
+      const capturedReferral = getCapturedReferralCode(String(meta.referral_code || ''))
+      if (capturedReferral) {
+        try { await client.rpc('janwatch_capture_referral', { p_referral_code: capturedReferral }) } catch { /* referral attribution is optional and must not block profile setup */ }
+      }
+      try { sessionStorage.removeItem('janwatch.pendingReferralCode') } catch { /* optional session storage */ }
+      try { await client.rpc('janwatch_qualify_my_referral') } catch { /* qualification is retried in the referral workspace */ }
       setProfile(data as Profile)
       setAuthFullName(nameValue); setProfileCity(cityValue); setProfileWard(wardValue); setProfilePhone(phoneValue)
       setAccountType(typeValue); setPreferredService(serviceValue)
@@ -665,7 +691,9 @@ export default function App() {
     setAuthBusy(true); setAuthError(''); setAuthMessage('')
     try {
       sessionStorage.setItem('janwatch.authFlow', authMode)
-      const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/` } })
+      const referralCode = getCapturedReferralCode()
+      const redirectTo = referralCode ? `${window.location.origin}/?ref=${encodeURIComponent(referralCode)}` : `${window.location.origin}/`
+      const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
       if (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
     } catch (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
   }
@@ -916,7 +944,7 @@ export default function App() {
   if (entryScreen !== 'workspace') return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />
   if (!user) return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />
 
-  const viewTitles: Record<ViewName, string> = { Overview: isHi ? 'अवलोकन' : 'Overview', 'Explore map': isHi ? 'नक्शा देखें' : 'Explore map', 'My reports': isHi ? 'मेरी रिपोर्ट' : 'My reports', Community: isHi ? 'सामुदायिक रिपोर्ट' : 'Community reports', 'Public chat': isHi ? 'सार्वजनिक चैट' : 'Public chat', Rewards: isHi ? 'रिवॉर्ड्स' : 'Rewards', 'Civic toolkit': isHi ? 'नागरिक सहायता टूलकिट' : 'Civic toolkit', 'LokPravaah AI': isHi ? 'लोकप्रवाह AI' : 'LokPravaah AI', 'My profile': isHi ? 'मेरी प्रोफ़ाइल' : 'My profile' }
+  const viewTitles: Record<ViewName, string> = { Overview: isHi ? 'अवलोकन' : 'Overview', 'Explore map': isHi ? 'नक्शा देखें' : 'Explore map', 'My reports': isHi ? 'मेरी रिपोर्ट' : 'My reports', Community: isHi ? 'सामुदायिक रिपोर्ट' : 'Community reports', 'Public chat': isHi ? 'सार्वजनिक चैट' : 'Public chat', Rewards: isHi ? 'रिवॉर्ड्स' : 'Rewards', 'Civic toolkit': isHi ? 'नागरिक सहायता टूलकिट' : 'Civic toolkit', 'LokPravaah AI': isHi ? 'लोकप्रवाह AI' : 'LokPravaah AI', 'Worker Hub': isHi ? 'वर्कर हब' : 'Worker Hub', 'Refer & Earn': isHi ? 'रेफर करें' : 'Refer & Earn', 'My profile': isHi ? 'मेरी प्रोफ़ाइल' : 'My profile' }
   const viewTitle = viewTitles[active]
 
   return (
@@ -979,6 +1007,8 @@ export default function App() {
             {active === 'LokPravaah AI' && (featureFlags.janwatch_ai ? <JanwatchAI /> : <FeaturePaused title="LokPravaah AI paused" body="An administrator has temporarily disabled the AI assistant. You can still use the complaint and RTI drafting tools." />)}
             {active === 'Public chat' && <CommunityChat userId={user.id} displayName={userName} currentRole={adminRole} isAdmin={hasModerationAccess} enabled={featureFlags.public_chat} notify={notify} />}
             {active === 'Rewards' && <RewardsPage userId={user.id} enabled={featureFlags.rewards} notify={notify} />}
+            {active === 'Worker Hub' && <WorkerReferralHub userId={user.id} displayName={userName} isAdmin={hasAdminAccess} city={profile?.city} ward={profile?.ward} notify={notify} />}
+            {active === 'Refer & Earn' && <ReferralStudio userMetadata={user.user_metadata as Record<string, unknown>} notify={notify} />}
             {active === 'Explore map' && <><PageHeader eyebrow="LOCATION EXPLORER" title="Explore your area." subtitle="Map pins are available for reports where a real coordinate was captured. No sample locations are shown." onReport={() => openNewReport()}><button className="btn btn-secondary" onClick={() => void useMapLocation()}><LocateFixed size={15}/> Use my location</button></PageHeader><MapPage issues={filtered} focus={mapFocus} addressQuery={mapAddressQuery} onFocus={setMapFocus} onAddressQuery={setMapAddressQuery} onOpen={openIssue} onReport={() => openNewReport()}/></>}
           </>}
         </div>
@@ -1229,6 +1259,6 @@ function AdminReportTable({ issues, updatingId, loading, error, onRefresh, onUpd
   return <div className="admin-table"><div className="table-head"><span>REPORT</span><span>LOCATION</span><span>STATUS</span><span>ACTIONS</span></div>{issues.map(issue => <div className="table-row" key={issue.id}><div><b>{issue.title}</b><small>{issue.code} · {issue.category} · {issue.suggestedSeverity} priority</small></div><span>{issue.area || 'Location not provided'}</span><span className={`status status-${statusLabel(issue.status).toLowerCase().replace(/\s+/g, '-')}`}><i/>{statusLabel(issue.status)}</span><div className="admin-report-actions"><button className="table-action" type="button" onClick={() => onOpen(issue)}><Eye size={14}/> View details</button><label className="admin-status-select"><span className="sr-only">Update status for {issue.code}</span><select value={issue.status} disabled={updatingId === issue.id} onChange={e => onUpdate(issue, e.target.value as DbStatus)}>{DB_STATUSES.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label></div></div>)}</div>
 }
 function translateView(label: ViewName): string {
-  const dict: Record<ViewName, string> = { Overview: 'अवलोकन', 'Explore map': 'नक्शा देखें', 'My reports': 'मेरी रिपोर्ट', Community: 'सामुदायिक रिपोर्ट', 'Public chat': 'सार्वजनिक चैट', Rewards: 'रिवॉर्ड्स', 'Civic toolkit': 'नागरिक सहायता टूलकिट', 'LokPravaah AI': 'लोकप्रवाह AI', 'My profile': 'मेरी प्रोफ़ाइल' }
+  const dict: Record<ViewName, string> = { Overview: 'अवलोकन', 'Explore map': 'नक्शा देखें', 'My reports': 'मेरी रिपोर्ट', Community: 'सामुदायिक रिपोर्ट', 'Public chat': 'सार्वजनिक चैट', Rewards: 'रिवॉर्ड्स', 'Civic toolkit': 'नागरिक सहायता टूलकिट', 'LokPravaah AI': 'लोकप्रवाह AI', 'Worker Hub': 'वर्कर हब', 'Refer & Earn': 'रेफर करें', 'My profile': 'मेरी प्रोफ़ाइल' }
   return dict[label]
 }
