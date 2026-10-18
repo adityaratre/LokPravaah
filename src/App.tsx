@@ -57,6 +57,8 @@ type ReportEvent = { event_type: string; note: string | null; created_at: string
 type FeatureKey = 'reporting' | 'public_chat' | 'rewards' | 'civic_toolkit' | 'evidence_upload' | 'community_support' | 'janwatch_ai'
 type SiteAnnouncement = { id: string; title: string; body: string; severity: 'info' | 'warning' | 'critical'; created_at: string; expires_at: string | null }
 
+const CANONICAL_APP_URL = 'https://lokpravaah.online'
+
 const EMPTY_STATS: Stats = { total: null, active: null, resolved: null, mine: null }
 const CATEGORIES = [
   'Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage',
@@ -576,7 +578,7 @@ export default function App() {
           email,
           password: authPassword,
           options: {
-            emailRedirectTo: `${window.location.origin}/`,
+            emailRedirectTo: `${CANONICAL_APP_URL}/`,
             data: { full_name: authFullName.trim(), janwatch_onboarding_complete: false, referral_code: getCapturedReferralCode() || undefined },
           },
         })
@@ -613,7 +615,7 @@ export default function App() {
     if (!email) { setAuthError('Enter your email address first, then select Forgot password.'); return }
     setAuthBusy(true); setAuthError(''); setAuthMessage('')
     try {
-      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/` })
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${CANONICAL_APP_URL}/` })
       if (error) throw error
       setAuthMessage('If an account uses this email, a password reset link has been sent.')
     } catch (error) { setAuthError(friendlyAuthError(error)) }
@@ -626,7 +628,7 @@ export default function App() {
     if (!email) { setAuthError('Enter your registered email address first.'); return }
     setAuthBusy(true); setAuthError(''); setAuthMessage('')
     try {
-      const { error } = await client.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/` } })
+      const { error } = await client.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${CANONICAL_APP_URL}/` } })
       if (error) throw error
       setAuthMessage('If your account needs confirmation, a new email may arrive shortly. Check your inbox and spam folder.')
     } catch (error) { setAuthError(friendlyAuthError(error)) }
@@ -694,7 +696,7 @@ export default function App() {
     try {
       sessionStorage.setItem('janwatch.authFlow', authMode)
       const referralCode = getCapturedReferralCode()
-      const redirectTo = referralCode ? `${window.location.origin}/?ref=${encodeURIComponent(referralCode)}` : `${window.location.origin}/`
+      const redirectTo = referralCode ? `${CANONICAL_APP_URL}/?ref=${encodeURIComponent(referralCode)}` : `${CANONICAL_APP_URL}/`
       const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
       if (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
     } catch (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
