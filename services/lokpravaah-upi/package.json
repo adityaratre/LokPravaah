@@ -1,0 +1,33 @@
+{
+  "name": "lokpravaah-upi-gateway",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "LokPravaah UPI checkout and payment verification service",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/checkout-portal",
+    "apps/control-center",
+    "apps/gmail-observer",
+    "apps/merchant-admin",
+    "apps/payment-api",
+    "apps/payment-help",
+    "apps/sms-observer"
+  ],
+  "scripts": {
+    "start": "node scripts/start.js",
+    "start:prod": "node scripts/start.js",
+    "dev": "node scripts/dev.js",
+    "db:setup": "node scripts/init-db.cjs",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "Commercial"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@youpi/observer-sdk",
+  "version": "1.0.0",
+  "description": "SDK for submitting payment observations to the gateway",
+  "type": "module",
+  "main": "./src/index.js",
+  "dependencies": {
+    "@youpi/common": "*"
+  }
+}

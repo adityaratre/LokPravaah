@@ -1,0 +1,13 @@
+{
+  "name": "@youpi/db",
+  "version": "1.0.0",
+  "description": "Database migrations and repository abstractions for LokPravaah payments",
+  "type": "module",
+  "main": "./src/index.js",
+  "scripts": {
+    "test": "node --test src/__tests__/**/*.test.js"
+  },
+  "dependencies": {
+    "@youpi/common": "*"
+  }
+}

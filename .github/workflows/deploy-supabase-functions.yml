@@ -1,4 +1,4 @@
-name: Deploy Janwatch AI Edge Function
+name: Deploy LokPravaah Supabase Edge Functions
 
 on:
   push:
@@ -7,9 +7,11 @@ on:
       - master
     paths:
       - 'supabase/functions/janwatch-ai/**'
+      - 'supabase/functions/donation-webhook/**'
       - 'supabase/config.toml'
       - '.github/workflows/deploy-supabase-functions.yml'
       - 'LokPravaah-main/supabase/functions/janwatch-ai/**'
+      - 'LokPravaah-main/supabase/functions/donation-webhook/**'
       - 'LokPravaah-main/supabase/config.toml'
   workflow_dispatch:
 
@@ -18,7 +20,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy janwatch-ai to Supabase
+    name: Deploy Edge Functions to Supabase
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -45,19 +47,25 @@ jobs:
             exit 1
           fi
 
-          if [[ -f "supabase/functions/janwatch-ai/index.ts" ]]; then
+          if [[ -f "supabase/config.toml" ]]; then
             echo "DEPLOY_DIR=." >> "$GITHUB_ENV"
-            echo "Found Supabase function in repository root."
-          elif [[ -f "LokPravaah-main/supabase/functions/janwatch-ai/index.ts" ]]; then
+            echo "Found Supabase configuration at repository root."
+          elif [[ -f "LokPravaah-main/supabase/config.toml" ]]; then
             echo "DEPLOY_DIR=LokPravaah-main" >> "$GITHUB_ENV"
-            echo "Found Supabase function in LokPravaah-main/ folder."
+            echo "Found Supabase configuration in LokPravaah-main/."
           else
-            echo "Cannot find supabase/functions/janwatch-ai/index.ts. Make sure the repository contains the extracted project files, not only a ZIP archive."
+            echo "Cannot find supabase/config.toml. Extract the full project into the repository root."
             exit 1
           fi
 
-      - name: Deploy janwatch-ai Edge Function
+      - name: Deploy AI function
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE/$DEPLOY_DIR"
           supabase functions deploy janwatch-ai --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy signed donation webhook
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE/$DEPLOY_DIR"
+          supabase functions deploy donation-webhook --project-ref "$SUPABASE_PROJECT_ID"
