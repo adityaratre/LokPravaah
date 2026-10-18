@@ -71,6 +71,16 @@ export class ProcessManager extends EventEmitter {
       }
     ];
 
+    // On Render's small instances, only launch optional device/email observers when configured.
+    // The core payment API, checkout portal, and merchant admin always start.
+    if (process.env.YOUPI_RENDER_MODE === 'true') {
+      this.services = this.services.filter((svc) => {
+        if (svc.id === 'gmail-observer') return process.env.ENABLE_GMAIL_OBSERVER === 'true';
+        if (svc.id === 'sms-observer') return process.env.ENABLE_SMS_OBSERVER === 'true';
+        return true;
+      });
+    }
+
     this.logs = []; // Circular buffer of log entries
     this.maxLogs = 500;
   }

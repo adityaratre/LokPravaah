@@ -20,14 +20,15 @@
     "dev": "node scripts/dev.js",
     "db:setup": "node scripts/init-db.cjs",
     "build": "tsc -b",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "start:render": "node scripts/start-render.js"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
     "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "license": "Commercial"
 }

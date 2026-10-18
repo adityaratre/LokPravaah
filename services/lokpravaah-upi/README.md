@@ -29,3 +29,8 @@ In LokPravaah's Admin → **Donations & UPI**, set the HTTPS checkout portal URL
 ## Scope cleanup
 
 The sample storefront, its showcase UI, demo media and store-specific service registration were removed from this bundle. The core gateway packages and optional notification-observer source are retained because they support checkout/payment verification. Source package/API identifiers remain compatible with the supplied SDK.
+
+
+## Render deployment
+
+For the single-ingress Render configuration, follow [`RENDER_DEPLOYMENT.md`](./RENDER_DEPLOYMENT.md). The existing local/Cloudflare tunnel workflow remains available outside Render.

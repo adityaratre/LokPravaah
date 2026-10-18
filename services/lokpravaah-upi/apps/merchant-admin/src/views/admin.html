@@ -1724,7 +1724,7 @@
           </div>
 
           <!-- Mode Segmented Switch -->
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; margin-bottom:1.5rem;">
             <div id="cardModeOnline" onclick="setSellingMode('ONLINE', true)" class="selling-mode-card mode-selected-online">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
                 <strong style="font-size:1rem; color:var(--text-heading);">🌐 Online Selling Mode</strong>
@@ -2591,6 +2591,16 @@
                 (<code>https://</code>).
               </p>
             </div>
+            <div id="btnEnvRender" onclick="setEnvMode('render')"
+              style="background:#0b1120; border:1px solid var(--border); border-radius:0.75rem; padding:1.2rem; cursor:pointer; transition:all 0.2s;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                <strong style="font-size:1rem; color:#f1f5f9;">☁️ Render Hosted</strong>
+                <span class="badge badge-success" id="badgeRenderActive" style="display:none;">ACTIVE</span>
+              </div>
+              <p style="font-size:0.8rem; color:var(--text-muted); margin:0; line-height:1.4;">
+                One public HTTPS service with path-based API, checkout, and admin routing. Cloudflare Tunnel is not required.
+              </p>
+            </div>
           </div>
 
           <!-- Cloudflare Configuration Form -->
@@ -3418,6 +3428,7 @@
 
     const API_BASE = "{{API_BASE_URL}}";
     let currentEnvMode = 'localhost';
+    let currentRuntimeUrls = {};
     let currentDomainPrefix = 'pay';
     let currentDomainTld = '';
     let currentSellingMode = 'ONLINE';
@@ -4299,7 +4310,8 @@
           setVal('settingTermsUrl', branding.termsUrl);
 
           // Canonical Cloudflare Configuration & Environment
-          currentEnvMode = branding.envMode || mData.envMode || 'localhost';
+          currentRuntimeUrls = mData.runtimeUrls || branding.runtimeUrls || {};
+          currentEnvMode = mData.envMode || branding.envMode || 'localhost';
           currentDomainPrefix = branding.deploymentPrefix || branding.domainPrefix || mData.deploymentPrefix || mData.domainPrefix || 'pay';
           currentDomainTld = branding.cloudflareDomain || branding.domainTld || mData.cloudflareDomain || mData.domainTld || '';
 
@@ -4563,6 +4575,9 @@
     function getCalculatedDomainUrl() {
       const prefix = (document.getElementById('settingDomainPrefix')?.value || currentDomainPrefix || 'pay').trim().toLowerCase();
       const tld = (document.getElementById('settingDomainTld')?.value || currentDomainTld || '').trim().toLowerCase();
+      if (currentEnvMode === 'render') {
+        return currentRuntimeUrls.checkoutUrl || window.location.origin;
+      }
       if (currentEnvMode === 'production' && tld) {
         return `https://${prefix}.${tld}`;
       }
@@ -4573,23 +4588,33 @@
       currentEnvMode = mode;
       const btnLoc = document.getElementById('btnEnvLocalhost');
       const btnProd = document.getElementById('btnEnvProduction');
+      const btnRender = document.getElementById('btnEnvRender');
       const badgeLoc = document.getElementById('badgeLocalhostActive');
       const badgeProd = document.getElementById('badgeProductionActive');
+      const badgeRender = document.getElementById('badgeRenderActive');
       const badgeDisplay = document.getElementById('envModeDisplayBadge');
       const headerBadge = document.getElementById('headerEnvBadge');
 
-      if (mode === 'production') {
-        if (btnLoc) { btnLoc.style.borderColor = 'var(--border)'; btnLoc.style.background = '#0b1120'; }
+      for (const btn of [btnLoc, btnProd, btnRender]) {
+        if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.background = '#0b1120'; }
+      }
+      if (badgeLoc) badgeLoc.style.display = 'none';
+      if (badgeProd) badgeProd.style.display = 'none';
+      if (badgeRender) badgeRender.style.display = 'none';
+
+      if (mode === 'render') {
+        if (btnRender) { btnRender.style.borderColor = '#10b981'; btnRender.style.background = '#0f172a'; }
+        if (badgeRender) badgeRender.style.display = 'inline-block';
+        if (badgeDisplay) { badgeDisplay.textContent = '☁️ RENDER MODE'; badgeDisplay.className = 'badge badge-success'; }
+        if (headerBadge) { headerBadge.textContent = '☁️ RENDER'; headerBadge.className = 'badge badge-success'; }
+      } else if (mode === 'production') {
         if (btnProd) { btnProd.style.borderColor = '#10b981'; btnProd.style.background = '#0f172a'; }
-        if (badgeLoc) badgeLoc.style.display = 'none';
         if (badgeProd) badgeProd.style.display = 'inline-block';
         if (badgeDisplay) { badgeDisplay.textContent = '🌍 PRODUCTION MODE'; badgeDisplay.className = 'badge badge-success'; }
         if (headerBadge) { headerBadge.textContent = '🌍 PRODUCTION'; headerBadge.className = 'badge badge-success'; }
       } else {
         if (btnLoc) { btnLoc.style.borderColor = '#38bdf8'; btnLoc.style.background = '#0f172a'; }
-        if (btnProd) { btnProd.style.borderColor = 'var(--border)'; btnProd.style.background = '#0b1120'; }
         if (badgeLoc) badgeLoc.style.display = 'inline-block';
-        if (badgeProd) badgeProd.style.display = 'none';
         if (badgeDisplay) { badgeDisplay.textContent = '💻 LOCALHOST MODE'; badgeDisplay.className = 'badge badge-info'; }
         if (headerBadge) { headerBadge.textContent = '💻 LOCALHOST'; headerBadge.className = 'badge badge-info'; }
       }
@@ -4613,7 +4638,34 @@
 
       const mkHost = (sub) => cleanDomain ? (sub ? `${sub}.${cleanDomain}` : cleanDomain) : '';
 
-      const routes = [
+      const runtime = currentRuntimeUrls || {};
+      const publicBase = window.location.origin;
+      const routes = currentEnvMode === 'render' ? [
+        {
+          key: 'checkout', serviceName: '1. Checkout',
+          hostname: runtime.checkoutUrl || publicBase,
+          serviceUrl: runtime.checkoutUrl || publicBase,
+          purpose: 'Customer checkout / checkout portal', optional: false
+        },
+        {
+          key: 'api', serviceName: '2. Payment API',
+          hostname: runtime.apiUrl || publicBase,
+          serviceUrl: runtime.apiUrl || publicBase,
+          purpose: 'Payment API / merchant API / SSE / observer ingestion', optional: false
+        },
+        {
+          key: 'admin', serviceName: '3. Merchant Admin',
+          hostname: runtime.adminUrl || `${publicBase}/admin`,
+          serviceUrl: runtime.adminUrl || `${publicBase}/admin`,
+          purpose: 'Merchant/Admin panel (admin token required)', optional: false
+        },
+        {
+          key: 'gmail', serviceName: '4. Gmail OAuth / Gmail Observer',
+          hostname: runtime.gmailUrl || `${publicBase}/gmail`,
+          serviceUrl: runtime.gmailUrl || `${publicBase}/gmail`,
+          purpose: 'Optional Gmail OAuth callback / observer route', optional: true
+        }
+      ] : [
         {
           key: 'checkout',
           serviceName: '1. Checkout',
@@ -4747,7 +4799,7 @@
     async function saveDomainSettings(notify = true) {
       const prefix = (document.getElementById('settingDomainPrefix')?.value || 'pay').trim().toLowerCase();
       const tld = (document.getElementById('settingDomainTld')?.value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-      const customDomain = tld ? `https://${prefix}.${tld}` : '';
+      const customDomain = currentEnvMode === 'render' ? getCalculatedDomainUrl() : (tld ? `https://${prefix}.${tld}` : '');
 
       currentDomainPrefix = prefix;
       currentDomainTld = tld;

@@ -831,7 +831,7 @@ export function registerAdminRoutes(server, ctx) {
     const supportMobiles = branding.supportMobiles || (merchant.contactPhone ? [merchant.contactPhone] : []);
     const privacyPolicyUrl = branding.privacyPolicyUrl || '';
 
-    const envMode = branding.envMode || 'localhost';
+    const envMode = String(process.env.YOUPI_MODE || '').toLowerCase() === 'render' ? 'render' : (branding.envMode || 'localhost');
     const domainPrefix = (branding.deploymentPrefix || branding.domainPrefix || 'pay').trim().toLowerCase();
     const domainTld = (branding.cloudflareDomain || branding.domainTld || '').trim().toLowerCase();
     const cloudflareDomain = domainTld;

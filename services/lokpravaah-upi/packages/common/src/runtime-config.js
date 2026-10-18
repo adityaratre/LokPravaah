@@ -87,7 +87,10 @@ export function deriveCloudflareRoutes(config = {}) {
  * }} options
  */
 export function resolveRuntimeUrls(options = {}) {
-  let mode = options.envMode;
+  // Render uses one public ingress and path-based routing. Its platform mode is
+  // authoritative so stale merchant branding cannot generate localhost checkout URLs.
+  const forcedMode = String(process.env.YOUPI_MODE || '').toLowerCase();
+  let mode = forcedMode === 'render' ? 'render' : options.envMode;
   if (!mode) {
     if (process.env.YOUPI_MODE) {
       mode = process.env.YOUPI_MODE;
@@ -102,6 +105,40 @@ export function resolveRuntimeUrls(options = {}) {
   mode = String(mode).toLowerCase();
   const domain = (options.domain || options.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const prefix = (options.prefix || options.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
+
+  // Render deploys the complete gateway behind one public ingress. Optional custom
+  // subdomains can be supplied through BASE_*_URL; same-origin paths work by default.
+  if (mode === 'render') {
+    const baseRaw = (process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, '');
+    let base = baseRaw;
+    try {
+      if (baseRaw) {
+        const parsed = new URL(baseRaw);
+        if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+        base = parsed.origin;
+      }
+    } catch {
+      throw new Error('Render runtime requires PUBLIC_BASE_URL or RENDER_EXTERNAL_URL to be a valid absolute HTTP(S) URL.');
+    }
+    const checkoutUrl = (process.env.BASE_CHECKOUT_URL || base || 'http://localhost:7000').replace(/\/+$/, '');
+    const apiUrl = (process.env.BASE_PAYMENT_API_URL || base || 'http://localhost:6100').replace(/\/+$/, '');
+    const adminUrl = (process.env.BASE_ADMIN_URL || (base ? `${base}/admin` : 'http://localhost:6001')).replace(/\/+$/, '');
+    const gmailUrl = (process.env.BASE_GMAIL_URL || (base ? `${base}/gmail` : 'http://localhost:6003')).replace(/\/+$/, '');
+    const checkoutHost = (() => { try { return new URL(checkoutUrl).host; } catch { return checkoutUrl; } })();
+    const apiHost = (() => { try { return new URL(apiUrl).host; } catch { return apiUrl; } })();
+    const adminHost = (() => { try { return new URL(adminUrl).host; } catch { return adminUrl; } })();
+    const gmailHost = (() => { try { return new URL(gmailUrl).host; } catch { return gmailUrl; } })();
+    return {
+      mode: 'render', isProduction: true, domain: (() => { try { return new URL(base).host; } catch { return 'render'; } })(), prefix: '',
+      routes: [
+        { role: 'checkout', name: 'Checkout', publicHostname: checkoutHost, publicUrl: checkoutUrl, serviceUrl: `http://localhost:${SERVICE_PORTS.CHECKOUT}`, port: SERVICE_PORTS.CHECKOUT, purpose: 'Customer checkout / checkout portal', optional: false },
+        { role: 'api', name: 'Payment API', publicHostname: apiHost, publicUrl: apiUrl, serviceUrl: `http://localhost:${SERVICE_PORTS.API}`, port: SERVICE_PORTS.API, purpose: 'Payment API / merchant API / SSE / observer ingestion', optional: false },
+        { role: 'admin', name: 'Merchant Admin', publicHostname: adminHost, publicUrl: adminUrl, serviceUrl: `http://localhost:${SERVICE_PORTS.ADMIN}`, port: SERVICE_PORTS.ADMIN, purpose: 'Merchant/Admin panel', optional: false },
+        { role: 'gmail', name: 'Gmail OAuth / Gmail Observer', publicHostname: gmailHost, publicUrl: gmailUrl, serviceUrl: `http://localhost:${SERVICE_PORTS.GMAIL}`, port: SERVICE_PORTS.GMAIL, purpose: 'Gmail OAuth callback and Gmail observation service', optional: true }
+      ],
+      checkoutUrl, checkoutHostname: checkoutHost, apiUrl, apiHostname: apiHost, adminUrl, adminHostname: adminHost, gmailUrl, gmailHostname: gmailHost
+    };
+  }
 
   if (mode === 'production') {
     if (!domain) {
