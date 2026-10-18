@@ -24,3 +24,8 @@ For a fresh Supabase project, apply `schema.sql`, `v4_platform_migration.sql`, `
 ## Validation
 
 The Cloudflare Worker JavaScript syntax and 8 local route/security-path tests pass. The full Worker bundle check relies on Wrangler in GitHub Actions. This package is not connected to your live Supabase database or Cloudflare account; the SQL migration has not been executed on your database and real bank payment verification has not been end-to-end tested.
+
+
+### Private UPI device pairing
+
+The standalone gateway `/admin` page is intentionally disabled (HTTP 404). Super administrators generate the receiving-device pairing QR inside the website: **Admin Console → Platform controls → Donations & UPI → UPI observer pairing**. The Worker verifies the Supabase access token through Supabase Auth and checks `user_roles.role = super_admin` server-side. Do not add an `ADMIN_API_TOKEN` browser setting.

@@ -1,106 +1,63 @@
-# LokPravaah Cloudflare UPI Gateway — Setup Guide
+# LokPravaah Cloudflare UPI Gateway Setup
 
-## What this build does
+## 1. Deploy code
 
-This adds a Cloudflare Worker replacement for the **LokPravaah donation checkout path**. It keeps the existing donation SDK endpoint contract (`/youpi.js`, `POST /api/v1/payments`, `/checkout/:id`, and payment status polling), stores gateway state in the same Supabase PostgreSQL project, and confirms success only after a signed notification from the receiving-account Android observer matches the exact amount and active payment session.
+Merge the supplied project changes into the `main` branch using GitHub Desktop. The website stays on Cloudflare Pages; the gateway Worker name in `cloudflare-upi-worker/wrangler.jsonc` is `lokpravaah-upi-gateway`.
 
-This is **not a complete line-by-line port of every YouPI PG service**. Legacy self-hosted Gmail/Chrome automation, WhatsApp, queue dashboards and unrelated payment features are not all migrated. This is a focused donation gateway, not an acquiring bank or regulated payment aggregator. A UPI QR is not proof of payment.
+In GitHub repository settings, add the existing Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Run the `Deploy LokPravaah Cloudflare UPI Worker` workflow and make sure both tests and deployment finish successfully.
 
-## A. Add the code to GitHub
+**Domain rule:** use path-specific Worker routes on `lokpravaah.online`. Do not attach the Worker as a Custom Domain for the whole root hostname. The route `/admin*` is deliberately routed to a handler that returns 404; the website's existing Admin Console is the only place that exposes pairing controls.
 
-1. Download/extract the patch ZIP and copy the included files into the root of your existing `LokPravaah` Git repository, keeping `.git` untouched.
-2. Commit and push to `main` using GitHub Desktop.
-3. The included GitHub Action tests and deploys the Worker when `cloudflare-upi-worker/**` changes.
+## 2. Set Worker secrets and variables
 
-## B. Set up Cloudflare Worker deployment (no card-dependent VPS)
-
-1. In Cloudflare Dashboard, open **My Profile → API Tokens → Create Token**. Create a token with only the permissions required to edit Workers and deploy Workers Scripts for your account; keep it secret.
-2. Find your Cloudflare **Account ID** in the account overview.
-3. In GitHub repository settings, open **Settings → Secrets and variables → Actions → New repository secret**. Add:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
-4. In Cloudflare, open **Workers & Pages** and confirm Workers on your account are available. Push the Worker files to `main` or use Actions → `Deploy LokPravaah Cloudflare UPI Worker` → Run workflow. Open the GitHub Actions run and confirm its tests and deploy step pass.
-5. Open the new Worker settings → **Domains & Routes** and add the custom domain `pay.lokpravaah.online`. The `lokpravaah.online` zone must already be active in Cloudflare DNS. If you use the generated `*.workers.dev` URL instead, update `PUBLIC_BASE_URL` below and the website environment variables to that exact URL.
-
-## C. Apply SQL in Supabase
-
-Use the **same Supabase project as LokPravaah**.
-
-1. If the donation migration has not already been applied, run `supabase/lokpravaah_donations.sql` first. Do not rerun unrelated baseline migrations on an existing live database.
-2. Run the entire file `supabase/lokpravaah_cloudflare_gateway.sql` in Supabase → SQL Editor. It creates private gateway tables and RPC functions, enabling only the server-side service role to access them.
-3. Confirm `public.donation_intents` and the `upi_gateway_*` tables exist. If SQL errors occur, stop and fix them before enabling checkout.
-
-## D. Configure Cloudflare Worker secrets and variables
-
-In the Worker → Settings → Variables and Secrets, add these settings. Add items marked **Secret** using the secret type, not plain text where possible.
+Cloudflare Dashboard → Workers & Pages → `lokpravaah-upi-gateway` → Settings → Variables and Secrets:
 
 | Name | Type | Value |
 |---|---|---|
 | `SUPABASE_URL` | Variable | `https://YOUR_PROJECT_REF.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service-role key from this Supabase project; never expose it to the browser |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service-role key from the same Supabase project |
 | `LOKPRAVAAH_DONATION_WEBHOOK_URL` | Variable | `https://YOUR_PROJECT_REF.supabase.co/functions/v1/donation-webhook` |
-| `LOKPRAVAAH_DONATION_WEBHOOK_SECRET` | Secret | A new random secret, used identically in Supabase Edge Function Secrets |
-| `ADMIN_API_TOKEN` | Secret | A separate strong random token for the private `/admin` console |
-| `UPI_VPA` | Variable | Your genuine receiving UPI ID, e.g. `name@bank` (example only; replace it) |
-| `UPI_PAYEE_NAME` | Variable | Actual payee/account name that should display in the UPI app |
+| `LOKPRAVAAH_DONATION_WEBHOOK_SECRET` | Secret | A strong random value; match the Supabase Edge Function secret |
+| `UPI_VPA` | Variable | The real receiving UPI ID |
+| `UPI_PAYEE_NAME` | Variable | The real receiving account/payee name |
 | `LOKPRAVAAH_FRONTEND_ORIGIN` | Variable | `https://lokpravaah.online` |
 | `MERCHANT_ID` | Variable | `00000000-0000-0000-0000-000000000001` |
-| `PUBLIC_BASE_URL` | Variable | `https://pay.lokpravaah.online` |
+| `PUBLIC_BASE_URL` | Variable | `https://lokpravaah.online` |
 | `PAYMENT_SESSION_MINUTES` | Variable | `15` |
 
-Do not use `merchant@upi`, a fake UPI ID, or a sample payee name in production. Do not put any secret in a `VITE_` variable or in Git. Use independent random values and do not reuse secrets that may have been committed or exposed previously.
+There is no `ADMIN_API_TOKEN` requirement. Device-pairing requests use the website's Supabase session; the Worker validates the session with Supabase Auth and authorizes only a server-verified `super_admin` role. Never put the service-role key or webhook secret in browser code.
 
-## E. Configure the Supabase donation webhook
+## 3. Apply Supabase SQL
 
-In Supabase → Edge Functions → Secrets:
+Use the same Supabase project as the LokPravaah website. If not previously applied, run `supabase/lokpravaah_donations.sql`, then run `supabase/lokpravaah_cloudflare_gateway.sql` in Supabase → SQL Editor. Resolve any SQL error before enabling real payments.
 
-- Set `DONATION_WEBHOOK_SECRET` to the **exact same value** as Worker `LOKPRAVAAH_DONATION_WEBHOOK_SECRET`.
-- Confirm `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured for the Edge Function.
-- Deploy `supabase/functions/donation-webhook/index.ts` as `donation-webhook` with JWT verification disabled; the function authenticates callbacks by HMAC signature.
+In Supabase → Edge Functions → Secrets, set `DONATION_WEBHOOK_SECRET` to exactly the same value as Cloudflare's `LOKPRAVAAH_DONATION_WEBHOOK_SECRET`. Deploy `supabase/functions/donation-webhook/index.ts`; it must validate the HMAC callback, exact order ID, amount, and currency before a donation can be marked succeeded.
 
-The Worker sends the signed event only after the receiving-account observer submits a notification with a valid device signature. The webhook checks the exact donation order ID, amount and currency before marking a row succeeded.
+## 4. Configure Cloudflare Pages
 
-## F. Configure Cloudflare Pages (main site)
+Cloudflare Pages → LokPravaah project → Settings → Variables and Secrets. Set these **production build** variables, then trigger a fresh deployment:
 
-In Cloudflare Pages → LokPravaah project → Settings → Variables and Secrets, set these **production build variables**, then run a fresh deployment:
-
-- `VITE_DONATION_GATEWAY_PORTAL_URL=https://pay.lokpravaah.online`
-- `VITE_DONATION_GATEWAY_API_URL=https://pay.lokpravaah.online`
+- `VITE_DONATION_GATEWAY_PORTAL_URL=https://lokpravaah.online`
+- `VITE_DONATION_GATEWAY_API_URL=https://lokpravaah.online`
 - `VITE_DONATION_MERCHANT_KEY=00000000-0000-0000-0000-000000000001`
 
-The merchant identifier is public and may be in browser config. The service-role key, `ADMIN_API_TOKEN` and webhook secret must never be public.
+Only the merchant ID is public. Do not expose service-role or webhook secrets.
 
-## G. Pair the receiving-account Android phone
+## 5. Pair the receiving Android phone from the existing website console
 
-1. Open `https://pay.lokpravaah.online/admin`.
-2. Enter the private Worker `ADMIN_API_TOKEN` and generate the one-time pairing QR.
-3. Download/install the included `youpi-sms-gateway.apk` (or use the matching Android observer app you have from the source), then scan the QR in that app.
-4. On the receiving-account phone, enable notification access (and SMS permission only if your chosen mode needs it), allow background activity, and exclude the app from battery optimisation where Android allows it.
-5. The Android phone must receive the genuine credit notification for the configured UPI receiving account. If the phone is offline, notification permission is disabled, or the bank app/SMS does not include an amount and unique transaction reference, auto-verification may not occur.
+1. Sign in to `https://lokpravaah.online` using the super-administrator account.
+2. Open **Admin Console → Platform controls → Donations & UPI → UPI observer pairing**.
+3. Click **Generate pairing QR**. The Worker validates the live Supabase session and checks the role on the server.
+4. Download the Android observer app from the same panel, install it on the phone that receives the bank-credit notifications, and scan the QR. The token expires in 10 minutes and can be used once.
+5. Enable the app's required notification/SMS permissions, background activity and battery settings as applicable. Keep the receiving phone online.
 
-## H. Test before collecting donations
+The standalone `https://lokpravaah.online/admin` page is intentionally disabled and returns 404. Do not add a public admin token or create a separate gateway admin login.
 
-1. Open `https://pay.lokpravaah.online/health`. It should return `status: UP` and all checks true. This only tests configuration and database reachability; it does not prove UPI works.
-2. Use the smallest practical amount and confirm checkout shows the exact expected receiving name and amount.
-3. Complete a real controlled payment only after the correct receiving UPI ID is configured. Confirm the receiver's Android notification is forwarded with a valid signature and unique bank reference.
-4. Confirm the Edge Function logs show a successful signed webhook, `donation_intents.status` becomes `succeeded`, and only then public totals update.
-5. Test wrong signature, amount mismatch, cancellation, timeout, queue and late notifications. If status does not match the bank record, do not ask the payer to pay again until reconciled.
+## 6. Test safely
 
-## Free-plan notes and limitations
+- `https://lokpravaah.online/health` reports whether the server configuration and Supabase table can be reached. It is not proof of a working payment.
+- Run `npm test` in `cloudflare-upi-worker` and check the GitHub Action deployment logs.
+- Complete a small controlled payment only after the genuine receiving UPI ID and payee name are configured. Confirm the receiving phone submits a signed notification and the `donation-webhook` validates exact order/amount before public totals change.
+- Test wrong signatures, amount mismatches, cancellations, timeouts, and late notifications. Never mark payment successful from a browser callback or screenshot alone.
 
-- Cloudflare Workers Free has request/day and CPU limits; this code generates QR images in the browser to avoid doing heavy QR work inside the Worker.
-- Supabase Free has a 500 MB database quota and can pause a project after inactivity. The free plan includes no automatic database backups. Keep a backup/export and periodically verify the project remains active.
-- Free hosting is useful for a prototype/small-volume pilot, but it is not a payment availability guarantee. Do not advertise dependable real-money donations until end-to-end tests, backups, monitoring and applicable Indian legal/tax/payment rules have been reviewed.
-- This direct-to-UPI observer design is not equivalent to a bank/regulated payment aggregator and does not offer settlement guarantees. If the source notification lacks a unique reference or the receiver phone misses the event, keep the donation unconfirmed and reconcile it manually.
-
-## Local smoke tests
-
-Inside `cloudflare-upi-worker`, run:
-
-```bash
-npm install
-npm test
-npm run check
-```
-
-This source was checked with Node.js syntax checks and its local route tests. The Worker has **not** been deployed in the user's Cloudflare account, the SQL has **not** been run against the live Supabase project, and no real end-to-end bank payment was performed by preparing this patch.
+Local tests do not deploy code to the user's Cloudflare account, run SQL against their live Supabase project, or verify a real bank transaction. Those actions still need to be completed and tested in the respective accounts.

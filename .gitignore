@@ -8,3 +8,10 @@ dist/
 Thumbs.db
 .vite/
 .supabase/
+
+# Never commit self-hosted gateway runtime secrets or local payment databases
+services/lokpravaah-upi/data/.secrets/
+services/lokpravaah-upi/data/*.sqlite
+services/lokpravaah-upi/data/*.sqlite-*
+cloudflare-upi-worker/.dev.vars
+cloudflare-upi-worker/.env

@@ -86,13 +86,9 @@ const DEFAULT_SETTINGS: DonationSettings = {
   gateway_api_url: null,
   gateway_merchant_key: null,
 }
-const DEFAULT_GATEWAY_URL = 'https://lokpravaah-upi.onrender.com'
-const DEFAULT_MERCHANT_KEY = '00000000-0000-0000-0000-000000000001'
-// Public, non-secret gateway defaults avoid a blank checkout when Cloudflare build vars are absent.
-// Payment acceptance still remains controlled by the database setting and the gateway's real merchant configuration.
-const envGatewayPortalUrl = ((import.meta.env.VITE_DONATION_GATEWAY_PORTAL_URL as string | undefined)?.trim() || DEFAULT_GATEWAY_URL).replace(/\/+$/, '')
-const envGatewayApiUrl = ((import.meta.env.VITE_DONATION_GATEWAY_API_URL as string | undefined)?.trim() || DEFAULT_GATEWAY_URL).replace(/\/+$/, '')
-const envMerchantKey = (import.meta.env.VITE_DONATION_MERCHANT_KEY as string | undefined)?.trim() || DEFAULT_MERCHANT_KEY
+const envGatewayPortalUrl = (import.meta.env.VITE_DONATION_GATEWAY_PORTAL_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
+const envGatewayApiUrl = (import.meta.env.VITE_DONATION_GATEWAY_API_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
+const envMerchantKey = (import.meta.env.VITE_DONATION_MERCHANT_KEY as string | undefined)?.trim() ?? ''
 
 function makeOrderId(): string {
   const random = typeof window !== 'undefined' && window.crypto?.randomUUID
@@ -292,7 +288,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           <button className="donation-submit" type="submit" disabled={!paymentReady || !amountValid || launching}>{launching ? <><LoaderCircle size={17} className="donation-spin"/> Preparing checkout…</> : <><Heart size={17}/> Donate {amountValid && parsedAmount !== null ? money(parsedAmount) : 'now'} <ArrowRight size={16}/></>}</button>
           {!isSupabaseConfigured && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Supabase is not configured. Donation history and verified totals are unavailable until the database is enabled.</span></div>}
           {gatewayState === 'not-configured' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The donation page is live, but UPI checkout must be connected in hosting settings before payments can be accepted.</span></div>}
-          {!settings.payment_gateway_enabled && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI checkout is connected, but payments are safely paused. Add and verify the real receiving UPI ID in the gateway, configure the signed Supabase webhook, then enable payments in the donation settings.</span></div>}
           {gatewayState === 'loading' && <div className="donation-gateway-state"><LoaderCircle size={15} className="donation-spin"/> Connecting to UPI checkout…</div>}
           {gatewayState === 'error' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The UPI checkout SDK could not be loaded. Check the gateway service URL and its availability.</span></div>}
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}

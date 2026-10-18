@@ -10,10 +10,9 @@ const defaultEnv = {
   LOKPRAVAAH_DONATION_WEBHOOK_URL: 'https://demo.supabase.co/functions/v1/donation-webhook',
   LOKPRAVAAH_FRONTEND_ORIGIN: 'https://lokpravaah.online',
   MERCHANT_ID: '00000000-0000-0000-0000-000000000001',
-  PUBLIC_BASE_URL: 'https://pay.lokpravaah.online',
+  PUBLIC_BASE_URL: 'https://lokpravaah.online',
   UPI_VPA: 'verified.test@upi',
   UPI_PAYEE_NAME: 'Verified Test Account',
-  ADMIN_API_TOKEN: 'test-admin-token',
   ASSETS: { fetch: async () => new Response('SDK', { headers: { 'Content-Type': 'application/javascript' } }) },
 };
 
@@ -32,7 +31,7 @@ const sampleDbPayment = {
 };
 
 function req(path, init = {}) {
-  return new Request(`https://pay.lokpravaah.online${path}`, {
+  return new Request(`https://lokpravaah.online${path}`, {
     ...init,
     headers: { Origin: 'https://lokpravaah.online', ...(init.headers || {}) },
   });
@@ -57,6 +56,75 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const body = await response.json();
   assert.equal(body.status, 'UP');
   assert.equal(body.checks.database, true);
+});
+
+test('standalone /admin page is not exposed', async () => {
+  const response = await worker.fetch(req('/admin'), defaultEnv, {});
+  assert.equal(response.status, 404);
+  const body = await response.json();
+  assert.equal(body.error, 'Not found');
+});
+
+test('pairing API rejects unauthenticated requests and requires POST', async () => {
+  const missingToken = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', { method: 'POST' }), defaultEnv, {});
+  assert.equal(missingToken.status, 401);
+  const wrongMethod = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', { method: 'GET' }), defaultEnv, {});
+  assert.equal(wrongMethod.status, 405);
+});
+
+test('pairing API verifies the signed-in Supabase user and super_admin role', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const authToken = 'signed-in-test-session';
+  let sawAuthUser = false;
+  let sawRoleCheck = false;
+  let sawTokenInsert = false;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/auth/v1/user')) {
+      sawAuthUser = true;
+      assert.equal(new Headers(init.headers).get('Authorization'), `Bearer ${authToken}`);
+      return new Response(JSON.stringify({ id: 'super-admin-user-id' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/rest/v1/user_roles') && url.search === '?user_id=eq.super-admin-user-id&select=role&limit=20') {
+      sawRoleCheck = true;
+      return new Response(JSON.stringify([{ role: 'super_admin' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/rest/v1/upi_gateway_pairing_tokens')) {
+      sawTokenInsert = true;
+      assert.equal(init.method, 'POST');
+      return new Response(null, { status: 201 });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}${url.search}`);
+  };
+  const response = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', {
+    method: 'POST', headers: { Authorization: `Bearer ${authToken}` },
+  }), defaultEnv, {});
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(sawAuthUser, true);
+  assert.equal(sawRoleCheck, true);
+  assert.equal(sawTokenInsert, true);
+  assert.ok(result.pairingPayload.includes('YOUPI_SMS_GATEWAY_PAIR'));
+  assert.ok(result.expiresAt > Date.now());
+});
+
+test('pairing API denies a signed-in non-super-admin', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let insertedPairing = false;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/auth/v1/user')) return new Response(JSON.stringify({ id: 'regular-user-id' }), { status: 200 });
+    if (url.pathname.endsWith('/rest/v1/user_roles')) return new Response(JSON.stringify([{ role: 'admin' }]), { status: 200 });
+    if (url.pathname.endsWith('/rest/v1/upi_gateway_pairing_tokens')) insertedPairing = true;
+    throw new Error(`Unexpected test fetch: ${url.pathname}${url.search}`);
+  };
+  const response = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', {
+    method: 'POST', headers: { Authorization: 'Bearer regular-user-session' },
+  }), defaultEnv, {});
+  assert.equal(response.status, 403);
+  assert.equal(insertedPairing, false);
 });
 
 test('payment creation requires the expected public merchant identifier', async t => {
@@ -96,7 +164,7 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(sawRpc, true);
   assert.equal(body.paymentId, sampleDbPayment.id);
   assert.equal(body.status, 'ACTIVE');
-  assert.equal(body.checkoutUrl, `https://pay.lokpravaah.online/checkout/${sampleDbPayment.id}`);
+  assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
   assert.match(body.upiUri, /^upi:\/\/pay\?/);
 });
 

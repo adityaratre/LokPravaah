@@ -62,9 +62,6 @@ function paiseFromAmount(amount) {
   return Number.isSafeInteger(value) && value >= 100 && value <= 10_000_000 ? value : null;
 }
 function rupees(paise) { return (Number(paise) / 100).toFixed(2); }
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-}
 function hex(bytes) { return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join(''); }
 async function sha256Hex(value) {
   return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
@@ -212,14 +209,33 @@ function pairingToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
-async function adminAuthorized(request, env) {
-  const secret = (env.ADMIN_API_TOKEN || '').trim();
+async function authorizeConsoleSuperAdmin(request, env) {
   const header = request.headers.get('Authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-  return Boolean(secret && token && constantTimeEqual(secret, token));
+  const accessToken = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!accessToken || accessToken.length > 8192) return { authorized: false, status: 401 };
+
+  // Verify the signed-in Supabase session with Auth; never trust a role sent by the browser.
+  const { url, key } = supabaseConfig(env);
+  const userResponse = await fetch(`${url}/auth/v1/user`, {
+    method: 'GET',
+    headers: { apikey: key, Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+  });
+  if (!userResponse.ok) return { authorized: false, status: 401 };
+  let authUser;
+  try { authUser = await userResponse.json(); } catch { return { authorized: false, status: 401 }; }
+  if (!authUser?.id || typeof authUser.id !== 'string') return { authorized: false, status: 401 };
+
+  // Read trusted roles server-side with the service-role key. Only super_admin may pair devices.
+  const rows = await sbRequest(env, `user_roles?user_id=eq.${encodeURIComponent(authUser.id)}&select=role&limit=20`);
+  const authorized = Array.isArray(rows) && rows.some(row => row?.role === 'super_admin');
+  return { authorized, status: authorized ? 200 : 403 };
 }
 async function makePairing(request, env) {
-  if (!(await adminAuthorized(request, env))) return { response: json(request, env, { error: 'Unauthorized' }, 401) };
+  const authorization = await authorizeConsoleSuperAdmin(request, env);
+  if (!authorization.authorized) {
+    const status = authorization.status === 403 ? 403 : 401;
+    return { response: json(request, env, { error: status === 403 ? 'Super administrator access required' : 'Sign in again to continue' }, status) };
+  }
   const now = Date.now();
   const token = pairingToken();
   const tokenHash = await sha256Hex(token);
@@ -240,13 +256,6 @@ async function makePairing(request, env) {
   };
   const payloadText = JSON.stringify(payload);
   return { response: json(request, env, { expiresAt, pairingPayload: payloadText }) };
-}
-function adminHtml(request, env) {
-  const origin = escapeHtml(originFor(request, env));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LokPravaah UPI Admin</title><style>
-  :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#09111f;color:#eef4ff;font:16px/1.5 system-ui,sans-serif;padding:24px}.card{max-width:720px;margin:7vh auto;padding:28px;border:1px solid #27364b;border-radius:24px;background:#101c2e;box-shadow:0 20px 70px #0005}h1{margin:0 0 8px;font-size:clamp(26px,5vw,38px)}p{color:#aebdd1}label{display:block;margin:18px 0 8px;font-weight:650}input{width:100%;padding:13px 14px;border-radius:10px;border:1px solid #40506a;background:#081321;color:#fff;font:inherit}button{cursor:pointer;margin-top:14px;padding:13px 18px;border:0;border-radius:11px;background:#55d8a1;color:#05261b;font-weight:750;font:inherit}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.qr{display:none;margin-top:20px;padding:20px;background:#fff;border-radius:16px;text-align:center;color:#123}.qr img{width:min(100%,300px);height:auto}.notice{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:#ffdc9b}.download{display:inline-block;color:#9be7c8;font-weight:700;margin:10px 0}@media(max-width:520px){body{padding:12px}.card{padding:18px}.row{grid-template-columns:1fr}}</style></head><body><main class="card"><h1>LokPravaah UPI Gateway</h1><p>Private device-pairing console. Pair only the Android phone that receives bank-credit notifications for your configured UPI account.</p><p><a class="download" href="/youpi-sms-gateway.apk" download>Download Android SMS / Notification Observer APK</a></p><label for="token">Admin API token</label><input id="token" type="password" autocomplete="off" placeholder="Paste ADMIN_API_TOKEN"><button id="generate">Generate 10-minute pairing QR</button><div id="status" class="notice" role="status"></div><div id="qr" class="qr"><img id="qrimg" alt="Android observer pairing QR"><p id="expiry"></p><p>Open YOUPI SMS Gateway on the Android phone → Scan Pairing QR.</p></div><p class="notice">This page never saves the admin token. Keep the token private. Pairing QR expires after 10 minutes and can be used once.</p></main><script>
-  const token=document.getElementById('token'),button=document.getElementById('generate'),status=document.getElementById('status'),qr=document.getElementById('qr'),img=document.getElementById('qrimg'),expiry=document.getElementById('expiry');button.addEventListener('click',async()=>{button.disabled=true;status.textContent='Generating a short-lived pairing token…';qr.style.display='none';try{const r=await fetch('/api/v1/admin/sms-gateway/pair-qr',{method:'GET',headers:{Authorization:'Bearer '+token.value.trim()}});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create pairing QR');const qrModule=await import('/qr.js');const svg=qrModule.generateQrSvg(d.pairingPayload,300);img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);expiry.textContent='Expires '+new Date(d.expiresAt).toLocaleTimeString();qr.style.display='block';status.textContent='Pairing QR ready. Scan it now on your receiving-account Android device.';}catch(e){status.textContent=String(e.message||e); }finally{button.disabled=false;}});
-</script></body></html>`;
 }
 function checkoutHtml(paymentId, env) {
   const safeId = JSON.stringify(paymentId).replace(/</g, '\\u003c');
@@ -340,7 +349,7 @@ async function handler(request, env) {
       supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
       receivingVpa: Boolean((env.UPI_VPA || '').trim() && (env.UPI_PAYEE_NAME || '').trim()),
       webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim() && (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim()),
-      admin: Boolean((env.ADMIN_API_TOKEN || '').trim()),
+      admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
     };
     let database = false;
     try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; } catch {}
@@ -348,13 +357,13 @@ async function handler(request, env) {
     return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database } }, ready ? 200 : 503);
   }
 
-  if (request.method === 'GET' && path === '/youpi.js') return respondAsset(request, env);
-  if (request.method === 'GET' && (path === '/admin' || path === '/admin/')) {
-    return text(request, env, adminHtml(request, env), 200, 'text/html; charset=utf-8', {
-      'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'`,
-    });
+  // The standalone pairing page has been removed. Keep this path dark even on workers.dev.
+  if (path.startsWith('/admin')) {
+    return json(request, env, { error: 'Not found' }, 404);
   }
-  if ((request.method === 'GET' || request.method === 'POST') && path === '/api/v1/admin/sms-gateway/pair-qr') {
+  if (request.method === 'GET' && path === '/youpi.js') return respondAsset(request, env);
+  if (path === '/api/v1/admin/sms-gateway/pair-qr') {
+    if (request.method !== 'POST') return json(request, env, { error: 'Method not allowed' }, 405, { Allow: 'POST' });
     const made = await makePairing(request, env);
     return made.response;
   }
