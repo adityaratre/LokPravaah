@@ -1,5 +1,7 @@
 # LokPravaah Donations — Integration & Launch Guide
 
+> **Free Cloudflare deployment:** The Node.js/SQLite hosting instructions below describe the legacy gateway. For the card-free Cloudflare Workers + Supabase deployment prepared for LokPravaah, follow [`CLOUDFLARE_UPI_SETUP.md`](./CLOUDFLARE_UPI_SETUP.md) instead. Do not run both gateways live against the same donation setup until one is selected and end-to-end tested.
+
 ## Where is the page?
 
 The donation page is part of the main React application. Visitors can open **Donate** from the top navigation or **Support the project** on the home hero. `/#donate` also works on static hosting. `/donate` is recognized by the app when the host is configured with an SPA fallback to `index.html`.

@@ -6,7 +6,7 @@ A React + Vite civic reporting platform backed by Supabase, with worker/referral
 
 Open **Donate** in the public navigation or click **Support the project** on the homepage. The donation page supports custom rupee amounts, privacy-conscious donor participation, a live-refreshing verified leaderboard/recent feed, campaign progress, and admin-managed presentation settings. Payment totals only count signed server-webhook confirmations.
 
-Read [`DONATIONS_SETUP.md`](DONATIONS_SETUP.md) before accepting public payments. The Node UPI payment service lives at `services/lokpravaah-upi/`; it must be deployed separately from the static Vite frontend and configured with a real receiving UPI account, an allowlisted site origin and a signed Supabase webhook.
+Read [`DONATIONS_SETUP.md`](DONATIONS_SETUP.md) before accepting public payments. For the no-card Cloudflare Workers + Supabase donation gateway, follow [`CLOUDFLARE_UPI_SETUP.md`](CLOUDFLARE_UPI_SETUP.md). This is a donation-focused replacement for the public checkout path; it does not port every legacy YouPI PG service. Deploy one gateway path at a time, set a real receiving UPI account, pair the receiving-account Android observer, and verify the signed Supabase webhook before enabling real donations.
 
 ## Existing Supabase setup
 
@@ -23,4 +23,4 @@ For a fresh Supabase project, apply `schema.sql`, `v4_platform_migration.sql`, `
 
 ## Validation
 
-Source syntax, gateway JavaScript parsing and package/archive checks are run for this release. This package is not connected to your live Supabase database, real receiving UPI account, Cloudflare routes or payment provider, so live checkout and a dependency-backed production build must still be verified in the target environment.
+The Cloudflare Worker JavaScript syntax and 8 local route/security-path tests pass. The full Worker bundle check relies on Wrangler in GitHub Actions. This package is not connected to your live Supabase database or Cloudflare account; the SQL migration has not been executed on your database and real bank payment verification has not been end-to-end tested.
