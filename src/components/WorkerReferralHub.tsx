@@ -104,6 +104,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
   const [taskActionId, setTaskActionId] = useState('')
   const [completionNote, setCompletionNote] = useState<Record<string, string>>({})
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({})
+  const [evidenceFiles, setEvidenceFiles] = useState<Record<string, File[]>>({})
   const [adminNote, setAdminNote] = useState<Record<string, string>>({})
   const [assignReportId, setAssignReportId] = useState('')
   const [assignWorkerId, setAssignWorkerId] = useState('')
@@ -126,7 +127,16 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         setWorker(data)
         if (data) { setCityValue(data.city); setWardValue(data.ward); setSkills(data.skills || []); setMotivation(data.motivation || ''); setTaskLimit(String(data.max_active_tasks || 3)) }
       }
-      if (!taskResult.error) setTasks(((taskResult.data || []) as unknown as WorkTask[]).map(task => ({ ...task, report: Array.isArray(task.report) ? task.report[0] : task.report })))
+      const hydrateEvidence = async (rows: WorkTask[]) => Promise.all(rows.map(async task => {
+        const urls = await Promise.all((task.evidence_urls || []).map(async value => {
+          if (!value.startsWith('storage://citizen-evidence/')) return value
+          const objectPath = value.slice('storage://citizen-evidence/'.length)
+          const { data } = await client.storage.from('citizen-evidence').createSignedUrl(objectPath, 60 * 60 * 24 * 7)
+          return data?.signedUrl || ''
+        }))
+        return { ...task, evidence_urls: urls.filter(Boolean), report: Array.isArray(task.report) ? task.report[0] : task.report }
+      }))
+      if (!taskResult.error) setTasks(await hydrateEvidence((taskResult.data || []) as unknown as WorkTask[]))
       if (isAdmin) {
         const [workersResult, reportsResult, assignmentsResult, reviewTasksResult, workerSettingsResult, referralSettingsResult] = await Promise.all([
           client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at,profile:profiles!worker_profiles_user_id_fkey(display_name,city,ward)').order('created_at', { ascending: false }).limit(200),
@@ -148,7 +158,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         if (referralSettingsResult.error) throw referralSettingsResult.error
         if (workerSettingsResult.data) setWorkerProgramme({ enabled: Boolean(workerSettingsResult.data.enabled), points: Number(workerSettingsResult.data.points_per_approved_task || 0) })
         if (referralSettingsResult.data) setReferralProgramme({ enabled: Boolean(referralSettingsResult.data.enabled), points: Number(referralSettingsResult.data.bonus_points || 0) })
-        setReviewTasks(((reviewTasksResult.data || []) as unknown as WorkTask[]).map(task => ({ ...task, report: Array.isArray(task.report) ? task.report[0] : task.report })))
+        setReviewTasks(await hydrateEvidence((reviewTasksResult.data || []) as unknown as WorkTask[]))
         if (!reportsResult.error) {
           const busyReportIds = new Set(activeAssignments.map(item => item.report_id))
           setReports(((reportsResult.data || []) as PublicReport[]).filter(report => !busyReportIds.has(report.id)))
@@ -185,15 +195,30 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     if (!client) return
     const note = (completionNote[task.id] || '').trim()
     const urls = (evidenceText[task.id] || '').split(/\n|,/).map(value => value.trim()).filter(Boolean)
+    const files = action === 'submit' ? (evidenceFiles[task.id] || []) : []
     setTaskActionId(task.id)
+    const uploadedPaths: string[] = []
     try {
-      const { error } = await client.rpc('janwatch_worker_update_assignment', { p_assignment_id: task.id, p_action: action, p_note: note || null, p_evidence_urls: action === 'submit' ? urls : [] })
+      if (files.some(file => !['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'].includes(file.type))) throw new Error('Use JPG, PNG, WebP, MP4, WebM or MOV files only.')
+      if (files.some(file => file.size > 50 * 1024 * 1024)) throw new Error('Each photo/video must be 50 MB or smaller.')
+      if (urls.length + files.length > 5) throw new Error('Attach no more than five links and files combined.')
+      for (const file of files) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'evidence'
+        const objectPath = `${userId}/worker-work/${task.id}/${crypto.randomUUID()}-${safeName}`
+        const { error: uploadError } = await client.storage.from('citizen-evidence').upload(objectPath, file, { contentType: file.type, upsert: false })
+        if (uploadError) throw uploadError
+        uploadedPaths.push(`storage://citizen-evidence/${objectPath}`)
+      }
+      const { error } = await client.rpc('janwatch_worker_update_assignment', { p_assignment_id: task.id, p_action: action, p_note: note || null, p_evidence_urls: action === 'submit' ? [...urls, ...uploadedPaths] : [] })
       if (error) throw error
       notify(action === 'submit' ? 'Work submitted for operations review.' : action === 'accept' ? 'Task accepted.' : 'Task moved to in progress.')
-      setCompletionNote(current => ({ ...current, [task.id]: '' })); setEvidenceText(current => ({ ...current, [task.id]: '' }))
+      setCompletionNote(current => ({ ...current, [task.id]: '' })); setEvidenceText(current => ({ ...current, [task.id]: '' })); setEvidenceFiles(current => ({ ...current, [task.id]: [] }))
       await load()
-    } catch (error) { notify(`Task update failed: ${errorMessage(error)}`) }
-    finally { setTaskActionId('') }
+    } catch (error) {
+      const uploadedObjects = uploadedPaths.map(value => value.slice('storage://citizen-evidence/'.length))
+      if (uploadedObjects.length) await client.storage.from('citizen-evidence').remove(uploadedObjects)
+      notify(`Task update failed: ${errorMessage(error)}`)
+    } finally { setTaskActionId('') }
   }
 
   async function setAvailability(next: boolean) {
@@ -335,11 +360,12 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
             <div className="wr-task-top"><span className={`wr-status-pill wr-pill-${task.status}`}>{prettyStatus(task.status)}</span><small>{task.report?.public_code || 'Civic report'} · {formatDate(task.created_at)}</small></div>
             <h3>{task.report?.title || 'Report details unavailable'}</h3><p>{task.report?.description || 'No additional description was provided.'}</p>
             <div className="wr-task-meta"><span><MapPin size={14}/>{task.report?.address_label || 'Location not specified'}</span><span><ClipboardCheck size={14}/>{task.report?.category || 'Community task'}</span><span><CalendarClock size={14}/>Due: {formatDate(task.due_at)}</span></div>
+            {task.report?.address_label && <a className="btn btn-secondary wr-route-link" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(task.report.address_label)}`} target="_blank" rel="noopener noreferrer"><MapPin size={15}/> Open route in Google Maps <ExternalLink size={13}/></a>}
             {task.completion_note && <div className="wr-completion-note"><b>Previous submission</b><p>{task.completion_note}</p></div>}
             {task.evidence_urls?.length > 0 && <div className="wr-evidence-links">{task.evidence_urls.map((url, index) => <a href={url} target="_blank" rel="noreferrer" key={`${url}-${index}`}><ExternalLink size={13}/> Evidence link {index + 1}</a>)}</div>}
             {task.status === 'assigned' && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'accept')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <CheckCircle2 size={15}/>} Accept task</button></div>}
             {(task.status === 'accepted' || task.status === 'changes_requested') && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'start')}><Zap size={15}/> Start work</button></div>}
-            {task.status === 'in_progress' && <div className="wr-completion-form"><label>Completion note <textarea rows={3} maxLength={2000} value={completionNote[task.id] || ''} onChange={e => setCompletionNote(current => ({ ...current, [task.id]: e.target.value }))} placeholder="Describe what you did, when, and what changed."/></label><label>Evidence links (optional, HTTPS only; one per line)<textarea rows={2} value={evidenceText[task.id] || ''} onChange={e => setEvidenceText(current => ({ ...current, [task.id]: e.target.value }))} placeholder="https://…"/></label><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'submit')}><Send size={15}/> Submit for review <ArrowRight size={15}/></button></div>}
+            {task.status === 'in_progress' && <div className="wr-completion-form"><label>Completion note <textarea rows={3} maxLength={2000} value={completionNote[task.id] || ''} onChange={e => setCompletionNote(current => ({ ...current, [task.id]: e.target.value }))} placeholder="Describe what you did, when, and what changed."/></label><label>Evidence links (optional, HTTPS only; one per line)<textarea rows={2} value={evidenceText[task.id] || ''} onChange={e => setEvidenceText(current => ({ ...current, [task.id]: e.target.value }))} placeholder="https://…"/></label><label className="wr-evidence-upload"><span><b>Photos and videos</b><small>Up to 5 total links/files · 50 MB per file · images, MP4, WebM or MOV</small></span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" multiple onChange={e => setEvidenceFiles(current => ({ ...current, [task.id]: Array.from(e.target.files || []).slice(0, 5) }))}/>{(evidenceFiles[task.id] || []).length > 0 && <small>{evidenceFiles[task.id].map(file => file.name).join(', ')}</small>}</label><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'submit')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <Send size={15}/>} Submit evidence for review <ArrowRight size={15}/></button></div>}
             {task.status === 'submitted_for_review' && <div className="wr-review-wait"><Clock3 size={16}/><span>Submitted for review. Your work will be approved or returned with feedback.</span></div>}
             {task.status === 'completed' && <div className="wr-task-approved"><CheckCircle2 size={16}/><span>Task approved by operations. Eligible contribution points are recorded under Rewards.</span></div>}
           </article>)}</div>}

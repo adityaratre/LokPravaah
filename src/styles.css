@@ -605,3 +605,10 @@ body{overflow-x:hidden}
 .wr-settings-card>.btn{justify-content:center;min-height:39px;font-size:9px;margin-top:auto}
 @media(max-width:850px){.wr-settings-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.wr-settings-card,.wr-setting-toggle{transition:none!important}}
+
+/* Worker field-work additions: route action and private media evidence uploader. */
+.wr-route-link{display:inline-flex;align-items:center;gap:8px;width:max-content;max-width:100%;margin:2px 0 12px;text-decoration:none}
+.wr-evidence-upload{display:flex;flex-direction:column;gap:9px;padding:14px;border:1px dashed var(--line,rgba(120,140,160,.4));border-radius:14px;background:var(--surface-soft,rgba(120,140,160,.06))}
+.wr-evidence-upload span{display:flex;flex-direction:column;gap:4px}
+.wr-evidence-upload small{font-size:12px;opacity:.76;overflow-wrap:anywhere}
+.wr-evidence-upload input[type=file]{max-width:100%;font:inherit;font-size:13px}
