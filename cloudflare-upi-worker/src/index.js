@@ -509,6 +509,11 @@ async function handler(request, env) {
         p_merchant_id: expectedMerchantId,
         p_idempotency_key: idempotencyKey,
         p_session_minutes: Math.max(5, Math.min(30, Number(env.PAYMENT_SESSION_MINUTES || 15))),
+        // Use the receiver-aware SQL overload so the payment row snapshots the
+        // same approved VPA/name used to produce its UPI URI. A legacy 6-arg
+        // overload still exists in some databases and otherwise gets selected.
+        p_receiver_vpa: receiver.receivingVpa,
+        p_receiver_name: receiver.payeeName,
       });
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
