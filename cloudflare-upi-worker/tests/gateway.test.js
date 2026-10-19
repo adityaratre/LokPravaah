@@ -258,7 +258,7 @@ test('Android observer can pair without sending QR expiry back in its enrollment
   };
   const response = await worker.fetch(req('/api/v1/pollers/android/pair', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enrollmentToken: 'one-time-token', merchantId: defaultEnv.MERCHANT_ID, deviceName: 'Receiving phone' }),
+    body: JSON.stringify({ enrollmentToken: 'a'.repeat(64), merchantId: defaultEnv.MERCHANT_ID, deviceName: 'Receiving phone' }),
   }), defaultEnv, {});
   assert.equal(response.status, 200);
   const payload = await response.json();
