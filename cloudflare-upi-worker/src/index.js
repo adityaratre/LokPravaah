@@ -473,6 +473,8 @@ async function handler(request, env) {
       supabase,
       supabaseUrlConfigured,
       serviceRoleKeyConfigured,
+      manualReviewOnly: true,
+      automaticObserverEnabled: false,
       receivingVpa: isValidReceiver(receiverSettings),
       receiverSettingsSource: receiverSettings.source,
       webhook: Boolean(((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || '').trim())
