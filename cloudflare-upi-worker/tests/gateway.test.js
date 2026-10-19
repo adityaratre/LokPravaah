@@ -158,7 +158,8 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   t.after(() => { globalThis.fetch = originalFetch; });
   let sawRpc = false;
   let sawReceiverSettings = false;
-  globalThis.fetch = async input => {
+  let paymentRpcArgs = {};
+  globalThis.fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/rpc/upi_gateway_get_receiver_settings')) {
       sawReceiverSettings = true;
@@ -169,6 +170,7 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
     }
     if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
       sawRpc = true;
+      paymentRpcArgs = JSON.parse(String(init.body || '{}'));
       return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.pathname.endsWith('/upi_gateway_payments')) {
@@ -184,6 +186,8 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   const body = await response.json();
   assert.equal(sawRpc, true);
   assert.equal(sawReceiverSettings, true);
+  assert.equal(paymentRpcArgs.p_receiver_vpa, 'admin.receiver@upi', 'payment RPC must call the receiver-aware SQL overload');
+  assert.equal(paymentRpcArgs.p_receiver_name, 'Admin Approved Receiver', 'payment RPC must snapshot the approved payee name');
   assert.equal(body.paymentId, sampleDbPayment.id);
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
