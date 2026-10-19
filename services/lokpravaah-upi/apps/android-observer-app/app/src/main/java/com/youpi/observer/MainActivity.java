@@ -38,6 +38,7 @@ public class MainActivity extends Activity {
     private TextView tvBatteryStatus;
     private TextView tvNotificationStatus;
     private TextView tvSmsStatus;
+    private TextView tvListenerStatus;
 
     private Button btnBatteryOpt;
     private Button btnNotifListener;
@@ -122,6 +123,9 @@ public class MainActivity extends Activity {
 
         tvSmsStatus = createCheckItem("✉️ Bank SMS Read Permission:");
         cardPerms.addView(tvSmsStatus);
+
+        tvListenerStatus = createCheckItem("🛎️ UPI Notification Listener: CHECKING...");
+        cardPerms.addView(tvListenerStatus);
 
         btnRequestPermissions = createAccentButton("Grant Runtime Permissions");
         btnRequestPermissions.setOnClickListener(new View.OnClickListener() {
@@ -234,9 +238,9 @@ public class MainActivity extends Activity {
     private void refreshUI() {
         boolean paired = apiClient.isPaired();
         if (paired) {
-            tvStatusBadge.setText("● STATUS: PAIRED & ACTIVE");
+            tvStatusBadge.setText("● STATUS: PAIRING CONFIG SAVED");
             tvStatusBadge.setTextColor(Color.parseColor("#10b981"));
-            tvDeviceDetails.setText("Device ID: " + apiClient.getDeviceId() + "\nGateway: " + apiClient.getBaseUrl() + "\nModel: " + Build.MANUFACTURER + " " + Build.MODEL);
+            tvDeviceDetails.setText("Device ID: " + apiClient.getDeviceId() + "\nGateway: " + apiClient.getBaseUrl() + "\nModel: " + Build.MANUFACTURER + " " + Build.MODEL + "\nPairing credentials are saved locally; check listener access and real incoming-credit events separately.");
             if (btnScanQr != null) btnScanQr.setText("🔄 RE-SCAN PAIRING QR");
             btnPairDevice.setText("Update Configuration");
             btnUnpairDevice.setVisibility(View.VISIBLE);
@@ -284,6 +288,17 @@ public class MainActivity extends Activity {
             tvSmsStatus.setText("✉️ Bank SMS Interceptor: MISSING (Tap Grant Runtime Permissions)");
             tvSmsStatus.setTextColor(Color.parseColor("#ef4444"));
         }
+
+        String enabledListeners = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        String listenerComponent = getPackageName() + "/" + PaymentNotificationListenerService.class.getName();
+        boolean listenerEnabled = enabledListeners != null &&
+                (enabledListeners.contains(listenerComponent) ||
+                 enabledListeners.contains(PaymentNotificationListenerService.class.getName()));
+        tvListenerStatus.setText(listenerEnabled
+                ? "🛎️ UPI Notification Listener: GRANTED"
+                : "🛎️ UPI Notification Listener: MISSING (Enable below)");
+        tvListenerStatus.setTextColor(Color.parseColor(listenerEnabled ? "#10b981" : "#ef4444"));
+        btnNotifListener.setText(listenerEnabled ? "Manage UPI Notification Listener" : "Enable UPI Notification Listener");
 
         if (hasNotif && hasSms) {
             btnRequestPermissions.setVisibility(View.GONE);
@@ -432,10 +447,10 @@ public class MainActivity extends Activity {
                         @Override
                         public void run() {
                             if (success) {
-                                Toast.makeText(MainActivity.this, "SMS Gateway Paired Successfully!", Toast.LENGTH_LONG).show();
+                                Toast.makeText(MainActivity.this, "SMS Gateway paired successfully.", Toast.LENGTH_LONG).show();
                                 refreshUI();
                             } else {
-                                Toast.makeText(MainActivity.this, "Pairing Failed. Check network connection.", Toast.LENGTH_LONG).show();
+                                Toast.makeText(MainActivity.this, "Pairing failed: " + apiClient.getLastPairError(), Toast.LENGTH_LONG).show();
                             }
                         }
                     });
@@ -453,8 +468,13 @@ public class MainActivity extends Activity {
         final String token = etEnrollmentToken.getText().toString().trim();
         final String deviceName = etDeviceName.getText().toString().trim();
 
+        if (token.startsWith("{")) {
+            // Accept a copied JSON pairing payload in the token field as an alternative to scanning.
+            handleScannedQrPayload(token);
+            return;
+        }
         if (baseUrl.isEmpty() || token.isEmpty()) {
-            Toast.makeText(this, "Please provide Gateway URL and Secret Token", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Please provide Gateway URL and a fresh 64-character enrollment token", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -474,7 +494,7 @@ public class MainActivity extends Activity {
                             refreshUI();
                         } else {
                             btnPairDevice.setText("Manual Connect");
-                            Toast.makeText(MainActivity.this, "Pairing Failed. Check URL and Enrollment Token.", Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, "Pairing failed: " + apiClient.getLastPairError(), Toast.LENGTH_LONG).show();
                         }
                     }
                 });
