@@ -238,8 +238,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       setError('Enter the actual bank UTR after checking the receiving-bank statement. Do not copy it blindly from the user claim.')
       return
     }
-    if (note.length < 5 || note.length > 1000) {
-      setError(action === 'confirm' ? 'Add a bank-statement review note of at least 5 characters.' : 'Add a rejection reason of at least 5 characters.')
+    if (note.length < 3 || note.length > 1000) {
+      setError(action === 'confirm' ? 'Add a bank-statement review note of at least 3 characters.' : 'Add a rejection reason of at least 3 characters.')
       return
     }
     if (!window.confirm(action === 'confirm'
