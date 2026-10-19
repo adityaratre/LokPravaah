@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { createHmac } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 const defaultEnv = {
   SUPABASE_URL: 'https://demo.supabase.co',
@@ -36,6 +37,15 @@ function req(path, init = {}) {
     headers: { Origin: 'https://lokpravaah.online', ...(init.headers || {}) },
   });
 }
+
+test('database migration has no global active-session unique index and avoids ambiguous auto-match', async () => {
+  const sqlUrl = new URL('../../supabase/lokpravaah_cloudflare_gateway.sql', import.meta.url);
+  const migration = await readFile(sqlUrl, 'utf8');
+  assert.doesNotMatch(migration, /create\s+unique\s+index[^;]*upi_gateway_single_active_slot_uq/i);
+  assert.match(migration, /v_candidate_count\s*<>\s*1/i);
+  assert.match(migration, /AMBIGUOUS_AMOUNT_MATCH/);
+  assert.match(migration, /concurrentSessions',\s*true/i);
+});
 
 test('health is not UP without private configuration', async () => {
   const response = await worker.fetch(req('/health'), {}, {});
@@ -166,6 +176,41 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
   assert.match(body.upiUri, /^upi:\/\/pay\?/);
+  const upi = new URL(body.upiUri);
+  assert.equal(upi.searchParams.get('cu'), 'INR');
+  assert.equal(upi.searchParams.get('am'), '251.00');
+  assert.match(upi.searchParams.get('tn') || '', /^LokPravaah /);
+  assert.ok((upi.searchParams.get('tn') || '').length <= 50);
+  assert.match(upi.searchParams.get('tr') || '', /^\d{1,35}$/);
+  assert.equal((upi.searchParams.get('tr') || '').length, 35, 'merchant transaction ref is 35 numeric digits');
+  assert.ok(!body.upiUri.includes('+'), 'UPI values use %20 rather than plus-space encoding');
+});
+
+test('long order references fall back to a compact UPI-safe payment reference', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const longOrderId = 'LPDON-' + 'X'.repeat(60);
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
+      const args = await Promise.resolve({});
+      void args;
+      return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/upi_gateway_payments')) {
+      return new Response(JSON.stringify([{ ...sampleDbPayment, order_id: longOrderId }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+  const response = await worker.fetch(req('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
+    body: JSON.stringify({ orderId: longOrderId, amount: 251, currency: 'INR' }),
+  }), defaultEnv, {});
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  const upi = new URL(body.upiUri);
+  assert.match(upi.searchParams.get('tr') || '', /^\d{35}$/);
+  assert.ok((upi.searchParams.get('tr') || '').length <= 35);
 });
 
 test('checkout never exposes QR for a queued payment', async t => {

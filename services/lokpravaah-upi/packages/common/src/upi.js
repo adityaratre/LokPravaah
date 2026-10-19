@@ -20,6 +20,7 @@ export function isValidVpa(vpa) {
  *   payeeName: string,
  *   amountPaise: bigint,
  *   transactionRef: string,
+ *   transactionRefFallback?: string,
  *   transactionNote?: string,
  *   currency?: string
  * }} options
@@ -31,17 +32,37 @@ export function buildUpiUri(options) {
   }
 
   const amountStr = toRupeesString(options.amountPaise);
+  const requestedRef = String(options.transactionRef || '').trim();
+  const fallbackHex = String(options.transactionRefFallback || '').replace(/-/g, '');
+  const validRef = value => /^\d{1,35}$/.test(value);
+  // NPCI merchant references are safest as 1–35 digits across UPI PSP apps.
+  // Keep a numeric merchant order ref when available; otherwise derive a stable
+  // 35-digit number from the UUID. Never truncate, because truncation can collide.
+  let fallbackRef = '';
+  if (/^[a-f0-9]{32}$/i.test(fallbackHex)) {
+    const min = 10n ** 34n;
+    const range = 9n * min;
+    fallbackRef = (min + (BigInt(`0x${fallbackHex}`) % range)).toString();
+  }
+  const transactionRef = validRef(requestedRef) ? requestedRef : fallbackRef;
+  if (!validRef(transactionRef)) {
+    throw new Error('UPI transaction reference must contain 1–35 digits');
+  }
+  if (options.currency && options.currency.toUpperCase() !== 'INR') {
+    throw new Error('UPI payments support INR only');
+  }
+  const payeeName = options.payeeName.trim();
+  if (!payeeName || payeeName.length > 99) throw new Error('UPI payee name must contain 1–99 characters');
 
   const params = new URLSearchParams();
   params.set('pa', options.payeeVpa.trim());
-  params.set('pn', options.payeeName.trim());
+  params.set('pn', payeeName);
   params.set('am', amountStr);
-  const txnId = (options.transactionRef || options.transactionNote || '').trim();
-  if (txnId) {
-    params.set('tn', txnId);
-  }
+  params.set('cu', 'INR');
+  params.set('tn', String(options.transactionNote || 'LokPravaah donation').trim().slice(0, 50));
+  params.set('tr', transactionRef);
 
-  return `upi://pay?${params.toString()}`;
+  return `upi://pay?${params.toString().replace(/\+/g, '%20')}`;
 }
 
 /**

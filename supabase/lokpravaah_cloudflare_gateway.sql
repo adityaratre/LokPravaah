@@ -27,8 +27,7 @@ create index if not exists upi_gateway_payments_queue_idx
   on public.upi_gateway_payments(merchant_id, status, created_at);
 create index if not exists upi_gateway_payments_status_idx
   on public.upi_gateway_payments(status, expires_at);
-create unique index if not exists upi_gateway_single_active_slot_uq
-  on public.upi_gateway_payments(merchant_id) where status in ('ACTIVE','PROCESSING');
+-- Do not add a single-active-payment unique index: every donor gets an independent session.
 
 create table if not exists public.upi_gateway_devices (
   id text primary key,
@@ -80,44 +79,26 @@ grant all on public.upi_gateway_devices to service_role;
 grant all on public.upi_gateway_pairing_tokens to service_role;
 grant all on public.upi_gateway_observations to service_role;
 
--- Serializes slot assignment. Only one ACTIVE/PROCESSING session can exist for this merchant at a time.
+-- Tick/expire each session independently; there is no global active-payment slot.
 create or replace function public.upi_gateway_tick()
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_next public.upi_gateway_payments%rowtype;
 begin
-  perform pg_advisory_xact_lock(hashtext('lokpravaah-cloudflare-upi-slot-v1'));
   update public.upi_gateway_payments
     set status = 'EXPIRED', updated_at = now(), queue_position = 0
     where status = 'ACTIVE' and expires_at is not null and expires_at <= now();
 
-  if not exists (select 1 from public.upi_gateway_payments where status in ('ACTIVE','PROCESSING')) then
-    select * into v_next
-      from public.upi_gateway_payments
-      where status = 'QUEUED'
-      order by created_at asc
-      limit 1
-      for update skip locked;
-    if found then
-      update public.upi_gateway_payments
-        set status = 'ACTIVE', queue_position = 0,
-            expires_at = now() + make_interval(mins => session_minutes), updated_at = now()
-        where id = v_next.id;
-    end if;
-  end if;
+  -- Activate any legacy queued rows from earlier deployments; new sessions are ACTIVE directly.
+  update public.upi_gateway_payments
+    set status = 'ACTIVE', queue_position = 0,
+        expires_at = now() + make_interval(mins => greatest(5, least(30, session_minutes))),
+        updated_at = now()
+    where status = 'QUEUED';
 
-  with ranked as (
-    select id, row_number() over (order by created_at asc) as rn
-    from public.upi_gateway_payments where status = 'QUEUED'
-  )
-  update public.upi_gateway_payments p set queue_position = ranked.rn::integer, updated_at = now()
-    from ranked where p.id = ranked.id;
-
-  return jsonb_build_object('ok', true);
+  return jsonb_build_object('ok', true, 'concurrentSessions', true);
 end;
 $$;
 
@@ -137,18 +118,20 @@ as $$
 declare
   v_donation public.donation_intents%rowtype;
   v_existing public.upi_gateway_payments%rowtype;
-  v_status text;
-  v_expires timestamptz;
-  v_queue integer := 0;
+  v_minutes integer := greatest(5, least(30, coalesce(p_session_minutes,15)));
   v_created public.upi_gateway_payments%rowtype;
 begin
-  perform pg_advisory_xact_lock(hashtext('lokpravaah-cloudflare-upi-slot-v1'));
+  -- Lock only this donation intent to make same-order retries idempotent, not the merchant globally.
   select * into v_donation from public.donation_intents where order_id = p_order_id for update;
   if not found then raise exception 'DONATION_INTENT_NOT_FOUND'; end if;
   if v_donation.amount_paise <> p_amount_paise or v_donation.currency <> 'INR' then
     raise exception 'DONATION_AMOUNT_MISMATCH';
   end if;
 
+  -- Share a short transaction lock with observation matching so a same-amount
+  -- session cannot appear between its candidate-count and row-lock queries. This
+  -- serializes only the tiny database mutation window; it does NOT queue donors.
+  perform pg_advisory_xact_lock(hashtext('lokpravaah-cloudflare-upi-slot-v1'));
   select * into v_existing from public.upi_gateway_payments where order_id = p_order_id;
   if found then
     return jsonb_build_object(
@@ -164,23 +147,13 @@ begin
   if p_merchant_id <> '00000000-0000-0000-0000-000000000001' then raise exception 'MERCHANT_NOT_SUPPORTED'; end if;
 
   perform public.upi_gateway_tick();
-  if exists (select 1 from public.upi_gateway_payments where merchant_id = p_merchant_id and status in ('ACTIVE','PROCESSING')) then
-    v_status := 'QUEUED';
-    v_expires := null;
-    select coalesce(max(queue_position),0) + 1 into v_queue
-      from public.upi_gateway_payments where merchant_id = p_merchant_id and status = 'QUEUED';
-  else
-    v_status := 'ACTIVE';
-    v_expires := now() + make_interval(mins => greatest(5, least(30, coalesce(p_session_minutes,15))));
-    v_queue := 0;
-  end if;
 
   insert into public.upi_gateway_payments(
     id, merchant_id, order_id, amount_paise, currency, status, queue_position,
     session_minutes, idempotency_key, expires_at, created_at, updated_at
   ) values (
-    p_payment_id, p_merchant_id, p_order_id, p_amount_paise, 'INR', v_status, v_queue,
-    greatest(5, least(30, coalesce(p_session_minutes,15))), nullif(p_idempotency_key,''), v_expires, now(), now()
+    p_payment_id, p_merchant_id, p_order_id, p_amount_paise, 'INR', 'ACTIVE', 0,
+    v_minutes, nullif(p_idempotency_key,''), now() + make_interval(mins => v_minutes), now(), now()
   ) returning * into v_created;
   return jsonb_build_object(
     'paymentId', v_created.id, 'orderId', v_created.order_id,
@@ -264,6 +237,7 @@ declare
   v_device public.upi_gateway_devices%rowtype;
   v_existing public.upi_gateway_observations%rowtype;
   v_payment public.upi_gateway_payments%rowtype;
+  v_candidate_count integer := 0;
   v_observed timestamptz := coalesce(p_observed_at,now());
 begin
   perform pg_advisory_xact_lock(hashtext('lokpravaah-cloudflare-upi-slot-v1'));
@@ -292,6 +266,22 @@ begin
   insert into public.upi_gateway_observations(id,device_id,amount_paise,bank_reference_number,sender_vpa,observed_at,status,created_at)
     values(coalesce(p_observation_id,gen_random_uuid()),p_device_id,p_amount_paise,p_bank_reference_number,nullif(p_sender_vpa,''),v_observed,'UNMATCHED',now());
 
+  select count(*)::integer into v_candidate_count
+    from public.upi_gateway_payments p
+    where p.merchant_id = v_device.merchant_id
+      and p.status = 'ACTIVE'
+      and p.amount_paise = p_amount_paise
+      and p.created_at <= v_observed
+      and p.expires_at >= v_observed;
+
+  if v_candidate_count <> 1 then
+    return jsonb_build_object(
+      'matched',false,'duplicate',false,'status','UNMATCHED',
+      'reason',case when v_candidate_count = 0 then 'NO_MATCHING_SESSION' else 'AMBIGUOUS_AMOUNT_MATCH' end,
+      'candidateCount',v_candidate_count
+    );
+  end if;
+
   select * into v_payment from public.upi_gateway_payments p
     where p.merchant_id = v_device.merchant_id
       and p.status = 'ACTIVE'
@@ -301,9 +291,9 @@ begin
     order by p.created_at asc
     limit 1
     for update;
-  if not found then return jsonb_build_object('matched',false,'duplicate',false,'status','UNMATCHED'); end if;
+  if not found then return jsonb_build_object('matched',false,'duplicate',false,'status','UNMATCHED','reason','SESSION_CHANGED_DURING_MATCH'); end if;
 
-  update public.upi_gateway_payments set status='PROCESSING', bank_reference_number=p_bank_reference_number,
+  update public.upi_gateway_payments set status='PROCESSING', queue_position=0, bank_reference_number=p_bank_reference_number,
     sender_vpa=nullif(p_sender_vpa,''), observed_at=v_observed, processing_started_at=now(), updated_at=now()
     where id=v_payment.id;
   update public.upi_gateway_observations set status='PROCESSING', matched_payment_id=v_payment.id

@@ -434,6 +434,7 @@ export function registerCheckoutRoutes(server, ctx) {
           payeeName,
           amountPaise: session.amountPaise,
           transactionRef: session.orderId,
+          transactionRefFallback: session.id,
           currency: session.currency || 'INR'
         });
       } catch {
@@ -555,6 +556,7 @@ export function registerCheckoutRoutes(server, ctx) {
             payeeName,
             amountPaise: session.amountPaise,
             transactionRef: session.orderId,
+            transactionRefFallback: session.id,
             currency: session.currency || 'INR'
           });
         } catch {}
