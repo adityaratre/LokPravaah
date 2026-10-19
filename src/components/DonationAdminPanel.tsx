@@ -85,10 +85,11 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
 
   const load = useCallback(async () => {
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); setReceiverError('Supabase is not configured.'); return }
+    const client = supabase
     setLoading(true); setError('')
     const [donationResult, receiverResult] = await Promise.all([
-      supabase.rpc('janwatch_admin_get_donation_data'),
-      supabase.rpc('janwatch_admin_get_upi_receiver_settings'),
+      client.rpc('janwatch_admin_get_donation_data'),
+      client.rpc('janwatch_admin_get_upi_receiver_settings'),
     ])
     if (donationResult.error) {
       setError(`Donation administration data could not load${donationResult.error.code ? ` (${donationResult.error.code})` : ''}. Apply the donation SQL migration and confirm your account has the admin role.`)
@@ -102,7 +103,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       const claims = Array.isArray(result?.manual_reviews) ? result!.manual_reviews! : []
       setManualReviews(claims)
       const signedUrls = await Promise.all(claims.map(async claim => {
-        const { data, error: signedUrlError } = await supabase.storage.from('donation-payment-evidence').createSignedUrl(claim.screenshot_path, 600)
+        const { data, error: signedUrlError } = await client.storage.from('donation-payment-evidence').createSignedUrl(claim.screenshot_path, 600)
         return !signedUrlError && data?.signedUrl ? [claim.id, data.signedUrl] as const : null
       }))
       setManualScreenshotUrls(Object.fromEntries(signedUrls.filter((entry): entry is readonly [string, string] => Boolean(entry))))
@@ -216,9 +217,9 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     await load()
   }
 
-  async function setDonationHidden(donation: DonationRow) {
   async function reviewManualDonation(claim: ManualReview, action: 'confirm' | 'reject') {
-    if (!supabase || !['admin', 'super_admin'].includes(role)) return
+    const client = supabase
+    if (!client || !['admin', 'super_admin'].includes(role)) return
     const verifiedUtr = String(verifiedUtrs[claim.id] || '').trim()
     const note = String(manualReviewNotes[claim.id] || '').trim()
     if (action === 'confirm' && !/^[A-Za-z0-9_-]{6,80}$/.test(verifiedUtr)) {
@@ -233,7 +234,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       ? 'Confirm this donation only after matching the UTR with the receiving-bank statement?'
       : 'Reject this payment-proof claim?')) return
     setBusy(claim.id); setError('')
-    const { data, error: reviewError } = await supabase.rpc('janwatch_admin_review_manual_donation', {
+    const { data, error: reviewError } = await client.rpc('janwatch_admin_review_manual_donation', {
       p_claim_id: claim.id,
       p_action: action,
       p_note: note,
@@ -246,11 +247,13 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     await load()
   }
 
-    if (!supabase) return
+  async function setDonationHidden(donation: DonationRow) {
+    const client = supabase
+    if (!client) return
     const nextHidden = !donation.admin_hidden
     if (!window.confirm(`${nextHidden ? 'Hide this verified donation from public activity?' : 'Restore this donation to public activity if the donor opted in?'}`)) return
     setBusy(donation.id); setError('')
-    const { error: visibilityError } = await supabase.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
+    const { error: visibilityError } = await client.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
     setBusy('')
     if (visibilityError) { setError(`Donation visibility could not be changed: ${visibilityError.message || 'please try again.'}`); return }
     notify(nextHidden ? 'Donation hidden from the public feed.' : 'Donation visibility restored; donor opt-in settings are still respected.')
