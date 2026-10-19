@@ -55,13 +55,13 @@
 .donation-history-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .donation-history-heading h3{font:850 clamp(18px,2.2vw,23px)/1.2 Manrope,sans-serif;margin:5px 0}
 .donation-history-heading p{font-size:11px;line-height:1.65;color:var(--muted);margin:0;max-width:680px}
-.donation-history-refresh{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--text);padding:9px 11px;font:750 10px/1.2 inherit;cursor:pointer}
+.donation-history-refresh{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--text);padding:9px 11px;font:inherit;font-size:10px;font-weight:750;line-height:1.2;cursor:pointer}
 .donation-history-refresh:disabled{opacity:.6;cursor:wait}
 .donation-history-empty,.donation-history-error{display:flex;align-items:center;gap:9px;border:1px dashed var(--border);border-radius:12px;padding:13px;color:var(--muted);font-size:11px;line-height:1.6}
 .donation-history-empty svg{flex:0 0 auto;color:var(--mint-strong)}
 .donation-history-error{border-style:solid;border-color:#e18e8055;background:#e18e800b;color:var(--gold)}
 .donation-history-error span{flex:1;min-width:0}
-.donation-history-error button,.donation-history-ticket button{border:0;background:transparent;color:var(--mint-strong);font:800 10px inherit;cursor:pointer;text-decoration:underline}
+.donation-history-error button,.donation-history-ticket button{border:0;background:transparent;color:var(--mint-strong);font:inherit;font-size:10px;font-weight:800;cursor:pointer;text-decoration:underline}
 .donation-history-list{display:grid;gap:11px}
 .donation-history-item{display:grid;gap:10px;min-width:0;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--panel2)}
 .donation-history-item-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
@@ -86,7 +86,7 @@
 .donation-history-ticket{align-items:center;border:1px solid var(--border);color:var(--muted);background:var(--panel)}
 .donation-history-ticket span{flex:1;min-width:0;text-transform:capitalize}
 .donation-history-actions{display:flex;gap:8px;flex-wrap:wrap}
-.donation-history-primary,.donation-history-secondary{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:10px 12px;min-height:38px;font:800 10px/1.25 inherit;cursor:pointer}
+.donation-history-primary,.donation-history-secondary{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:10px 12px;min-height:38px;font:inherit;font-size:10px;font-weight:800;line-height:1.25;cursor:pointer}
 .donation-history-primary{background:var(--mint-strong);color:#06281f;border:1px solid var(--mint-strong)}
 .donation-history-secondary{background:var(--panel);color:var(--text);border:1px solid var(--border)}
 .donation-history-primary:disabled,.donation-history-secondary:disabled{opacity:.55;cursor:wait}
