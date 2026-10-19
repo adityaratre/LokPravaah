@@ -16,6 +16,9 @@ type CheckoutResult = {
   paymentId?: string
   reason?: string
   error?: string
+  payment_timestamp?: string | null
+  user_note?: string
+  evidenceFile?: File
 }
 type CheckoutOptions = {
   key: string
@@ -38,7 +41,7 @@ type CheckoutOptions = {
   onSuspicious?: (result: CheckoutResult) => void
   onExpired?: (result: CheckoutResult) => void
   onCancelled?: (result: CheckoutResult) => void
-  onManualPaymentRequest?: (result: CheckoutResult) => void
+  onManualPaymentRequest?: (result: CheckoutResult) => void | Promise<{ success: boolean; message: string } | void>
   onClose?: () => void
 }
 type CheckoutHandle = { options?: { paymentId?: string; checkoutUrl?: string } }
@@ -53,9 +56,16 @@ type ActiveDonation = {
   adminReviewNote?: string | null
 }
 type ProofNotice = { tone: 'info' | 'success' | 'error'; title: string; body: string }
+type MyDonationRow = {
+  id: string; order_id: string; amount_paise: number; currency: string; status: string; is_anonymous: boolean
+  donor_name?: string | null; record_source?: string | null; utr?: string | null; created_at: string; verified_at?: string | null
+  claim_status?: ManualClaimStatus | null; claimed_utr?: string | null; claimed_amount_paise?: number | null
+  payment_timestamp?: string | null; admin_review_note?: string | null; reviewed_at?: string | null
+  ticket_number?: number | null; ticket_status?: string | null
+}
 declare global { interface Window { Youpi?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> } } }
 
-type Props = { userId?: string | null; userName?: string }
+type Props = { userId?: string | null; userName?: string; onOpenSupportTickets?: () => void }
 type GatewayState = 'not-configured' | 'loading' | 'ready' | 'error'
 type DonationSettings = {
   donations_enabled: boolean
@@ -128,7 +138,9 @@ function readSavedDonation(userId?: string | null): ActiveDonation | null {
   try {
     const value = JSON.parse(window.localStorage.getItem(activeDonationStorageKey(userId)) || 'null') as ActiveDonation | null
     if (!value || typeof value.orderId !== 'string' || typeof value.paymentId !== 'string' || !Number.isFinite(Number(value.amountPaise))) return null
-    return { ...value, amountPaise: Number(value.amountPaise), status: String(value.status || 'ACTIVE') }
+    const storedStatus = String(value.status || 'ACTIVE').toUpperCase()
+    // A previous UI callback could mark the local session successful. Never trust local storage as payment evidence.
+    return { ...value, amountPaise: Number(value.amountPaise), status: storedStatus === 'SUCCESS' ? 'PENDING_REVIEW' : storedStatus }
   } catch { return null }
 }
 function evidenceFileName(name: string): string {
@@ -136,7 +148,7 @@ function evidenceFileName(name: string): string {
 }
 const TERMINAL_PAYMENT_STATUSES = new Set(['SUCCESS', 'SUSPICIOUS', 'EXPIRED', 'FAILED', 'CANCELLED'])
 
-export default function DonationPage({ userId = null, userName = '' }: Props) {
+export default function DonationPage({ userId = null, userName = '', onOpenSupportTickets }: Props) {
   const [settings, setSettings] = useState<DonationSettings>(DEFAULT_SETTINGS)
   const [publicData, setPublicData] = useState<DonationPublicData | null>(null)
   const [feedLoading, setFeedLoading] = useState(true)
@@ -162,6 +174,14 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [proofBusy, setProofBusy] = useState(false)
   const [proofNotice, setProofNotice] = useState<ProofNotice | null>(null)
+  const [myDonations, setMyDonations] = useState<MyDonationRow[]>([])
+  const [myDonationsLoading, setMyDonationsLoading] = useState(false)
+  const [myDonationsError, setMyDonationsError] = useState('')
+  const [ticketDraftId, setTicketDraftId] = useState<string | null>(null)
+  const [ticketSubject, setTicketSubject] = useState('Payment status clarification')
+  const [ticketDescription, setTicketDescription] = useState('')
+  const [ticketBusy, setTicketBusy] = useState(false)
+  const [ticketNotice, setTicketNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
   const parsedAmount = useMemo(() => {
     if (!amountText.trim() || !/^\d+(?:\.\d{0,2})?$/.test(amountText.trim())) return null
@@ -196,6 +216,36 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
       setFeedError(error instanceof Error ? error.message : 'Live donation activity is temporarily unavailable.')
     } finally { setFeedLoading(false) }
   }, [])
+
+
+  const loadMyDonations = useCallback(async () => {
+    if (!supabase || !userId || !isSupabaseConfigured) {
+      setMyDonations([])
+      setMyDonationsLoading(false)
+      setMyDonationsError(userId ? 'Donation history is temporarily unavailable.' : 'Sign in to view your donation history.')
+      return
+    }
+    setMyDonationsLoading(true)
+    try {
+      const { data, error } = await supabase.rpc('janwatch_get_my_donations')
+      if (error) throw error
+      const result = data as { donations?: MyDonationRow[] } | null
+      setMyDonations(Array.isArray(result?.donations) ? result!.donations! : [])
+      setMyDonationsError('')
+    } catch (caught) {
+      setMyDonationsError(caught instanceof Error ? caught.message : 'Could not load your donation history. Please refresh.')
+    } finally {
+      setMyDonationsLoading(false)
+    }
+  }, [userId])
+
+  useEffect(() => {
+    void loadMyDonations()
+    const interval = window.setInterval(() => void loadMyDonations(), 30_000)
+    const onFocus = () => void loadMyDonations()
+    window.addEventListener('focus', onFocus)
+    return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [loadMyDonations])
 
   useEffect(() => {
     void loadPublicData()
@@ -232,28 +282,8 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     return () => { cancelled = true }
   }, [activeDonation?.orderId, userId])
 
-  useEffect(() => {
-    const session = activeDonation
-    if (!session?.paymentId || !gatewayApiUrl || TERMINAL_PAYMENT_STATUSES.has(session.status)) return
-    let cancelled = false
-    let timer = 0
-    const checkStatus = async () => {
-      try {
-        const response = await fetch(`${gatewayApiUrl}/api/v1/payments/${encodeURIComponent(session.paymentId)}`, { cache: 'no-store' })
-        const result = await response.json() as { status?: string }
-        if (cancelled) return
-        if (!response.ok || !result?.status) { timer = window.setTimeout(checkStatus, 12000); return }
-        const status = String(result.status).toUpperCase()
-        if (status !== session.status) setActiveDonation(current => current?.paymentId === session.paymentId ? { ...current, status } : current)
-        if (status === 'SUCCESS') void loadPublicData()
-        if (!cancelled && !TERMINAL_PAYMENT_STATUSES.has(status)) timer = window.setTimeout(checkStatus, 8000)
-      } catch {
-        if (!cancelled) timer = window.setTimeout(checkStatus, 12000)
-      }
-    }
-    void checkStatus()
-    return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [activeDonation?.paymentId, activeDonation?.status, gatewayApiUrl, loadPublicData])
+  // Automatic gateway status polling is intentionally disabled. Donation status is authoritative only after admin bank-record review.
+
 
   useEffect(() => { if (userName && !donorName) setDonorName(userName) }, [userName, donorName])
   useEffect(() => {
@@ -301,8 +331,9 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   }
 
   function handlePaymentStatus(orderId: string, status: string) {
-    setActiveDonation(current => current?.orderId === orderId ? { ...current, status } : current)
-    if (status === 'SUCCESS') void loadPublicData()
+    const safeStatus = status === 'SUCCESS' ? 'PENDING_REVIEW' : status
+    setActiveDonation(current => current?.orderId === orderId ? { ...current, status: safeStatus } : current)
+    void loadMyDonations()
   }
 
   async function reopenActivePayment() {
