@@ -145,6 +145,7 @@
       this.backdrop = null;
       this.container = null;
       this.iframe = null;
+      this.manualPanel = null;
 
       this._handleMessage = this._handleMessage.bind(this);
     }
@@ -304,6 +305,7 @@
         this.backdrop = null;
         this.container = null;
         this.iframe = null;
+        this.manualPanel = null;
 
         if (typeof this.options.onClose === 'function') {
           this.options.onClose();
@@ -398,10 +400,7 @@
           raw: payload
         };
         YoupiCheckout._emitEvent('youpi:payment:manual_review', result);
-        if (typeof this.options.onManualPaymentRequest === 'function') {
-          try { this.options.onManualPaymentRequest(result); } catch (err) { }
-        }
-        this.close();
+        this._showManualPaymentForm(result);
       } else if (event === 'youpi.payment_success') {
         const payload = e.data.data || {};
         const result = {
@@ -525,6 +524,146 @@
           }
         });
       }
+    }
+
+
+    _showManualPaymentForm(baseResult) {
+      if (!this.container || !this.iframe || this.manualPanel) return;
+      const panel = document.createElement('section');
+      panel.className = 'youpi-manual-proof-panel';
+      panel.setAttribute('aria-label', 'Submit donation payment proof');
+      panel.innerHTML = [
+        '<div class="youpi-manual-proof-head">',
+        '<span class="youpi-manual-proof-kicker">LOKPRAVAAH · MANUAL REVIEW</span>',
+        '<h2>Submit payment proof</h2>',
+        '<p>Stay in this checkout. Enter the transaction UTR and attach your receipt; the team will match it with the receiving-bank statement.</p>',
+        '</div>',
+        '<div class="youpi-manual-proof-summary">',
+        '<div><span>Donation reference</span><strong data-proof-order></strong></div>',
+        '<div><span>QR amount</span><strong data-proof-expected></strong></div>',
+        '</div>',
+        '<form class="youpi-manual-proof-form">',
+        '<label>UPI transaction ID / UTR <input name="utr" required minlength="6" maxlength="80" pattern="[A-Za-z0-9_-]{6,80}" autocomplete="off" spellcheck="false" placeholder="Enter UTR / bank reference"></label>',
+        '<label>Amount actually paid (₹) <input name="amount" required type="number" min="1" max="100000" step="0.01" inputmode="decimal"></label>',
+        '<label>Payment date &amp; time <span class="youpi-manual-optional">(optional)</span><input name="paymentTime" type="datetime-local"></label>',
+        '<label>Receipt screenshot / PDF <input name="receipt" required type="file" accept="image/jpeg,image/png,image/webp,application/pdf"><small>Private upload · JPG, PNG, WebP or PDF · up to 10 MB. Never share a UPI PIN or OTP.</small></label>',
+        '<label>Note for the reviewer <span class="youpi-manual-optional">(optional)</span><textarea name="note" rows="3" maxlength="2000" placeholder="What happened after you paid?"></textarea></label>',
+        '<p class="youpi-manual-error" role="alert" hidden></p>',
+        '<div class="youpi-manual-actions"><button type="button" class="youpi-manual-back">Back to QR</button><button type="submit" class="youpi-manual-submit">Submit for review</button></div>',
+        '<small class="youpi-manual-foot">Submitting proof does not automatically mark your donation successful. Do not pay twice while a claim is under review.</small>',
+        '</form>'
+      ].join('');
+      const stylesheet = document.createElement('style');
+      stylesheet.textContent = [
+        '.youpi-manual-proof-panel{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;overflow:auto;background:#f7fafc;color:#142236;padding:clamp(20px,4vw,34px);padding-top:56px;font:14px/1.5 Inter,system-ui,-apple-system,Segoe UI,sans-serif;overscroll-behavior:contain}',
+        '.youpi-manual-proof-head{padding:0 0 16px;border-bottom:1px solid #dce6e8}',
+        '.youpi-manual-proof-kicker{font-size:10px;font-weight:850;letter-spacing:.13em;color:#087d60}',
+        '.youpi-manual-proof-head h2{font-size:25px;line-height:1.15;margin:8px 0;color:#102235}',
+        '.youpi-manual-proof-head p{font-size:13px;color:#627187;line-height:1.55;margin:0}',
+        '.youpi-manual-proof-summary{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,.55fr);gap:9px;margin:14px 0}',
+        '.youpi-manual-proof-summary>div{min-width:0;padding:10px;border:1px solid #dce6e8;border-radius:11px;background:white;display:grid;gap:4px}',
+        '.youpi-manual-proof-summary span{font-size:10px;color:#738197}',
+        '.youpi-manual-proof-summary strong{font-size:12px;overflow-wrap:anywhere}',
+        '.youpi-manual-proof-form{display:grid;gap:12px;padding-bottom:18px}',
+        '.youpi-manual-proof-form label{display:grid;gap:6px;font-size:12px;font-weight:750;color:#26384e}',
+        '.youpi-manual-proof-form input:not([type=file]),.youpi-manual-proof-form textarea,.youpi-manual-proof-form input[type=file]{width:100%;min-width:0;box-sizing:border-box;padding:11px 12px;border:1px solid #cbd7e1;border-radius:10px;background:#fff;color:#142236;font:inherit;font-weight:500}',
+        '.youpi-manual-proof-form input[type=file]{font-size:11px}',
+        '.youpi-manual-proof-form small{font-size:10px;line-height:1.55;color:#6b7a90;font-weight:500}',
+        '.youpi-manual-optional{font-size:10px;font-weight:500;color:#728196}',
+        '.youpi-manual-actions{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:8px}',
+        '.youpi-manual-actions button{border:0;border-radius:10px;min-height:44px;padding:11px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}',
+        '.youpi-manual-back{background:#e6eef3;color:#2a4055}',
+        '.youpi-manual-submit{background:#0c8a66;color:#fff}',
+        '.youpi-manual-submit:disabled{opacity:.65;cursor:wait}',
+        '.youpi-manual-error{margin:0;padding:10px 12px;border-radius:9px;background:#fff0f0;border:1px solid #f3b5b5;color:#a32121;font-size:12px}',
+        '.youpi-manual-foot{display:block;margin-top:0}',
+        '.youpi-manual-success{margin:auto 0;display:grid;gap:12px;text-align:center;padding:22px 0}',
+        '.youpi-manual-success-icon{width:58px;height:58px;border-radius:50%;margin:0 auto;background:#d8f7e9;color:#087d60;display:grid;place-items:center;font-size:30px}',
+        '.youpi-manual-success h2{font-size:24px;margin:0;color:#102235}',
+        '.youpi-manual-success p{font-size:13px;color:#627187;line-height:1.6;margin:0}',
+        '.youpi-manual-success button{border:0;background:#0c8a66;color:#fff;border-radius:10px;padding:12px 18px;font-weight:800;margin-top:8px}',
+        '@media(max-width:390px){.youpi-manual-proof-panel{padding:16px;padding-top:52px}.youpi-manual-proof-head h2{font-size:22px}.youpi-manual-proof-summary{grid-template-columns:1fr}.youpi-manual-actions{grid-template-columns:1fr}}'
+      ].join('');
+      panel.appendChild(stylesheet);
+      this.container.appendChild(panel);
+      this.manualPanel = panel;
+      this.iframe.style.display = 'none';
+      const money = value => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toLocaleString('en-IN', { style:'currency', currency:'INR', maximumFractionDigits:2 }) : '—';
+      };
+      panel.querySelector('[data-proof-order]').textContent = String(baseResult.order_id || '—');
+      panel.querySelector('[data-proof-expected]').textContent = money(baseResult.amount_received);
+      panel.querySelector('[name="amount"]').value = Number(baseResult.amount_received || this.options.amount || 0).toFixed(2);
+
+      panel.querySelector('.youpi-manual-back').addEventListener('click', () => {
+        this.manualPanel?.remove();
+        this.manualPanel = null;
+        if (this.iframe) {
+          this.iframe.style.display = '';
+          this.iframe.contentWindow?.postMessage({ event: 'youpi.reset_manual_payment_request' }, this._iframeOrigin || '*');
+        }
+      });
+
+      const form = panel.querySelector('form');
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const utr = String(formData.get('utr') || '').trim();
+        const amount = Number(formData.get('amount'));
+        const fileInput = panel.querySelector('[name="receipt"]');
+        const evidenceFile = fileInput?.files?.[0] || null;
+        const timeText = String(formData.get('paymentTime') || '');
+        const note = String(formData.get('note') || '').trim();
+        const errorBox = panel.querySelector('.youpi-manual-error');
+        const submit = panel.querySelector('.youpi-manual-submit');
+        const back = panel.querySelector('.youpi-manual-back');
+        if (!/^[A-Za-z0-9_-]{6,80}$/.test(utr)) {
+          errorBox.textContent = 'Enter the UTR from the payment receipt (6–80 letters or numbers).';
+          errorBox.hidden = false; return;
+        }
+        if (!Number.isFinite(amount) || amount < 1 || amount > 100000 || Math.round(amount * 100) !== amount * 100) {
+          errorBox.textContent = 'Enter a valid amount between ₹1 and ₹1,00,000 with up to two decimals.';
+          errorBox.hidden = false; return;
+        }
+        if (!evidenceFile || !['image/jpeg','image/png','image/webp','application/pdf'].includes(evidenceFile.type) || evidenceFile.size > 10 * 1024 * 1024) {
+          errorBox.textContent = 'Attach a JPG, PNG, WebP image or PDF receipt up to 10 MB.';
+          errorBox.hidden = false; return;
+        }
+        if (note.length > 2000) {
+          errorBox.textContent = 'Keep the note under 2,000 characters.';
+          errorBox.hidden = false; return;
+        }
+        submit.disabled = true;
+        submit.textContent = 'Uploading securely…';
+        back.disabled = true;
+        errorBox.hidden = true;
+        const claim = { ...baseResult, utr, amount_received:amount, payment_timestamp:timeText || null, user_note:note, evidenceFile };
+        let outcome = { success:false, message:'Could not submit payment proof. Please retry.' };
+        try {
+          if (typeof this.options.onManualPaymentRequest !== 'function') throw new Error('Manual review submission is not configured.');
+          const response = await this.options.onManualPaymentRequest(claim);
+          if (response && typeof response === 'object') outcome = { success:response.success === true, message:String(response.message || '') };
+          else if (response === undefined) outcome = { success:true, message:'Payment proof submission was started. You can close this window and track the review in My donations.' };
+        } catch (error) {
+          outcome = { success:false, message:error instanceof Error ? error.message : 'Payment proof could not be submitted. Please retry.' };
+        }
+        if (outcome.success) {
+          panel.innerHTML = '';
+          panel.appendChild(stylesheet);
+          const success = document.createElement('div');
+          success.className = 'youpi-manual-success';
+          success.innerHTML = '<div class="youpi-manual-success-icon">✓</div><h2>Submitted for review</h2><p></p><small>Your donation will be marked successful only after an administrator matches the amount and UTR with the receiving bank statement. Track progress in <b>My donations</b>. Please do not pay again while this claim is under review.</small><button type="button">Close checkout</button>';
+          success.querySelector('p').textContent = outcome.message || 'Your proof is in the administrator review queue.';
+          success.querySelector('button').addEventListener('click', () => this.close());
+          return;
+        }
+        errorBox.hidden = false;
+        errorBox.textContent = outcome.message || 'Payment proof could not be submitted. Please retry.';
+        submit.disabled = false;
+        submit.textContent = 'Submit for review';
+        back.disabled = false;
+      });
     }
 
     _dispatchCancelled() {
