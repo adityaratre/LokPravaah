@@ -283,6 +283,15 @@ function extractBankPayment(body) {
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(bankRef)) bankRef = '';
   return { amountPaise, bankRef, senderVpa: senderVpa.slice(0, 200), observedAt: Number.isNaN(observedAt.getTime()) ? new Date() : observedAt, rawText };
 }
+function parsePairingExpiry(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number' || /^\d{10,13}$/.test(String(value).trim())) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+  const parsed = Date.parse(String(value).trim());
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
 function pairingToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
@@ -481,25 +490,44 @@ async function handler(request, env) {
   if (request.method === 'POST' && path === '/api/v1/pollers/android/pair') {
     let body;
     try { body = await request.json(); } catch { return json(request, env, { error: 'Invalid JSON' }, 400); }
-    const token = String(body.enrollmentToken || body.token || '');
-    if (!token || (body.version && body.version !== 'v1') || (body.expiresAt && Date.now() > Number(body.expiresAt))) return json(request, env, { error: 'Invalid or expired pairing token' }, 400);
+
+    // Manual entry and QR scanning may serialize the same enrollment payload slightly
+    // differently. Normalize whitespace and accept known legacy token field aliases.
+    const token = String(body.enrollmentToken || body.enrollment_token || body.enrollmentSecretToken || body.token || '').trim();
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+      return json(request, env, { error: 'Enrollment token must be a 64-character hexadecimal token. Generate a fresh pairing QR if needed.', code: 'INVALID_ENROLLMENT_TOKEN_FORMAT' }, 400);
+    }
+    if (body.version && String(body.version).trim() !== 'v1') {
+      return json(request, env, { error: 'Unsupported pairing payload version. Generate a fresh pairing QR.', code: 'UNSUPPORTED_PAIRING_VERSION' }, 400);
+    }
+
+    const expiry = parsePairingExpiry(body.expiresAt);
+    if (Number.isNaN(expiry) || (expiry !== null && Date.now() > expiry)) {
+      return json(request, env, { error: 'Pairing QR has expired. Generate a fresh QR and connect within 10 minutes.', code: 'PAIRING_TOKEN_EXPIRED' }, 400);
+    }
+
     const tokenHash = await sha256Hex(token);
     const deviceId = crypto.randomUUID();
     const signingKey = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
     try {
+      const merchantId = String(body.merchantId || body.merchant_id || env.MERCHANT_ID || DEFAULT_MERCHANT_ID).trim();
       const result = await rpc(env, 'upi_gateway_pair_device', {
         p_token_hash: tokenHash,
         p_device_id: deviceId,
         p_signing_key: signingKey,
-        p_merchant_id: String(body.merchantId || env.MERCHANT_ID || DEFAULT_MERCHANT_ID),
-        p_device_name: String(body.deviceName || 'Android Observer').slice(0, 100),
-        p_device_model: String(body.deviceModel || 'Android device').slice(0, 100),
-        p_expires_at: body.expiresAt ? new Date(Number(body.expiresAt)).toISOString() : null,
+        p_merchant_id: merchantId,
+        p_device_name: String(body.deviceName || body.device_name || 'Android Observer').trim().slice(0, 100),
+        p_device_model: String(body.deviceModel || body.device_model || body.model || 'Android device').trim().slice(0, 100),
+        p_expires_at: expiry === null ? null : new Date(expiry).toISOString(),
       });
-      if (result?.paired !== true) return json(request, env, { error: 'Pairing token invalid, expired, or already used' }, 401);
-      return json(request, env, { paired: true, deviceId, signingKey, merchantId: body.merchantId || env.MERCHANT_ID || DEFAULT_MERCHANT_ID, message: 'Android SMS Gateway paired successfully.' });
-    } catch {
-      return json(request, env, { error: 'Device pairing failed. Generate a fresh QR and retry.' }, 401);
+      if (result?.paired !== true) {
+        return json(request, env, { error: 'Pairing token is invalid, expired, already used, or belongs to a different merchant. Generate a fresh pairing QR.', code: 'PAIRING_TOKEN_REJECTED' }, 401);
+      }
+      return json(request, env, { paired: true, deviceId, signingKey, merchantId, message: 'Android SMS Gateway paired successfully.' });
+    } catch (error) {
+      // Keep the raw token and signing key out of logs. Emit only the sanitized backend code.
+      console.error('Android device pairing failed', { status: Number(error?.status || 0), reason: String(error?.message || 'PAIRING_BACKEND_ERROR').slice(0, 100) });
+      return json(request, env, { error: 'Pairing service could not complete the request. Generate a fresh pairing QR and retry; if it repeats, check the gateway database migration.', code: 'PAIRING_BACKEND_ERROR' }, 503);
     }
   }
   if (request.method === 'POST' && (path === '/api/v1/pollers/android/events' || path === '/api/v1/observers/sms')) {
