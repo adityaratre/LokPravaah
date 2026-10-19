@@ -22,6 +22,7 @@ public class ApiClient {
     private static final String PREFS_NAME = "youpi_gateway_prefs";
     private final SharedPreferences prefs;
     private final Context context;
+    private volatile String lastPairError = "No pairing attempt has been made.";
 
     public ApiClient(Context context) {
         this.context = context.getApplicationContext();
@@ -40,45 +41,74 @@ public class ApiClient {
         return prefs.getString("device_id", "-");
     }
 
+    public String getLastPairError() {
+        return lastPairError;
+    }
+
     public boolean pair(String baseUrl, String enrollmentToken, String deviceName) {
-        return pair(baseUrl, enrollmentToken, deviceName, "00000000-0000-0000-0000-000000000001", "v1", 0);
+        // Leave merchantId unset for manual enrollment so the gateway can use its own
+        // configured merchant ID. Hardcoding a client-side ID breaks pairing when the
+        // deployment is configured for another merchant.
+        return pair(baseUrl, enrollmentToken, deviceName, null, "v1", 0);
     }
 
     public boolean pair(String baseUrl, String enrollmentToken, String deviceName, String merchantId, String version, long expiresAt) {
-        String cleanUrl = baseUrl.replaceAll("/+$", "");
-        String endpoint = cleanUrl + "/api/v1/pollers/android/pair";
+        String cleanUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        String cleanToken = enrollmentToken == null ? "" : enrollmentToken.trim().replaceAll("\\s+", "");
+        if (cleanUrl.isEmpty()) {
+            lastPairError = "Enter the gateway URL.";
+            return false;
+        }
+        if (!cleanToken.matches("(?i)^[a-f0-9]{64}$")) {
+            lastPairError = "Enrollment token must be 64 hexadecimal characters. Generate a fresh pairing QR; do not reuse an expired token.";
+            return false;
+        }
 
+        final String endpoint = cleanUrl + "/api/v1/pollers/android/pair";
         try {
+            URL parsedUrl = new URL(endpoint);
+            if (!("https".equalsIgnoreCase(parsedUrl.getProtocol()) || "http".equalsIgnoreCase(parsedUrl.getProtocol())) || parsedUrl.getHost().isEmpty()) {
+                lastPairError = "Gateway URL must be a valid HTTP or HTTPS URL.";
+                return false;
+            }
+
             JSONObject body = new JSONObject();
-            body.put("version", version != null ? version : "v1");
-            body.put("enrollmentToken", enrollmentToken);
-            body.put("merchantId", merchantId != null ? merchantId : "00000000-0000-0000-0000-000000000001");
+            if (version != null && !version.trim().isEmpty()) body.put("version", version.trim());
+            body.put("enrollmentToken", cleanToken);
+            if (merchantId != null && !merchantId.trim().isEmpty()) body.put("merchantId", merchantId.trim());
             if (expiresAt > 0) body.put("expiresAt", expiresAt);
-            body.put("deviceName", deviceName != null && !deviceName.isEmpty() ? deviceName : Build.MODEL);
+            body.put("deviceName", deviceName != null && !deviceName.trim().isEmpty() ? deviceName.trim() : Build.MODEL);
             body.put("deviceModel", Build.MANUFACTURER + " " + Build.MODEL);
 
-            String response = postJson(endpoint, body.toString(), null, null, null);
+            String response = postPairJson(endpoint, body.toString());
             if (response == null) return false;
-
             JSONObject json = new JSONObject(response);
-            if (json.optBoolean("paired", false) || json.has("deviceId")) {
-                String deviceId = json.getString("deviceId");
-                String signingKey = json.getString("signingKey");
-
-                prefs.edit()
-                    .putString("base_url", cleanUrl)
-                    .putString("device_id", deviceId)
-                    .putString("signing_key", signingKey)
-                    .putString("merchant_id", merchantId)
-                    .apply();
-
-                Log.i(TAG, "Device paired successfully: " + deviceId);
-                return true;
+            if (!json.optBoolean("paired", false)) {
+                String error = json.optString("error", "").trim();
+                String code = json.optString("code", "").trim();
+                lastPairError = error.isEmpty() ? "Gateway did not confirm the pairing." : error;
+                if (!code.isEmpty()) lastPairError += " (" + code + ")";
+                return false;
             }
+
+            String deviceId = json.getString("deviceId");
+            String signingKey = json.getString("signingKey");
+            String actualMerchantId = json.optString("merchantId", merchantId == null ? "" : merchantId);
+            SharedPreferences.Editor editor = prefs.edit()
+                .putString("base_url", cleanUrl)
+                .putString("device_id", deviceId)
+                .putString("signing_key", signingKey);
+            if (!actualMerchantId.isEmpty()) editor.putString("merchant_id", actualMerchantId);
+            editor.apply();
+
+            lastPairError = "";
+            Log.i(TAG, "Device pairing accepted by gateway: " + deviceId);
+            return true;
         } catch (Exception e) {
-            Log.e(TAG, "Pairing error: " + e.getMessage(), e);
+            lastPairError = "Pairing could not be completed: " + e.getClass().getSimpleName() + ". Check the URL/network and try a fresh QR.";
+            Log.e(TAG, "Pairing error: " + e.getClass().getSimpleName());
+            return false;
         }
-        return false;
     }
 
     public boolean sendSms(String sender, String body, long timestamp) {
@@ -169,6 +199,59 @@ public class ApiClient {
 
     public void unpair() {
         prefs.edit().remove("device_id").remove("signing_key").apply();
+    }
+
+    private String postPairJson(String urlString, String jsonBody) {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlString);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setConnectTimeout(12000);
+            conn.setReadTimeout(12000);
+            conn.setDoOutput(true);
+
+            byte[] input = jsonBody.getBytes(StandardCharsets.UTF_8);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(input);
+            }
+            int code = conn.getResponseCode();
+            InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+            StringBuilder responseText = new StringBuilder();
+            if (stream != null) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) responseText.append(line);
+                }
+            }
+
+            if (code < 200 || code >= 300) {
+                lastPairError = extractPairError(responseText.toString(), code);
+                Log.w(TAG, "Pairing endpoint returned HTTP " + code);
+                return null;
+            }
+            return responseText.toString();
+        } catch (Exception e) {
+            lastPairError = "Could not reach the gateway (" + e.getClass().getSimpleName() + "). Check internet and gateway URL.";
+            Log.e(TAG, "Pairing request failed: " + e.getClass().getSimpleName());
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private String extractPairError(String responseBody, int httpCode) {
+        try {
+            JSONObject json = new JSONObject(responseBody);
+            String message = json.optString("error", "").trim();
+            String code = json.optString("code", "").trim();
+            if (!message.isEmpty()) return message + (code.isEmpty() ? "" : " (" + code + ")");
+        } catch (Exception ignored) {
+            // Some reverse proxies return a non-JSON error page; keep a useful HTTP status.
+        }
+        return "Gateway returned HTTP " + httpCode + (httpCode == 404 ? ". Check that the gateway route is deployed." : "");
     }
 
     private String postJson(String urlString, String jsonBody, String deviceId, String timestamp, String signature) {
