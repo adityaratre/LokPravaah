@@ -30,16 +30,6 @@ const sampleDbPayment = {
   created_at: new Date().toISOString(),
 };
 
-const defaultDonationSettings = {
-  donations_enabled: true,
-  payment_gateway_enabled: true,
-  payment_session_minutes: 15,
-  min_amount_paise: 100,
-  max_amount_paise: 10000000,
-  receiving_upi_vpa: null,
-  receiving_payee_name: null,
-};
-
 function req(path, init = {}) {
   return new Request(`https://lokpravaah.online${path}`, {
     ...init,
@@ -58,8 +48,6 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([defaultDonationSettings]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     assert.match(String(input), /\/rest\/v1\/upi_gateway_payments\?select=id&limit=1$/);
     return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
@@ -67,22 +55,7 @@ test('health verifies configuration and Supabase table reachability', async t =>
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.status, 'UP');
-  assert.equal(body.gateway_version, 'lokpravaah-upi-final-2026-10-19-upi-uri-compat-2-admin-settings');
   assert.equal(body.checks.database, true);
-  assert.equal(body.checks.upiIntentFormat, true);
-  assert.match(body.diagnostics.note, /does not verify live bank routing/i);
-});
-
-test('health rejects a malformed receiving UPI ID even when other settings exist', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async input => { const url = new URL(String(input)); if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([defaultDonationSettings]), { status: 200, headers: { 'Content-Type': 'application/json' } }); return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }); };
-  const response = await worker.fetch(req('/health'), { ...defaultEnv, UPI_VPA: 'not a valid vpa' }, {});
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.status, 'CONFIGURATION_REQUIRED');
-  assert.equal(body.checks.receivingVpa, false);
-  assert.equal(body.checks.upiIntentFormat, false);
 });
 
 test('standalone /admin page is not exposed', async () => {
@@ -173,7 +146,6 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   let sawRpc = false;
   globalThis.fetch = async input => {
     const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([defaultDonationSettings]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
       sawRpc = true;
       return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -194,101 +166,6 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
   assert.match(body.upiUri, /^upi:\/\/pay\?/);
-  const params = new URL(body.upiUri).searchParams;
-  assert.equal(params.get('pa'), defaultEnv.UPI_VPA);
-  assert.equal(params.get('pn'), defaultEnv.UPI_PAYEE_NAME);
-  assert.equal(params.get('am'), '251.00');
-  assert.equal(params.get('cu'), 'INR');
-  assert.equal(params.get('tr'), sampleDbPayment.order_id);
-  assert.ok((params.get('tr') || '').length <= 35, 'UPI transaction reference must be <= 35 characters');
-  assert.ok((params.get('tn') || '').length <= 50, 'UPI transaction note must be <= 50 characters');
-});
-
-test('payment creation fails closed when online UPI donations are paused by approved settings', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  let sessionCreated = false;
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ ...defaultDonationSettings, payment_gateway_enabled: false }]), { status: 200 });
-    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) sessionCreated = true;
-    throw new Error(`Unexpected fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req('/api/v1/payments', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
-    body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 251, currency: 'INR' }),
-  }), defaultEnv, {});
-  assert.equal(response.status, 403);
-  assert.equal(sessionCreated, false);
-  assert.match((await response.json()).error, /temporarily disabled/i);
-});
-
-test('payment creation enforces approved minimum and maximum amounts', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  let sessionCreated = false;
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ ...defaultDonationSettings, min_amount_paise: 500, max_amount_paise: 50000 }]), { status: 200 });
-    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) sessionCreated = true;
-    throw new Error(`Unexpected fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req('/api/v1/payments', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
-    body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 2.51, currency: 'INR' }),
-  }), defaultEnv, {});
-  assert.equal(response.status, 400);
-  assert.equal(sessionCreated, false);
-  assert.match((await response.json()).error, /outside.*limits/i);
-});
-
-test('approved admin recipient settings override Worker fallback for UPI intent', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ ...defaultDonationSettings, receiving_upi_vpa: 'approved.receiver@bank', receiving_payee_name: 'Approved Receiver' }]), { status: 200 });
-    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200 });
-    if (url.pathname.endsWith('/upi_gateway_payments')) return new Response(JSON.stringify([sampleDbPayment]), { status: 200 });
-    throw new Error(`Unexpected fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req('/api/v1/payments', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
-    body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 251, currency: 'INR' }),
-  }), defaultEnv, {});
-  assert.equal(response.status, 201);
-  const body = await response.json();
-  const params = new URL(body.upiUri).searchParams;
-  assert.equal(params.get('pa'), 'approved.receiver@bank');
-  assert.equal(params.get('pn'), 'Approved Receiver');
-});
-
-test('UPI URI uses a compact safe reference for an overlong order ID', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const longOrderId = 'L'.repeat(80);
-  const row = { ...sampleDbPayment, order_id: longOrderId };
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([defaultDonationSettings]), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
-      return new Response(JSON.stringify({ paymentId: row.id }), { status: 200 });
-    }
-    if (url.pathname.endsWith('/upi_gateway_payments')) {
-      return new Response(JSON.stringify([row]), { status: 200 });
-    }
-    throw new Error(`Unexpected fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req('/api/v1/payments', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
-    body: JSON.stringify({ orderId: longOrderId, amount: 251, currency: 'INR' }),
-  }), defaultEnv, {});
-  assert.equal(response.status, 201);
-  const body = await response.json();
-  const params = new URL(body.upiUri).searchParams;
-  assert.equal(params.get('tr'), row.id.replace(/-/g, '').slice(0, 32));
-  assert.ok((params.get('tr') || '').length <= 35);
-  assert.ok((params.get('tn') || '').length <= 50);
 });
 
 test('checkout never exposes QR for a queued payment', async t => {

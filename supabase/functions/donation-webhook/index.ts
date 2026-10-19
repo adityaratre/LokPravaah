@@ -97,14 +97,9 @@ Deno.serve(async request => {
   }
 
   if (row.status === 'succeeded') {
-    // Idempotent gateway retries. A manually verified bank UTR can arrive before the signed observer callback.
-    const incomingPaymentId = String(payload.paymentId ?? '').trim()
-    const incomingUtr = String(payload.utr ?? '').trim()
-    if ((incomingUtr && row.utr && incomingUtr === row.utr)
-      || (!incomingPaymentId && !row.gateway_payment_id)
-      || (incomingPaymentId && incomingPaymentId === row.gateway_payment_id)) {
-      return json({ received: true, alreadyProcessed: true })
-    }
+    // Gateway retries are idempotent. A different payment ID for an already-paid order needs manual review.
+    const incomingPaymentId = String(payload.paymentId ?? '')
+    if (!incomingPaymentId || incomingPaymentId === row.gateway_payment_id) return json({ received: true, alreadyProcessed: true })
     return json({ error: 'Reference already has a different successful payment' }, 409)
   }
 
@@ -119,14 +114,8 @@ Deno.serve(async request => {
     update.verified_at = Number.isNaN(completedAt.getTime()) ? new Date().toISOString() : completedAt.toISOString()
   }
 
-  // A verified bank-credit callback can legitimately arrive after the browser timed out or
-  // a previous non-final status was recorded. Success is authoritative only after HMAC + exact
-  // order/amount/currency validation above, so allow it to recover any unverified terminal state.
-  const writableStatuses = nextStatus === 'succeeded'
-    ? ['pending', 'failed', 'suspicious', 'expired', 'cancelled']
-    : ['pending']
   const { data: changed, error: updateError } = await db.from('donation_intents')
-    .update(update).eq('id', row.id).in('status', writableStatuses).select('id,status').maybeSingle()
+    .update(update).eq('id', row.id).eq('status', 'pending').select('id,status').maybeSingle()
   if (updateError) {
     console.error('Donation webhook update failed:', updateError.message)
     return json({ error: 'Could not record gateway event' }, 409)

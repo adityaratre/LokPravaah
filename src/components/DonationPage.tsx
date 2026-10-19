@@ -61,7 +61,6 @@ type DonationSettings = {
   gateway_portal_url: string | null
   gateway_api_url: string | null
   gateway_merchant_key: string | null
-  payment_session_minutes: number
 }
 type Donor = { rank: number; donor_name: string; total_paise: number; donations_count: number }
 type RecentDonation = { display_name: string; amount_paise: number; verified_at: string; message?: string | null }
@@ -86,7 +85,6 @@ const DEFAULT_SETTINGS: DonationSettings = {
   gateway_portal_url: null,
   gateway_api_url: null,
   gateway_merchant_key: null,
-  payment_session_minutes: 15,
 }
 const envGatewayPortalUrl = (import.meta.env.VITE_DONATION_GATEWAY_PORTAL_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
 const envGatewayApiUrl = (import.meta.env.VITE_DONATION_GATEWAY_API_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? ''
@@ -126,46 +124,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [launching, setLaunching] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
   const [lastOrderId, setLastOrderId] = useState('')
-  const [lastAmountPaise, setLastAmountPaise] = useState(0)
-  const [showManualClaim, setShowManualClaim] = useState(false)
-  const [manualScreenshot, setManualScreenshot] = useState<File | null>(null)
-  const [manualUtr, setManualUtr] = useState('')
-  const [manualNote, setManualNote] = useState('')
-  const [manualPaymentTime, setManualPaymentTime] = useState('')
-  const [manualBusy, setManualBusy] = useState(false)
-  const [manualMessage, setManualMessage] = useState('')
-
-  useEffect(() => {
-    let active = true
-    try {
-      const raw = localStorage.getItem('lokpravaah.lastDonationAttempt')
-      if (!raw) return () => { active = false }
-      const saved = JSON.parse(raw) as { orderId?: string; amountPaise?: number }
-      if (typeof saved.orderId !== 'string' || saved.orderId.length < 8 || !Number.isInteger(saved.amountPaise) || Number(saved.amountPaise) < 100) return () => { active = false }
-      const savedOrderId = saved.orderId
-      setLastOrderId(savedOrderId)
-      setLastAmountPaise(Number(saved.amountPaise))
-      setShowManualClaim(true)
-      if (userId && supabase) {
-        void supabase.rpc('janwatch_get_my_donation_claim_status', { p_order_id: savedOrderId }).then(({ data, error }) => {
-          if (!active || error) return
-          const claim = data as { found?: boolean; status?: string; admin_review_note?: string | null } | null
-          if (!claim?.found) { setShowManualClaim(true); return }
-          if (claim.status === 'pending_review') {
-            setShowManualClaim(false)
-            setManualMessage('Your payment evidence is waiting for admin review. Please do not pay again while it is under review.')
-          } else if (claim.status === 'confirmed') {
-            setShowManualClaim(false)
-            setManualMessage(`Your payment review was confirmed by the LokPravaah team.${claim.admin_review_note ? ` Note: ${claim.admin_review_note}` : ''}`)
-          } else if (claim.status === 'rejected') {
-            setShowManualClaim(true)
-            setManualMessage(`The previous claim was rejected.${claim.admin_review_note ? ` Admin note: ${claim.admin_review_note}` : ''} You can upload updated evidence.`)
-          }
-        }).catch(() => { /* evidence form remains available if claim status cannot be checked */ })
-      }
-    } catch { /* browser storage is optional */ }
-    return () => { active = false }
-  }, [userId])
 
   const parsedAmount = useMemo(() => {
     if (!amountText.trim() || !/^\d+(?:\.\d{0,2})?$/.test(amountText.trim())) return null
@@ -256,77 +214,38 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
 
     setLaunching(true)
-    const orderId = makeOrderId(); setLastOrderId(orderId); setLastAmountPaise(parsedAmount); setShowManualClaim(false); setManualMessage(''); setManualScreenshot(null); setManualUtr(''); setManualNote(''); setManualPaymentTime('')
-    try { localStorage.setItem('lokpravaah.lastDonationAttempt', JSON.stringify({ orderId, amountPaise: parsedAmount, createdAt: new Date().toISOString() })) } catch { /* browser storage is optional */ }
-    let checkoutOpened = false
-    let checkoutReported = false
+    const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
-        order_id: orderId, donor_user_id: userId, amount_paise: parsedAmount, currency: 'INR',
+        order_id: orderId, donor_user_id: anonymous ? null : userId, amount_paise: parsedAmount, currency: 'INR',
         donor_name: anonymous ? null : (donorName.trim().slice(0, 80) || null), donor_email: anonymous ? null : (donorEmail.trim().slice(0, 254) || null),
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
       if (error) throw new Error(`Could not create a donation record: ${error.message}`)
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
-      // Set this before calling the SDK: its callbacks can fire before the returned Promise resolves.
-      checkoutOpened = true
       await window.Youpi.pay({
         key: merchantKey, order_id: orderId, amount: Number((parsedAmount / 100).toFixed(2)), currency: 'INR', name: 'LokPravaah',
         description: 'Voluntary contribution to support LokPravaah development and operating costs',
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
-          checkoutReported = true
           setNotice({ tone: 'success', title: settings.thank_you_title, body: `The checkout reported a result for ${orderId}. The public total and leaderboard update only after the signed server webhook verifies payment. ${settings.thank_you_message}` })
           setLaunching(false); void loadPublicData()
         },
         onSuccess: () => {
-          checkoutReported = true
           setNotice({ tone: 'success', title: settings.thank_you_title, body: `Thank you! Reference ${orderId} is being verified. The public totals update after the payment service confirms it. ${settings.thank_you_message}` })
           setLaunching(false); window.setTimeout(() => void loadPublicData(), 3500)
         },
-        onFailed: result => { checkoutReported = true; setShowManualClaim(checkoutOpened); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, do not retry yet—submit a payment-evidence review below.` }); setLaunching(false) },
-        onSuspicious: () => { checkoutReported = true; setShowManualClaim(checkoutOpened); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Please do not repeat payment until its status has been checked.` }); setLaunching(false) },
-        onExpired: () => { checkoutReported = true; setShowManualClaim(checkoutOpened); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. Check your bank account before starting another attempt.` }); setLaunching(false) },
-        onCancelled: () => { checkoutReported = true; setShowManualClaim(checkoutOpened); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
-        onClose: () => { setLaunching(false); if (!checkoutReported) setShowManualClaim(checkoutOpened) },
+        onFailed: result => { setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
+        onSuspicious: () => { setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Please do not repeat payment until its status has been checked.` }); setLaunching(false) },
+        onExpired: () => { setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. Check your bank account before starting another attempt.` }); setLaunching(false) },
+        onCancelled: () => { setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
+        onClose: () => setLaunching(false),
       })
     } catch (error) {
-      setShowManualClaim(checkoutOpened)
       setNotice({ tone: 'error', title: 'Could not start UPI checkout', body: error instanceof Error ? error.message : 'Please check the gateway setup and try again.' })
       setLaunching(false)
     }
-  }
-
-  async function submitManualClaim() {
-    if (!supabase || !userId) { setManualMessage('Sign in to LokPravaah before submitting private payment evidence.'); return }
-    if (!lastOrderId || !manualScreenshot) { setManualMessage('Choose the screenshot/receipt from your UPI app first.'); return }
-    if (manualScreenshot.size > 10 * 1024 * 1024) { setManualMessage('The file must be 10 MB or smaller.'); return }
-    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(manualScreenshot.type)) { setManualMessage('Upload a JPG, PNG, WEBP image or PDF receipt.'); return }
-    if (manualUtr.trim() && !/^[A-Za-z0-9_-]{6,80}$/.test(manualUtr.trim())) { setManualMessage('Enter a valid UTR/reference, or leave it blank.'); return }
-    setManualBusy(true); setManualMessage('')
-    try {
-      const safeName = manualScreenshot.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120) || 'payment-receipt'
-      const path = `${userId}/${lastOrderId}/${crypto.randomUUID()}-${safeName}`
-      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(path, manualScreenshot, { contentType: manualScreenshot.type, upsert: false })
-      if (uploadError) throw new Error(`Secure screenshot upload failed: ${uploadError.message}. Apply the final payment-support SQL migration first.`)
-      const { data, error } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
-        p_order_id: lastOrderId,
-        p_screenshot_path: path,
-        p_claimed_utr: manualUtr.trim() || null,
-        p_claimed_amount_paise: lastAmountPaise || null,
-        p_payment_timestamp: manualPaymentTime ? new Date(manualPaymentTime).toISOString() : null,
-        p_user_note: manualNote.trim() || null,
-      })
-      if (error) throw new Error(error.message || 'The payment evidence could not be submitted.')
-      const response = data as { message?: string } | null
-      setManualMessage(response?.message || 'Evidence submitted for admin review. This does not itself verify payment.')
-      setManualScreenshot(null)
-      setShowManualClaim(false)
-      setNotice({ tone: 'info', title: 'Payment evidence sent for review', body: `Reference ${lastOrderId} has been sent to the LokPravaah admin team. Please do not send the payment a second time while it is under review.` })
-    } catch (error) {
-      setManualMessage(error instanceof Error ? error.message : 'Could not submit payment evidence. Please retry.')
-    } finally { setManualBusy(false) }
   }
 
   const topThree = publicData?.top_donors.slice(0, 3) ?? []
@@ -374,17 +293,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
         </form>
-        {showManualClaim && <section className="donation-manual-claim" aria-label="Submit payment evidence for manual review">
-          <div><b>Paid, but LokPravaah has not confirmed it?</b><p>Upload your UPI app receipt for manual review. Admins must check the receiving-bank statement and UTR; a screenshot alone does not automatically mark a donation as paid. Never upload your UPI PIN, OTP or password.</p></div>
-          <label className="donation-field"><span>UPI / bank UTR (optional)</span><input value={manualUtr} onChange={e => setManualUtr(e.target.value)} maxLength={80} placeholder="Enter the transaction reference if visible"/></label>
-          <label className="donation-field"><span>Payment date and time (optional)</span><input type="datetime-local" value={manualPaymentTime} onChange={e => setManualPaymentTime(e.target.value)}/></label>
-          <label className="donation-field"><span>Payment screenshot / receipt</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={e => setManualScreenshot(e.target.files?.[0] || null)} required/><small>Private evidence · JPG, PNG, WEBP or PDF · max 10 MB</small></label>
-          <label className="donation-field"><span>Extra details (optional)</span><textarea rows={2} maxLength={2000} value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Only non-sensitive details that help the admin locate the bank credit"/></label>
-          {manualMessage && <div className="donation-inline-warning" role="status"><CircleAlert size={16}/><span>{manualMessage}</span></div>}
-          {!userId && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Please sign in first to submit private payment evidence. Your reference is saved in this browser so you can return to it after signing in.</span></div>}
-          <button className="donation-submit" type="button" onClick={() => void submitManualClaim()} disabled={manualBusy || !userId}>{manualBusy ? <><LoaderCircle size={17} className="donation-spin"/> Submitting evidence…</> : 'Submit for manual review'}</button>
-        </section>}
-        {manualMessage && !showManualClaim && <p className="donation-manual-result" role="status">{manualMessage}</p>}
         <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook verifies the amount and order. Do not share your UPI PIN or OTP.</span></div>
       </section>
 

@@ -375,7 +375,7 @@ export default function App() {
           sessionStorage.removeItem('janwatch.authFlow')
         }
       } catch { /* session storage may be unavailable */ }
-      if (!session?.user && event === 'SIGNED_OUT') {
+      if (!session?.user) {
         setEntryScreen('welcome')
         setIssues([])
         setStats(EMPTY_STATS)

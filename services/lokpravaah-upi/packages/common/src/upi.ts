@@ -27,25 +27,23 @@ export function buildUpiUri(options: BuildUpiUriOptions): string {
   if (!isValidVpa(options.payeeVpa)) {
     throw new Error(`Invalid payee VPA: ${options.payeeVpa}`);
   }
-  const payeeName = String(options.payeeName || '').trim();
-  if (!payeeName) throw new Error('Payee name is required');
+
   const amountStr = toRupeesString(options.amountPaise);
-  const rawRef = String(options.transactionRef || '').trim();
-  const safeRef = /^[A-Za-z0-9.-]{1,35}$/.test(rawRef)
-    ? rawRef
-    : rawRef.replace(/[^A-Za-z0-9.-]/g, '').slice(-35);
-  if (!safeRef) throw new Error('A valid UPI transaction reference of at most 35 characters is required');
-  const note = String(options.transactionNote || `Payment ${safeRef}`).trim().slice(0, 50);
-  const encode = (value: string) => encodeURIComponent(String(value)).replace(/[!'()*]/g, ch => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
-  const params: [string, string][] = [
-    ['pa', options.payeeVpa.trim()],
-    ['pn', payeeName],
-    ['am', amountStr],
-    ['cu', 'INR'],
-    ['tr', safeRef],
-    ['tn', note],
-  ];
-  return `upi://pay?${params.map(([key, value]) => `${key}=${encode(value)}`).join('&')}`;
+
+  const params = new URLSearchParams();
+  params.set('pa', options.payeeVpa.trim());
+  params.set('pn', options.payeeName.trim());
+  params.set('am', amountStr);
+  const txnId = (options.transactionRef || options.transactionNote || '').trim();
+  if (txnId) {
+    params.set('tn', txnId);
+  }
+
+  return `upi://pay?${params.toString()}`;
+}
+
+export interface BuildUpiIntentUriOptions extends BuildUpiUriOptions {
+  packageName: string;
 }
 
 /**
