@@ -1,0 +1,86 @@
+/* Small, accessible admin-console interaction polish. */
+@keyframes lokAdminRise {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.donation-admin-settings,
+.donation-admin-requests,
+.donation-admin-transactions,
+.donation-admin-stats article,
+.upi-pairing-panel,
+.gateway-health-panel {
+  animation: lokAdminRise 320ms cubic-bezier(.2,.7,.25,1) both;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.donation-admin-stats article:nth-child(2) { animation-delay: 35ms; }
+.donation-admin-stats article:nth-child(3) { animation-delay: 70ms; }
+.donation-admin-stats article:nth-child(4) { animation-delay: 105ms; }
+
+.donation-admin-stats article:hover,
+.gateway-health-grid > div:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--mint-strong) 42%, var(--border));
+  box-shadow: 0 9px 24px color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.donation-admin .btn,
+.upi-pairing-panel .btn {
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease;
+}
+
+.donation-admin .btn:hover:not(:disabled),
+.upi-pairing-panel .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.donation-admin .btn:active:not(:disabled),
+.upi-pairing-panel .btn:active:not(:disabled) {
+  transform: scale(.985);
+}
+
+.donation-admin .btn:focus-visible,
+.upi-pairing-panel .btn:focus-visible,
+.donation-admin input:focus-visible,
+.donation-admin textarea:focus-visible,
+.donation-admin select:focus-visible {
+  outline: 2px solid var(--mint-strong);
+  outline-offset: 3px;
+}
+
+.donation-admin-table tbody tr td {
+  transition: background-color 150ms ease;
+}
+
+.donation-admin-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--mint-strong) 5%, transparent);
+}
+
+.donation-admin-receiver-notice,
+.donation-admin-error,
+.donation-admin-approval-note,
+.upi-pairing-panel .ops-error {
+  animation: lokAdminRise 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .donation-admin-settings,
+  .donation-admin-requests,
+  .donation-admin-transactions,
+  .donation-admin-stats article,
+  .upi-pairing-panel,
+  .gateway-health-panel,
+  .donation-admin .btn,
+  .upi-pairing-panel .btn,
+  .donation-admin-table tbody tr td,
+  .donation-admin-receiver-notice,
+  .donation-admin-error,
+  .donation-admin-approval-note,
+  .upi-pairing-panel .ops-error,
+  .gateway-health-grid > div {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
