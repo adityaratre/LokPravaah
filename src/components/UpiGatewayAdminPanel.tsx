@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle2, Download, LoaderCircle, QrCode, ShieldCheck, Smartphone } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Download, LoaderCircle, QrCode, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 type PairQrResponse = { expiresAt: number; pairingPayload: string; error?: string }
