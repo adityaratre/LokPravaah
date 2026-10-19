@@ -14,12 +14,17 @@ The current Worker builds `upi://pay` with `tr=payment.id`, where `payment.id` i
 
 This is an update migration for an existing database. It expects the donation and Cloudflare gateway schema to already exist.
 
+6. Apply `supabase/lokpravaah_manual_donation_review.sql` after the donation and UPI gateway schema migrations. It installs a private UTR/screenshot submission flow and bank-statement-based admin review. A screenshot never marks a payment as received by itself.
+
 ## 2. Apply the Worker code changes
 
 Replace these files in your repository with the matching files from this patch:
 
 - `cloudflare-upi-worker/src/index.js`
+- `cloudflare-upi-worker/public/youpi.js`
 - `cloudflare-upi-worker/tests/gateway.test.js`
+- `src/components/DonationPage.tsx` and `src/components/DonationPage.css`
+- `src/components/DonationAdminPanel.tsx` and `src/components/DonationAdminPanel.css`
 
 The Worker change sends a unique 32-character reference (no UUID hyphens) in the UPI `tr` field, shortens the `tn` field, reads the session timer setting from Supabase with an environment-variable fallback, and displays a checkout countdown. SQL must be applied first because the Worker now selects `upi_transaction_ref` from `upi_gateway_payments`.
 
