@@ -66,6 +66,9 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const body = await response.json();
   assert.equal(body.status, 'UP');
   assert.equal(body.checks.database, true);
+  assert.equal(body.checks.supabaseUrlConfigured, true);
+  assert.equal(body.checks.serviceRoleKeyConfigured, true);
+  assert.equal(body.checks.receivingVpa, true);
 });
 
 test('standalone /admin page is not exposed', async () => {

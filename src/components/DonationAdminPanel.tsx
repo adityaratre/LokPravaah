@@ -30,6 +30,8 @@ type DonationRow = {
   created_at: string; verified_at: string | null
 }
 type ChangeRequest = { id: string; requested_by: string; changes: Record<string, unknown>; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string }
+type ReceiverRequest = { id: string; requested_by: string; receiving_vpa: string; payee_name: string; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string }
+type ActiveReceiver = { receivingVpa?: string | null; payeeName?: string | null; updatedAt?: string | null; updatedBy?: string | null }
 type AdminData = { role: string; settings: Settings; donations: DonationRow[]; change_requests: ChangeRequest[] }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -62,22 +64,42 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [lastLoaded, setLastLoaded] = useState('')
+  const [receiverForm, setReceiverForm] = useState({ receivingVpa: '', payeeName: '' })
+  const [activeReceiver, setActiveReceiver] = useState<ActiveReceiver | null>(null)
+  const [receiverRequests, setReceiverRequests] = useState<ReceiverRequest[]>([])
+  const [receiverNotes, setReceiverNotes] = useState<Record<string, string>>({})
+  const [receiverBusy, setReceiverBusy] = useState('')
+  const [receiverError, setReceiverError] = useState('')
+  const [receiverNotice, setReceiverNotice] = useState('')
 
   const load = useCallback(async () => {
-    if (!supabase) { setError('Supabase is not configured.'); setLoading(false); return }
+    if (!supabase) { setError('Supabase is not configured.'); setLoading(false); setReceiverError('Supabase is not configured.'); return }
     setLoading(true); setError('')
-    const { data, error: rpcError } = await supabase.rpc('janwatch_admin_get_donation_data')
-    if (rpcError) {
-      setError(`Donation administration data could not load${rpcError.code ? ` (${rpcError.code})` : ''}. Apply the donation SQL migration and confirm your account has the admin role.`)
-      setLoading(false); return
+    const [donationResult, receiverResult] = await Promise.all([
+      supabase.rpc('janwatch_admin_get_donation_data'),
+      supabase.rpc('janwatch_admin_get_upi_receiver_settings'),
+    ])
+    if (donationResult.error) {
+      setError(`Donation administration data could not load${donationResult.error.code ? ` (${donationResult.error.code})` : ''}. Apply the donation SQL migration and confirm your account has the admin role.`)
+    } else {
+      const result = donationResult.data as Partial<AdminData> | null
+      const nextSettings = { ...DEFAULT_SETTINGS, ...(result?.settings ?? {}), suggested_amounts: Array.isArray(result?.settings?.suggested_amounts) ? result!.settings!.suggested_amounts : DEFAULT_SETTINGS.suggested_amounts }
+      setSettings(nextSettings)
+      setPresetText(nextSettings.suggested_amounts.join(', '))
+      setDonations(Array.isArray(result?.donations) ? result!.donations! : [])
+      setRequests(Array.isArray(result?.change_requests) ? result!.change_requests! : [])
+      setLastLoaded(new Date().toISOString())
     }
-    const result = data as Partial<AdminData> | null
-    const nextSettings = { ...DEFAULT_SETTINGS, ...(result?.settings ?? {}), suggested_amounts: Array.isArray(result?.settings?.suggested_amounts) ? result!.settings!.suggested_amounts : DEFAULT_SETTINGS.suggested_amounts }
-    setSettings(nextSettings)
-    setPresetText(nextSettings.suggested_amounts.join(', '))
-    setDonations(Array.isArray(result?.donations) ? result!.donations! : [])
-    setRequests(Array.isArray(result?.change_requests) ? result!.change_requests! : [])
-    setLastLoaded(new Date().toISOString())
+    if (receiverResult.error) {
+      setReceiverError(`Receiving-account settings could not load: ${receiverResult.error.message || 'check the UPI settings migration and administrator role.'}`)
+    } else {
+      const receiverData = receiverResult.data as { active?: ActiveReceiver; requests?: ReceiverRequest[] } | null
+      const active = receiverData?.active || {}
+      setActiveReceiver(active)
+      setReceiverForm({ receivingVpa: String(active.receivingVpa || ''), payeeName: String(active.payeeName || '') })
+      setReceiverRequests(Array.isArray(receiverData?.requests) ? receiverData!.requests! : [])
+      setReceiverError('')
+    }
     setLoading(false)
   }, [])
 
@@ -119,6 +141,55 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     setBusy('')
     if (reviewError) { setError(`Could not ${action} the request: ${reviewError.message || 'check permissions and refresh.'}`); return }
     notify((data as { message?: string } | null)?.message || `Donation settings request ${action}d.`)
+    await load()
+  }
+
+
+  async function saveReceiverSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase) return
+    const receivingVpa = receiverForm.receivingVpa.trim().toLowerCase()
+    const payeeName = receiverForm.payeeName.trim()
+    if (!/^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test(receivingVpa)) {
+      setReceiverError('Enter a valid receiving UPI ID, for example name@bank.')
+      return
+    }
+    if (payeeName.length < 1 || payeeName.length > 99) {
+      setReceiverError('Payee name must contain 1–99 characters.')
+      return
+    }
+    const prompt = role === 'super_admin'
+      ? `Set ${receivingVpa} / ${payeeName} as the active receiving account for new UPI sessions? Verify this account is yours before continuing.`
+      : `Submit ${receivingVpa} / ${payeeName} for super-admin approval? Current checkout settings will remain active until approval.`
+    if (!window.confirm(prompt)) return
+    setReceiverBusy('save'); setReceiverError(''); setReceiverNotice('')
+    const { data, error: saveError } = await supabase.rpc('janwatch_admin_set_upi_receiver_settings', {
+      p_receiving_vpa: receivingVpa,
+      p_payee_name: payeeName,
+    })
+    setReceiverBusy('')
+    if (saveError) { setReceiverError(`Receiving-account settings could not be saved: ${saveError.message || 'check your role and try again.'}`); return }
+    const result = data as { status?: string; message?: string } | null
+    setReceiverNotice(result?.message || (result?.status === 'pending_approval' ? 'Change submitted for super-admin approval.' : 'Receiving-account settings saved.'))
+    notify(result?.message || 'Receiving-account settings saved.')
+    await load()
+  }
+
+  async function reviewReceiverRequest(request: ReceiverRequest, approve: boolean) {
+    if (!supabase || role !== 'super_admin') return
+    const action = approve ? 'approve' : 'reject'
+    if (!window.confirm(`${approve ? 'Approve and activate' : 'Reject'} receiving account ${request.receiving_vpa} / ${request.payee_name}?`)) return
+    setReceiverBusy(request.id); setReceiverError(''); setReceiverNotice('')
+    const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_upi_receiver_request', {
+      p_request_id: request.id,
+      p_approve: approve,
+      p_note: receiverNotes[request.id]?.trim() || null,
+    })
+    setReceiverBusy('')
+    if (reviewError) { setReceiverError(`Could not ${action} the receiving-account request: ${reviewError.message || 'please refresh and retry.'}`); return }
+    const result = data as { message?: string } | null
+    setReceiverNotice(result?.message || `Receiving-account request ${action}d.`)
+    notify(result?.message || `Receiving-account request ${action}d.`)
     await load()
   }
 
@@ -169,6 +240,37 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
         {role !== 'super_admin' && <div className="donation-admin-approval-note"><ShieldCheck size={16}/><span><b>Approval rule:</b> your ordinary presentation settings apply immediately; major payment, amount-limit, fundraising-goal, suggested-amount and gateway changes will remain pending until a super administrator approves them.</span></div>}
         <button className="btn btn-primary" type="submit" disabled={busy === 'settings' || loading}>{busy === 'settings' ? <LoaderCircle size={15} className="spin"/> : <Save size={15}/>} Save donation settings</button>
       </form>
+    </section>
+
+
+    <section className="panel donation-admin-settings donation-admin-receiver-settings">
+      <div className="panel-heading"><div><div className="section-kicker">ACTUAL CHECKOUT BENEFICIARY</div><h3>Receiving UPI account</h3><p>The VPA and payee name in this section are the values encoded into new UPI payment links. Confirm the payee shown by your UPI app before taking live payments.</p></div><ShieldCheck size={19}/></div>
+      {receiverError && <div className="donation-admin-error" role="alert"><AlertCircle size={17}/><span>{receiverError}</span></div>}
+      {receiverNotice && <div className="donation-admin-receiver-notice" role="status"><CheckCircle2 size={16}/><span>{receiverNotice}</span></div>}
+      <div className="donation-admin-receiver-current">
+        <div><span>Currently active receiving VPA</span><b>{activeReceiver?.receivingVpa || 'Not configured'}</b></div>
+        <div><span>Currently active payee name</span><b>{activeReceiver?.payeeName || 'Not configured'}</b></div>
+        <div><span>Last changed</span><b>{dateText(activeReceiver?.updatedAt)}</b></div>
+      </div>
+      <form className="donation-admin-form" onSubmit={saveReceiverSettings}>
+        <div className="donation-admin-config-grid">
+          <label>Receiving UPI ID / VPA<input autoComplete="off" spellCheck={false} maxLength={320} value={receiverForm.receivingVpa} onChange={e => setReceiverForm(v => ({ ...v, receivingVpa: e.target.value }))} placeholder="yourname@bank" required/></label>
+          <label>Payee / account holder name<input autoComplete="organization" maxLength={99} value={receiverForm.payeeName} onChange={e => setReceiverForm(v => ({ ...v, payeeName: e.target.value }))} placeholder="Name shown by your UPI app" required/></label>
+        </div>
+        <div className="donation-admin-receiver-warning"><ShieldCheck size={16}/><span><b>Important:</b> this changes the receiver used for new checkout sessions. Use only a VPA you control and verify the displayed beneficiary in a UPI app first. Webhook secrets and service-role keys do not belong here.</span></div>
+        <div className="donation-admin-receiver-actions">
+          <button className="btn btn-primary" type="submit" disabled={receiverBusy === 'save' || loading}>{receiverBusy === 'save' ? <LoaderCircle size={15} className="spin"/> : <Save size={15}/>} {role === 'super_admin' ? 'Save active receiver' : 'Request receiver change'}</button>
+          <button className="btn btn-secondary" type="button" onClick={() => void load()} disabled={loading || Boolean(receiverBusy)}><RefreshCw size={14} className={loading ? 'spin' : ''}/> Refresh receiver</button>
+        </div>
+      </form>
+      {role === 'super_admin' && <div className="donation-admin-receiver-requests"><div className="panel-heading"><div><div className="section-kicker">SUPER-ADMIN REVIEW</div><h3>Receiver change requests</h3><p>Changes requested by regular admins do not become active until approved here.</p></div><ShieldCheck size={18}/></div>
+        {!receiverRequests.filter(item => item.status === 'pending').length ? <div className="chat-empty"><CheckCircle2 size={21}/><b>No pending receiver changes</b></div> : receiverRequests.filter(item => item.status === 'pending').map(request => <article className="donation-admin-request" key={request.id}>
+          <div className="donation-admin-request-head"><b>{request.receiving_vpa} · {request.payee_name}</b><small>{dateText(request.created_at)} · {request.id.slice(0, 8)}</small></div>
+          <label>Review note (optional)<input value={receiverNotes[request.id] ?? ''} maxLength={500} onChange={e => setReceiverNotes(v => ({ ...v, [request.id]: e.target.value }))} placeholder="Reason for approval/rejection"/></label>
+          <div className="donation-admin-request-actions"><button type="button" className="btn btn-primary" disabled={receiverBusy === request.id} onClick={() => void reviewReceiverRequest(request, true)}><CheckCircle2 size={15}/> Approve & activate</button><button type="button" className="btn btn-secondary" disabled={receiverBusy === request.id} onClick={() => void reviewReceiverRequest(request, false)}><XCircle size={15}/> Reject</button></div>
+        </article>)}
+      </div>}
+      <p className="donation-admin-gateway-note">The active receiver above is the canonical source for the hosted checkout. Legacy VPA fields, if present, are retained for compatibility and do not override this setting.</p>
     </section>
 
     {role === 'super_admin' && <section className="panel donation-admin-requests"><div className="panel-heading"><div><div className="section-kicker">GOVERNANCE QUEUE</div><h3>Major change requests</h3><p>Approval applies the queued payment settings. Every request has a permanent status and reviewer record.</p></div><ShieldCheck size={19}/></div>{!pendingRequests.length ? <div className="chat-empty"><CheckCircle2 size={23}/><b>No pending changes</b><span>Major donation changes submitted by administrators will appear here.</span></div> : pendingRequests.map(request => <article className="donation-admin-request" key={request.id}><div className="donation-admin-request-head"><b>Major donation settings request</b><small>{dateText(request.created_at)} · Request ID {request.id.slice(0,8)}</small></div><div className="donation-admin-request-changes">{Object.entries(request.changes).map(([key,value]) => <div key={key}><span>{friendlyKey[key] || key.replace(/_/g,' ')}</span><b>{requestValue(key,value)}</b></div>)}</div><label>Review note (optional)<input value={notes[request.id] ?? ''} maxLength={500} onChange={e => setNotes(v => ({ ...v, [request.id]: e.target.value }))} placeholder="Reason for approval/rejection"/></label><div className="donation-admin-request-actions"><button type="button" className="btn btn-primary" disabled={busy === request.id} onClick={() => void reviewRequest(request,true)}><CheckCircle2 size={15}/> Approve changes</button><button type="button" className="btn btn-secondary" disabled={busy === request.id} onClick={() => void reviewRequest(request,false)}><XCircle size={15}/> Reject</button></div></article>)}</section>}

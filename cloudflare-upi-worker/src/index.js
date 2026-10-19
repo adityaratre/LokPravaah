@@ -386,17 +386,25 @@ async function handler(request, env) {
 
   if (request.method === 'GET' && path === '/health') {
     const receiverSettings = await getReceiverSettings(env);
+    const supabaseUrlConfigured = Boolean((env.SUPABASE_URL || '').trim() && /^https:\/\//i.test((env.SUPABASE_URL || '').trim()));
+    const serviceRoleKeyConfigured = Boolean((env.SUPABASE_SERVICE_ROLE_KEY || '').trim());
+    const supabase = supabaseUrlConfigured && serviceRoleKeyConfigured;
     const config = {
-      supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+      supabase,
+      supabaseUrlConfigured,
+      serviceRoleKeyConfigured,
       receivingVpa: isValidReceiver(receiverSettings),
+      receiverSettingsSource: receiverSettings.source,
       webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim()
         && /^https:\/\//i.test((env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim())),
-      admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+      admin: supabase,
     };
     let database = false;
-    try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; } catch {}
-    const ready = Object.values(config).every(Boolean) && database;
-    return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database } }, ready ? 200 : 503);
+    let databaseError = '';
+    try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; }
+    catch (error) { databaseError = error?.message === 'SUPABASE_NOT_CONFIGURED' ? 'SUPABASE_NOT_CONFIGURED' : error?.message || 'DATABASE_CHECK_FAILED'; }
+    const ready = supabase && config.receivingVpa && config.webhook && database;
+    return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database, ...(databaseError ? { databaseError } : {}) } }, ready ? 200 : 503);
   }
 
   // The standalone pairing page has been removed. Keep this path dark even on workers.dev.
