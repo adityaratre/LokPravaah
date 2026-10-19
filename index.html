@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b1218" />
     <meta name="color-scheme" content="dark light" />
-    <meta name="description" content="LokPravaah helps citizens document local civic issues, track report updates, and prepare complaint and RTI drafts. An independent civic-tech platform, not a government portal." />
-    <meta name="keywords" content="LokPravaah, civic issues, citizen grievance, public complaint, civic reporting, RTI draft, local issues, public accountability, India" />
+    <meta name="description" content="Report local civic issues, track recorded updates, and prepare complaint or RTI drafts online. LokPravaah is an independent civic-tech platform—not a government portal." />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>LokPravaah | Citizen Grievance & Civic Accountability Platform</title>
@@ -18,11 +17,11 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="LokPravaah" />
     <meta property="og:title" content="LokPravaah | Citizen Grievance & Civic Accountability Platform" />
-    <meta property="og:description" content="Document local civic issues, follow report status updates, and prepare clearer complaint and RTI drafts with LokPravaah." />
+    <meta property="og:description" content="Report local civic issues, track recorded updates, and prepare complaint or RTI drafts online. Independent civic tech, not a government portal." />
     <meta property="og:locale" content="en_IN" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="LokPravaah | Citizen Grievance & Civic Accountability Platform" />
-    <meta name="twitter:description" content="An independent civic-tech platform for recording local issues and organising citizen action." />
+    <meta name="twitter:description" content="An independent civic-tech platform to report local issues, track recorded updates, and organise complaint or RTI drafts." />
     <link rel="canonical" href="__LOKPRAVAAH_SITE_URL__/" data-site-dependent="true" />
     <meta property="og:url" content="__LOKPRAVAAH_SITE_URL__/" data-site-dependent="true" />
     <meta property="og:image" content="__LOKPRAVAAH_SITE_URL__/og-image.png" data-site-dependent="true" />
@@ -32,21 +31,39 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "LokPravaah",
-        "applicationCategory": "CivicApplication",
-        "operatingSystem": "Web",
-        "description": "An independent civic-tech platform for documenting public issues, tracking report updates, and preparing complaint and Right to Information (RTI) drafts.",
-        "inLanguage": ["en-IN", "hi-IN"],
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "INR" },
-        "creator": {
-          "@type": "Person",
-          "name": "Aditya Ratre",
-          "url": "https://work.adityaratre.workers.dev/"
-        },
-        "disclaimer": "LokPravaah is an independent civic-tech project, not an official government service. Reports are not automatically submitted to government departments."
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "__LOKPRAVAAH_SITE_URL__/#website",
+            "url": "__LOKPRAVAAH_SITE_URL__/",
+            "name": "LokPravaah",
+            "alternateName": "LokPravaah Civic Platform",
+            "inLanguage": ["en-IN", "hi-IN"]
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "__LOKPRAVAAH_SITE_URL__/#webapplication",
+            "name": "LokPravaah",
+            "url": "__LOKPRAVAAH_SITE_URL__/",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Any",
+            "description": "An independent civic-tech platform for documenting local public-service concerns, following recorded report updates, and organising complaint and RTI drafts.",
+            "inLanguage": ["en-IN", "hi-IN"],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "INR"
+            },
+            "creator": {
+              "@type": "Person",
+              "name": "Aditya Ratre",
+              "url": "https://work.adityaratre.workers.dev/"
+            },
+            "disambiguatingDescription": "An independent civic-tech project, not an official government portal. Reports are not automatically submitted to government departments."
+          }
+        ]
       }
-    </script>
+    </script>ipt>
   </head>
   <body>
     <div id="root"></div>
