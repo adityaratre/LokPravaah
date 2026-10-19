@@ -676,7 +676,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                 ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>Admin review needs more information: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
                 : null}
           <div className="donation-active-actions">
-            {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
+            {activeDonation.status !== 'SUCCESS' && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
             {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => proofOpen ? setProofOpen(false) : openManualProofForm()}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
             {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
           </div>
@@ -736,7 +736,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           <p className="donation-history-foot"><ShieldCheck size={13}/> Only the verified bank-record review changes a donation to successful. Ticket replies and status are available in Support tickets.</p>
         </section>
 
-        <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook or an administrator's bank-statement review verifies the amount and UTR. Do not share your UPI PIN or OTP.</span></div>
+        <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after an administrator verifies the amount and UTR against the receiving-bank statement. Screenshots alone do not confirm payment. Never share your UPI PIN or OTP.</span></div>
       </section>
 
       <aside className="donation-info-column">
