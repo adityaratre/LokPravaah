@@ -233,42 +233,7 @@ public class ApiClient {
         return false;
     }
 
-    public boolean sendObservation(long amountPaise, double amount, String bankRef, String senderVpa, String title, String text) {
-        if (!isPaired()) return false;
-
-        String deviceId = prefs.getString("device_id", null);
-        String signingKey = prefs.getString("signing_key", null);
-        String baseUrl = getBaseUrl();
-        String endpoint = baseUrl + "/api/v1/pollers/android/events";
-
-        try {
-            String tsStr = String.valueOf(System.currentTimeMillis());
-            JSONObject raw = new JSONObject();
-            raw.put("title", title != null ? title : "");
-            raw.put("text", text != null ? text : "");
-
-            JSONObject json = new JSONObject();
-            json.put("deviceId", deviceId);
-            json.put("amountPaise", amountPaise);
-            json.put("amount", amount);
-            json.put("bankReferenceNumber", bankRef);
-            json.put("senderVpa", senderVpa);
-            json.put("observedAt", System.currentTimeMillis());
-            json.put("rawNotification", raw);
-
-            String bodyString = json.toString();
-            String sigPayload = bodyString + ":" + tsStr;
-            String signature = calculateHmacSha256(sigPayload, signingKey);
-
-            String response = postJson(endpoint, bodyString, deviceId, tsStr, signature);
-            return response != null;
-        } catch (Exception e) {
-            Log.e(TAG, "sendObservation error: " + e.getMessage());
-        }
-        return false;
-    }
-
-    public void unpair() {
+        public void unpair() {
         prefs.edit().remove("device_id").remove("signing_key").apply();
     }
 
