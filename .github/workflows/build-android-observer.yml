@@ -57,18 +57,25 @@ jobs:
         run: |
           set -euo pipefail
           APK='services/lokpravaah-upi/apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk'
+          git fetch origin main
+          if ! git diff --quiet "$GITHUB_SHA" origin/main -- services/lokpravaah-upi/apps/android-observer-app/; then
+            echo "Android source changed while this APK was building; refusing to publish a stale APK."
+            exit 1
+          fi
+          git checkout -B main origin/main
           install -D -m 0644 "$APK" cloudflare-upi-worker/public/youpi-sms-gateway.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add cloudflare-upi-worker/public/youpi-sms-gateway.apk
           if ! git diff --cached --quiet; then
             git commit -m "Publish updated YOUPI observer APK"
-            git push origin HEAD:main
+            git push origin main
           else
             echo "Public APK already matches the source build."
           fi
 
       - name: Upload test APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: youpi-observer-debug-apk
