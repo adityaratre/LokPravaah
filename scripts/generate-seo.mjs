@@ -170,6 +170,19 @@ const pages = [
 const home = '<section><h2>Local civic issue reporting</h2><p>Use LokPravaah to organise details about local roads, waste, streetlights, water, drainage, parks, and other civic concerns. Add a useful location and follow status updates recorded in the platform.</p></section>' +
   '<section><h2>How to get started</h2><ol><li>Describe the concern in clear, factual language.</li><li>Add the area, address, landmark or optional map coordinates.</li><li>Sign in to submit reports and review your own activity.</li></ol></section>' +
   '<section><h2>Independent civic tech</h2><p>LokPravaah is not an official government portal. Reports are not automatically sent to a government department and do not guarantee resolution. Contact the relevant official channel for formal action and emergency services for immediate danger.</p></section>'
+const homeHindi = {
+  path: '/hi/', lang: 'hi-IN', section: 'मुखपृष्ठ',
+  title: 'LokPravaah | स्थानीय नागरिक समस्या रिपोर्ट और RTI ड्राफ्ट टूल',
+  description: 'अपने इलाके की सड़क, सफाई, स्ट्रीट लाइट, पानी या ड्रेनेज जैसी समस्याओं का स्पष्ट विवरण तैयार करें। LokPravaah एक स्वतंत्र नागरिक तकनीक प्लेटफ़ॉर्म है।',
+  h1: 'बेहतर मोहल्ले की शुरुआत आपकी आवाज़ से होती है',
+  intro: 'स्थानीय नागरिक समस्याओं का विवरण दर्ज करें, रिपोर्ट में सही स्थान जोड़ें और प्लेटफ़ॉर्म पर दर्ज अपडेट देखें। LokPravaah लोगों को अपनी बात व्यवस्थित रूप से रखने में मदद करता है।',
+  body: '<section><h2>अपने क्षेत्र की समस्याएँ स्पष्ट तरीके से दर्ज करें</h2><p>सड़क और फुटपाथ, कचरा और सफाई, स्ट्रीट लाइट, पानी और ड्रेनेज, पार्क और सार्वजनिक स्थान जैसी समस्याओं का तथ्यात्मक विवरण बनाएं। सही श्रेणी, नज़दीकी पहचान-चिह्न और उपयोगी विवरण रिपोर्ट को समझना आसान बनाते हैं।</p></section>' +
+    '<section><h2>रिपोर्ट से लेकर अपडेट तक</h2><ol><li>समस्या और उसके स्थान का विवरण तैयार करें।</li><li>ज़रूरत हो तो सुरक्षित फोटो या वैकल्पिक लोकेशन विवरण जोड़ें।</li><li>प्लेटफ़ॉर्म पर रिपोर्ट दर्ज करने के लिए साइन इन करें।</li><li>अधिकृत खाते द्वारा दर्ज स्थिति बदलाव देखें।</li></ol></section>' +
+    '<section><h2>नागरिक लेखन और RTI ड्राफ्ट</h2><p>LokPravaah के civic-writing tools शिकायत को व्यवस्थित करने या सूचना का अधिकार (RTI) आवेदन का शुरुआती ड्राफ्ट बनाने में मदद कर सकते हैं। हर तथ्य और कानूनी संदर्भ जाँचें। ड्राफ्ट को आधिकारिक माध्यम से अलग से जमा करना होगा।</p></section>' +
+    '<section><h2>स्वतंत्र परियोजना, सरकारी पोर्टल नहीं</h2><p>LokPravaah किसी सरकारी विभाग का आधिकारिक पोर्टल नहीं है। यहाँ की रिपोर्ट अपने-आप नगर निगम या सरकारी कार्यालय में दर्ज नहीं होती और कार्रवाई की गारंटी नहीं मिलती। तत्काल खतरे के लिए संबंधित आपातकालीन सेवा से संपर्क करें।</p></section>' +
+    '<section><h2>और जानें</h2><p><a href="/hi/about/">LokPravaah के बारे में</a> · <a href="/hi/report-civic-issue/">नागरिक समस्या रिपोर्ट करें</a> · <a href="/hi/rti-draft-tool/">RTI ड्राफ्ट टूल</a> · <a href="/hi/civic-ai-assistant/">Civic AI Assistant</a> · <a href="/hi/civic-issue-guides/">समस्या गाइड</a></p></section>',
+}
+
 const homePage = {
   path: '/', lang: 'en-IN', section: 'Home',
   title: 'LokPravaah | Local Civic Issue Reporting & RTI Draft Tool',
@@ -178,7 +191,7 @@ const homePage = {
   intro: 'Report everyday civic issues, add clear location details, and follow recorded updates. LokPravaah helps citizens organise local concerns in one place.',
   body: home,
 }
-const allPages = [homePage, ...pages]
+const allPages = [homePage, ...pages, homeHindi]
 const pageByPath = new Map(allPages.map(page => [page.path, page]))
 const navItems = [
   { path: '/about/', label: 'About', hi: 'परिचय' },
@@ -246,7 +259,7 @@ function renderPage(page) {
   return html
 }
 
-for (const page of allPages) {
+for (const page of allPages.filter(page => page.path !== '/')) {
   const output = resolve(root, 'dist', '.' + page.path, 'index.html')
   await mkdir(dirname(output), { recursive: true })
   await writeFile(output, renderPage(page), 'utf8')
