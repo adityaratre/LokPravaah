@@ -84,3 +84,16 @@
     transform: none !important;
   }
 }
+
+
+/* Searchable payout queue */
+.ops-withdrawal-filters{display:grid;grid-template-columns:minmax(0,2fr) minmax(150px,1fr);gap:10px;margin:14px 0 10px}
+.ops-withdrawal-filters label{display:grid;gap:6px;min-width:0;color:var(--muted);font-size:11px;font-weight:700}
+.ops-withdrawal-filters input,.ops-withdrawal-filters select{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--field,var(--panel2));color:var(--text);font:inherit}
+.ops-withdrawal-counts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--panel2);font-size:11px;color:var(--muted)}
+.ops-withdrawal-counts span{padding-right:8px;border-right:1px solid var(--border)}
+.ops-withdrawal-counts span:last-of-type{border-right:0}
+.ops-withdrawal-counts b{color:var(--text)}
+.ops-withdrawal-counts small{margin-left:auto}
+.ops-withdrawal-main small{overflow-wrap:anywhere}
+@media(max-width:600px){.ops-withdrawal-filters{grid-template-columns:1fr}.ops-withdrawal-counts small{width:100%;margin-left:0}.ops-withdrawal-counts span{padding-right:7px}}
