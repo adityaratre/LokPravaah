@@ -119,19 +119,39 @@ async function getPayment(env, id) {
   const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,created_at&limit=1`);
   return Array.isArray(rows) ? rows[0] || null : null;
 }
+function upiEncode(value) {
+  // UPI URI values must be percent-encoded. Using %20 for spaces is more
+  // interoperable with native PSP URI parsers than form-style '+' encoding.
+  return encodeURIComponent(String(value)).replace(/[!'()*]/g, ch => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+function buildUpiTransactionRef(payment) {
+  const orderId = String(payment.order_id || '').trim();
+  // NPCI's UPI Linking specifications limit the transaction reference (tr) to
+  // 35 characters. Prefer the actual donation order ID when it is safe to pass.
+  if (/^[A-Za-z0-9.-]{1,35}$/.test(orderId)) return orderId;
+
+  // The payment ID is a UUID; strip hyphens so its stable compact reference is
+  // 32 hex chars (or 34 with the LP prefix), instead of sending an invalid
+  // 36-character UUID in `tr`.
+  const compactId = String(payment.id || '').replace(/[^a-f0-9]/gi, '').slice(0, 32).toUpperCase();
+  if (compactId.length >= 8) return `LP${compactId}`.slice(0, 35);
+  return `LP${orderId.replace(/[^A-Za-z0-9.-]/g, '').slice(-32)}`.slice(0, 35) || 'LOKPRAVAAH';
+}
 function buildUpiUri(payment, env) {
   const vpa = (env.UPI_VPA || '').trim();
   const payee = (env.UPI_PAYEE_NAME || '').trim();
   if (!vpa || !payee || !/^[^\s@]+@[^\s@]+$/.test(vpa)) return null;
-  const params = new URLSearchParams({
-    pa: vpa,
-    pn: payee,
-    am: rupees(payment.amount_paise),
-    cu: 'INR',
-    tn: `LokPravaah ${payment.order_id}`.slice(0, 80),
-    tr: payment.id,
-  });
-  return `upi://pay?${params.toString()}`;
+  const transactionRef = buildUpiTransactionRef(payment);
+  const note = `LokPravaah donation ${transactionRef}`.slice(0, 50);
+  const params = [
+    ['pa', vpa],
+    ['pn', payee],
+    ['am', rupees(payment.amount_paise)],
+    ['cu', 'INR'],
+    ['tr', transactionRef],
+    ['tn', note],
+  ].map(([key, value]) => `${key}=${upiEncode(value)}`).join('&');
+  return `upi://pay?${params}`;
 }
 function publicPayment(payment, env) {
   const canPay = payment.status === 'ACTIVE';
