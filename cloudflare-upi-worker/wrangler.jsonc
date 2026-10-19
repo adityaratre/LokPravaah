@@ -2,64 +2,27 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lokpravaah-upi-gateway",
   "main": "src/index.js",
-  "compatibility_date": "2026-10-17",
+  "compatibility_date": "2026-10-19",
   "workers_dev": true,
-  "keep_vars": true,
-
   "routes": [
-    {
-      "pattern": "lokpravaah.online/health",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/api/*",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/checkout/*",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/youpi.js",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/qr.js",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/qr-lib.js",
-      "zone_name": "lokpravaah.online"
-    },
-    {
-      "pattern": "lokpravaah.online/youpi-sms-gateway.apk",
-      "zone_name": "lokpravaah.online"
-    }
+    { "pattern": "lokpravaah.online/health", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/api/*", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/checkout/*", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/admin*", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/youpi.js", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/qr.js", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/qr-lib.js", "zone_name": "lokpravaah.online" },
+    { "pattern": "lokpravaah.online/youpi-sms-gateway.apk", "zone_name": "lokpravaah.online" }
   ],
-
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": [
-      "/health",
-      "/api/*",
-      "/checkout/*",
-      "/youpi.js",
-      "/qr.js",
-      "/qr-lib.js",
-      "/youpi-sms-gateway.apk"
-    ]
+    "run_worker_first": ["/health", "/api/*", "/checkout/*", "/admin", "/admin/*", "/youpi.js", "/qr.js", "/qr-lib.js", "/youpi-sms-gateway.apk"]
   },
-
- "vars": {
-  "LOKPRAVAAH_FRONTEND_ORIGIN": "https://lokpravaah.online",
-  "MERCHANT_ID": "00000000-0000-0000-0000-000000000001",
-  "PUBLIC_BASE_URL": "https://lokpravaah.online",
-  "PAYMENT_SESSION_MINUTES": "15",
-
-  "UPI_VPA": "nexagrind@okaxis",
-  "UPI_PAYEE_NAME": "JanPravaah Donations",
-  "SUPABASE_URL": "https://zfcvfkchttpisuizndur.supabase.co",
-  "LOKPRAVAAH_DONATION_WEBHOOK_URL": "https://zfcvfkchttpisuizndur.supabase.co/functions/v1/donation-webhook"
+  "vars": {
+    "LOKPRAVAAH_FRONTEND_ORIGIN": "https://lokpravaah.online",
+    "MERCHANT_ID": "00000000-0000-0000-0000-000000000001",
+    "PUBLIC_BASE_URL": "https://lokpravaah.online",
+    "PAYMENT_SESSION_MINUTES": "15"
   }
 }

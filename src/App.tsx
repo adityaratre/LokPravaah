@@ -18,10 +18,11 @@ import RewardsPage from './components/RewardsPage'
 import AdminOperations from './components/AdminOperations'
 import WorkerReferralHub, { ReferralStudio } from './components/WorkerReferralHub'
 import DonationPage from './components/DonationPage'
+import TicketSupport from './components/TicketSupport'
 
 type DbStatus = 'submitted' | 'under_review' | 'verified' | 'in_progress' | 'resolved' | 'rejected'
 type SuggestedSeverity = 'normal' | 'high' | 'urgent'
-type ViewName = 'Overview' | 'Explore map' | 'My reports' | 'Community' | 'Public chat' | 'Rewards' | 'Civic toolkit' | 'LokPravaah AI' | 'Worker Hub' | 'Refer & Earn' | 'Donate' | 'My profile'
+type ViewName = 'Overview' | 'Explore map' | 'My reports' | 'Community' | 'Public chat' | 'Rewards' | 'Civic toolkit' | 'LokPravaah AI' | 'Worker Hub' | 'Refer & Earn' | 'Donate' | 'Support tickets' | 'My profile'
 const PRIVILEGED_PLATFORM_ROLES = ['moderator', 'admin', 'super_admin'] as const
 type Language = 'EN' | 'HI'
 type Theme = 'dark' | 'light'
@@ -57,8 +58,6 @@ type ReportEvent = { event_type: string; note: string | null; created_at: string
 type FeatureKey = 'reporting' | 'public_chat' | 'rewards' | 'civic_toolkit' | 'evidence_upload' | 'community_support' | 'janwatch_ai'
 type SiteAnnouncement = { id: string; title: string; body: string; severity: 'info' | 'warning' | 'critical'; created_at: string; expires_at: string | null }
 
-const CANONICAL_APP_URL = 'https://lokpravaah.online'
-
 const EMPTY_STATS: Stats = { total: null, active: null, resolved: null, mine: null }
 const CATEGORIES = [
   'Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage',
@@ -76,6 +75,7 @@ const VIEW_ITEMS: { label: ViewName; icon: typeof LayoutDashboard }[] = [
   { label: 'Worker Hub', icon: HandHeart },
   { label: 'Refer & Earn', icon: Gift },
   { label: 'Donate', icon: Wallet },
+  { label: 'Support tickets', icon: CircleHelp },
 ]
 const DEFAULT_FEATURE_FLAGS: Record<FeatureKey, boolean> = { reporting: true, public_chat: true, rewards: true, civic_toolkit: true, evidence_upload: true, community_support: true, janwatch_ai: true }
 function getSavedSidebarCollapsed(): boolean { try { return localStorage.getItem('janwatch.sidebarCollapsed') === 'true' } catch { return false } }
@@ -578,7 +578,7 @@ export default function App() {
           email,
           password: authPassword,
           options: {
-            emailRedirectTo: `${CANONICAL_APP_URL}/`,
+            emailRedirectTo: `${window.location.origin}/`,
             data: { full_name: authFullName.trim(), janwatch_onboarding_complete: false, referral_code: getCapturedReferralCode() || undefined },
           },
         })
@@ -615,7 +615,7 @@ export default function App() {
     if (!email) { setAuthError('Enter your email address first, then select Forgot password.'); return }
     setAuthBusy(true); setAuthError(''); setAuthMessage('')
     try {
-      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${CANONICAL_APP_URL}/` })
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/` })
       if (error) throw error
       setAuthMessage('If an account uses this email, a password reset link has been sent.')
     } catch (error) { setAuthError(friendlyAuthError(error)) }
@@ -628,7 +628,7 @@ export default function App() {
     if (!email) { setAuthError('Enter your registered email address first.'); return }
     setAuthBusy(true); setAuthError(''); setAuthMessage('')
     try {
-      const { error } = await client.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${CANONICAL_APP_URL}/` } })
+      const { error } = await client.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/` } })
       if (error) throw error
       setAuthMessage('If your account needs confirmation, a new email may arrive shortly. Check your inbox and spam folder.')
     } catch (error) { setAuthError(friendlyAuthError(error)) }
@@ -696,7 +696,7 @@ export default function App() {
     try {
       sessionStorage.setItem('janwatch.authFlow', authMode)
       const referralCode = getCapturedReferralCode()
-      const redirectTo = referralCode ? `${CANONICAL_APP_URL}/?ref=${encodeURIComponent(referralCode)}` : `${CANONICAL_APP_URL}/`
+      const redirectTo = referralCode ? `${window.location.origin}/?ref=${encodeURIComponent(referralCode)}` : `${window.location.origin}/`
       const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
       if (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
     } catch (error) { setAuthError(friendlyAuthError(error)); setAuthBusy(false); try { sessionStorage.removeItem('janwatch.authFlow') } catch { /* optional */ } }
@@ -1014,6 +1014,7 @@ export default function App() {
             {active === 'Worker Hub' && <WorkerReferralHub userId={user.id} displayName={userName} isAdmin={hasAdminAccess} city={profile?.city} ward={profile?.ward} notify={notify} />}
             {active === 'Refer & Earn' && <ReferralStudio userMetadata={user.user_metadata as Record<string, unknown>} notify={notify} />}
             {active === 'Donate' && <DonationPage userId={user.id} userName={userName} /> }
+            {active === 'Support tickets' && <TicketSupport userId={user.id} userName={userName} role={adminRole} notify={notify} />}
             {active === 'Explore map' && <><PageHeader eyebrow="LOCATION EXPLORER" title="Explore your area." subtitle="Map pins are available for reports where a real coordinate was captured. No sample locations are shown." onReport={() => openNewReport()}><button className="btn btn-secondary" onClick={() => void useMapLocation()}><LocateFixed size={15}/> Use my location</button></PageHeader><MapPage issues={filtered} focus={mapFocus} addressQuery={mapAddressQuery} onFocus={setMapFocus} onAddressQuery={setMapAddressQuery} onOpen={openIssue} onReport={() => openNewReport()}/></>}
           </>}
         </div>
