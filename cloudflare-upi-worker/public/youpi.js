@@ -84,6 +84,7 @@
      *   onSuspicious?: (result: any) => void,
      *   onExpired?: (result: any) => void,
      *   onCancelled?: (result: any) => void,
+     *   onManualPaymentRequest?: (result: any) => void,
      *   onClose?: () => void,
      *   successUrl?: string,
      *   failedUrl?: string,
@@ -123,6 +124,7 @@
         onSuspicious: null,
         onExpired: null,
         onCancelled: null,
+        onManualPaymentRequest: null,
         onClose: null,
         successUrl: scriptConfig.successUrl || '',
         failedUrl: scriptConfig.failedUrl || '',
@@ -324,18 +326,9 @@
       closeBtn.innerHTML = '✕';
       closeBtn.title = 'Close Checkout';
       closeBtn.type = 'button';
-      closeBtn.onclick = () => {
-        try {
-          if (iframe && iframe.contentWindow) {
-            if (this._iframeOrigin) {
-              iframe.contentWindow.postMessage({ event: 'youpi.request_cancel' }, this._iframeOrigin);
-            }
-            return;
-          }
-        } catch (err) { }
-        this._dispatchCancelled();
-        this.close();
-      };
+      // Closing the modal hides it but leaves the payment session reusable.
+      // True cancellation is still an explicit action inside the hosted checkout.
+      closeBtn.onclick = () => this.close();
 
       const iframe = document.createElement('iframe');
       iframe.className = 'youpi-checkout-iframe';
@@ -395,7 +388,21 @@
       const event = e.data.event;
       const rawData = e.data.data || e.data;
 
-      if (event === 'youpi.payment_success') {
+      if (event === 'youpi.manual_payment_request') {
+        const payload = rawData || {};
+        const result = {
+          status: 'PENDING_REVIEW',
+          order_id: payload.orderId || this.options.orderId || this.options.order_id,
+          amount_received: Number(payload.amount || this.options.amount || 0),
+          paymentId: this.options.paymentId || payload.paymentId || '',
+          raw: payload
+        };
+        YoupiCheckout._emitEvent('youpi:payment:manual_review', result);
+        if (typeof this.options.onManualPaymentRequest === 'function') {
+          try { this.options.onManualPaymentRequest(result); } catch (err) { }
+        }
+        this.close();
+      } else if (event === 'youpi.payment_success') {
         const payload = e.data.data || {};
         const result = {
           status: 'SUCCESS',

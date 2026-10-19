@@ -337,3 +337,27 @@ test('a valid signed receiving-bank notification updates donation only through t
   assert.equal(webhookPayload.amountPaise, 25100);
   assert.equal(webhookPayload.utr, 'UTR123456789');
 });
+
+
+test('checkout exposes manual payment confirmation without cancelling the active session', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/upi_gateway_payments')) return new Response(JSON.stringify([sampleDbPayment]), { status: 200 });
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+  const response = await worker.fetch(req(`/checkout/${sampleDbPayment.id}`), defaultEnv, {});
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /id="manualConfirm"/);
+  assert.match(html, /youpi\.manual_payment_request/);
+  assert.match(html, /I paid — enter UTR \/ upload proof/);
+});
+
+test('checkout SDK closes without sending a cancellation request and supports manual confirmation', async () => {
+  const sdkSource = await readFile(new URL('../public/youpi.js', import.meta.url), 'utf8');
+  assert.match(sdkSource, /closeBtn\.onclick = \(\) => this\.close\(\)/);
+  assert.match(sdkSource, /youpi\.manual_payment_request/);
+  assert.match(sdkSource, /onManualPaymentRequest/);
+});

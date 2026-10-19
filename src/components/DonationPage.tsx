@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
   Heart, HeartHandshake, LoaderCircle, LockKeyhole, Medal, RefreshCw, ShieldCheck,
-  Sparkles, Target, Trophy, Users, Wallet,
+  Sparkles, Target, Trophy, Users, Wallet, Upload,
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import './DonationPage.css'
@@ -28,6 +28,8 @@ type CheckoutOptions = {
   metadata: Record<string, string | number | boolean>
   portalUrl: string
   apiUrl: string
+  paymentId?: string
+  checkoutUrl?: string
   theme: { color: string }
   successUrl?: string
   handler: (result: CheckoutResult) => void
@@ -36,9 +38,22 @@ type CheckoutOptions = {
   onSuspicious?: (result: CheckoutResult) => void
   onExpired?: (result: CheckoutResult) => void
   onCancelled?: (result: CheckoutResult) => void
+  onManualPaymentRequest?: (result: CheckoutResult) => void
   onClose?: () => void
 }
-declare global { interface Window { Youpi?: { pay: (options: CheckoutOptions) => Promise<unknown> } } }
+type CheckoutHandle = { options?: { paymentId?: string; checkoutUrl?: string } }
+type ManualClaimStatus = 'pending_review' | 'confirmed' | 'rejected'
+type ActiveDonation = {
+  orderId: string
+  paymentId: string
+  amountPaise: number
+  status: string
+  claimStatus?: ManualClaimStatus
+  claimedUtr?: string
+  adminReviewNote?: string | null
+}
+type ProofNotice = { tone: 'info' | 'success' | 'error'; title: string; body: string }
+declare global { interface Window { Youpi?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> } } }
 
 type Props = { userId?: string | null; userName?: string }
 type GatewayState = 'not-configured' | 'loading' | 'ready' | 'error'
@@ -107,6 +122,20 @@ function niceDate(value?: string): string {
 }
 function amountLabel(paise: number): string { return money(paise) }
 
+const activeDonationStorageKey = (userId: string) => `lokpravaah.activeDonation.${userId}`
+function readSavedDonation(userId?: string | null): ActiveDonation | null {
+  if (!userId || typeof window === 'undefined') return null
+  try {
+    const value = JSON.parse(window.localStorage.getItem(activeDonationStorageKey(userId)) || 'null') as ActiveDonation | null
+    if (!value || typeof value.orderId !== 'string' || typeof value.paymentId !== 'string' || !Number.isFinite(Number(value.amountPaise))) return null
+    return { ...value, amountPaise: Number(value.amountPaise), status: String(value.status || 'ACTIVE') }
+  } catch { return null }
+}
+function evidenceFileName(name: string): string {
+  return name.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-100) || 'payment-proof'
+}
+const TERMINAL_PAYMENT_STATUSES = new Set(['SUCCESS', 'SUSPICIOUS', 'EXPIRED', 'FAILED', 'CANCELLED'])
+
 export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [settings, setSettings] = useState<DonationSettings>(DEFAULT_SETTINGS)
   const [publicData, setPublicData] = useState<DonationPublicData | null>(null)
@@ -124,6 +153,15 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [launching, setLaunching] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
   const [lastOrderId, setLastOrderId] = useState('')
+  const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(() => readSavedDonation(userId))
+  const [proofOpen, setProofOpen] = useState(false)
+  const [proofUtr, setProofUtr] = useState('')
+  const [proofAmountText, setProofAmountText] = useState('')
+  const [proofTime, setProofTime] = useState('')
+  const [proofNote, setProofNote] = useState('PhonePe did not automatically confirm my payment.')
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofBusy, setProofBusy] = useState(false)
+  const [proofNotice, setProofNotice] = useState<ProofNotice | null>(null)
 
   const parsedAmount = useMemo(() => {
     if (!amountText.trim() || !/^\d+(?:\.\d{0,2})?$/.test(amountText.trim())) return null
@@ -167,6 +205,56 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [loadPublicData])
 
+  // Persist the payment ID—not donor details—so the same session can be reopened.
+  useEffect(() => {
+    if (!userId) return
+    try {
+      if (activeDonation) window.localStorage.setItem(activeDonationStorageKey(userId), JSON.stringify(activeDonation))
+      else window.localStorage.removeItem(activeDonationStorageKey(userId))
+    } catch { /* current session still works when storage is disabled */ }
+  }, [activeDonation, userId])
+
+  useEffect(() => {
+    if (!supabase || !userId || !activeDonation?.orderId) return
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase.rpc('janwatch_get_my_donation_claim_status', { p_order_id: activeDonation.orderId })
+      if (cancelled || error) return
+      const claim = data as { found?: boolean; status?: ManualClaimStatus; admin_review_note?: string | null } | null
+      if (!claim?.found || !claim.status) return
+      setActiveDonation(current => current?.orderId === activeDonation.orderId
+        ? { ...current, claimStatus: claim.status, adminReviewNote: claim.admin_review_note ?? null, ...(claim.status === 'confirmed' ? { status: 'SUCCESS' } : {}) }
+        : current)
+      if (claim.status === 'rejected') {
+        setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'The administrator could not verify this claim. Check the UTR and upload the correct receipt.' })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [activeDonation?.orderId, userId])
+
+  useEffect(() => {
+    const session = activeDonation
+    if (!session?.paymentId || !gatewayApiUrl || TERMINAL_PAYMENT_STATUSES.has(session.status)) return
+    let cancelled = false
+    let timer = 0
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(`${gatewayApiUrl}/api/v1/payments/${encodeURIComponent(session.paymentId)}`, { cache: 'no-store' })
+        const result = await response.json() as { status?: string }
+        if (cancelled) return
+        if (!response.ok || !result?.status) { timer = window.setTimeout(checkStatus, 12000); return }
+        const status = String(result.status).toUpperCase()
+        if (status !== session.status) setActiveDonation(current => current?.paymentId === session.paymentId ? { ...current, status } : current)
+        if (status === 'SUCCESS') void loadPublicData()
+        if (!cancelled && !TERMINAL_PAYMENT_STATUSES.has(status)) timer = window.setTimeout(checkStatus, 8000)
+      } catch {
+        if (!cancelled) timer = window.setTimeout(checkStatus, 12000)
+      }
+    }
+    void checkStatus()
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [activeDonation?.paymentId, activeDonation?.status, gatewayApiUrl, loadPublicData])
+
   useEffect(() => { if (userName && !donorName) setDonorName(userName) }, [userName, donorName])
   useEffect(() => {
     if (feedLoading) return
@@ -200,6 +288,132 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
 
   function selectPreset(value: number) { setSelectedPreset(value); setAmountText(String(value)); setNotice(null) }
 
+  function openManualProofForm() {
+    if (!activeDonation) return
+    setProofUtr(activeDonation.claimedUtr || '')
+    setProofAmountText((activeDonation.amountPaise / 100).toFixed(2))
+    setProofNote('PhonePe did not automatically confirm my payment.')
+    setProofTime('')
+    setProofFile(null)
+    setProofNotice(null)
+    setProofOpen(true)
+    window.setTimeout(() => document.getElementById('manual-payment-confirmation')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120)
+  }
+
+  function handlePaymentStatus(orderId: string, status: string) {
+    setActiveDonation(current => current?.orderId === orderId ? { ...current, status } : current)
+    if (status === 'SUCCESS') void loadPublicData()
+  }
+
+  async function reopenActivePayment() {
+    const session = activeDonation
+    if (!session || !window.Youpi?.pay) {
+      setProofNotice({ tone: 'error', title: 'Checkout is unavailable', body: 'The original reference is saved. You can still submit the UTR and receipt below for administrator review.' })
+      return
+    }
+    setLaunching(true)
+    try {
+      await window.Youpi.pay({
+        key: merchantKey,
+        order_id: session.orderId,
+        paymentId: session.paymentId,
+        checkoutUrl: `${gatewayPortalUrl}/checkout/${encodeURIComponent(session.paymentId)}`,
+        amount: Number((session.amountPaise / 100).toFixed(2)),
+        currency: 'INR',
+        name: 'LokPravaah',
+        description: 'Resume your existing LokPravaah donation payment session',
+        portalUrl: gatewayPortalUrl,
+        apiUrl: gatewayApiUrl,
+        theme: { color: '#55d8a1' },
+        metadata: { purpose: 'lokpravaah_donation', order_id: session.orderId, amount_paise: session.amountPaise },
+        handler: () => handlePaymentStatus(session.orderId, 'SUCCESS'),
+        onSuccess: () => { handlePaymentStatus(session.orderId, 'SUCCESS'); setLaunching(false); setNotice({ tone: 'success', title: 'Payment verified', body: `Reference ${session.orderId} was confirmed by the payment gateway.` }) },
+        onFailed: () => { handlePaymentStatus(session.orderId, 'FAILED'); setLaunching(false) },
+        onSuspicious: () => { handlePaymentStatus(session.orderId, 'SUSPICIOUS'); setLaunching(false) },
+        onExpired: () => { handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
+        onCancelled: () => { handlePaymentStatus(session.orderId, 'CANCELLED'); setLaunching(false) },
+        onManualPaymentRequest: () => { openManualProofForm(); setLaunching(false) },
+        onClose: () => setLaunching(false),
+      })
+    } catch (error) {
+      setLaunching(false)
+      setProofNotice({ tone: 'error', title: 'Could not reopen the QR', body: error instanceof Error ? error.message : 'The original session could not be opened. Submit the UTR and receipt below if you have paid.' })
+    }
+  }
+
+  async function submitManualPaymentProof(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const session = activeDonation
+    if (!session || !supabase || !userId) {
+      setProofNotice({ tone: 'error', title: 'Sign in required', body: 'Sign in to submit a private payment receipt for administrator review.' })
+      return
+    }
+    if (session.claimStatus === 'pending_review' || session.claimStatus === 'confirmed') {
+      setProofNotice({ tone: 'info', title: 'Payment proof already submitted', body: session.claimStatus === 'confirmed' ? 'This donation has already been verified.' : 'Your proof is in the administrator review queue. Please do not pay again.' })
+      return
+    }
+    const utr = proofUtr.trim()
+    if (!/^[A-Za-z0-9_-]{6,80}$/.test(utr)) {
+      setProofNotice({ tone: 'error', title: 'Check the UTR', body: 'Enter the 6–80 character transaction ID / bank reference from your UPI receipt.' })
+      return
+    }
+    if (!proofAmountText.trim() || !/^\d+(?:\.\d{1,2})?$/.test(proofAmountText.trim())) {
+      setProofNotice({ tone: 'error', title: 'Check the amount paid', body: 'Enter the amount shown as paid in the UPI app or bank statement.' })
+      return
+    }
+    const claimedAmountPaise = Math.round(Number(proofAmountText) * 100)
+    if (!Number.isSafeInteger(claimedAmountPaise) || claimedAmountPaise < 100 || claimedAmountPaise > 10000000) {
+      setProofNotice({ tone: 'error', title: 'Check the amount paid', body: 'The reported amount must be between ₹1 and ₹1,00,000.' })
+      return
+    }
+    if (!proofFile) {
+      setProofNotice({ tone: 'error', title: 'Payment screenshot required', body: 'Attach the UPI receipt or bank transaction screenshot so the administrator can compare it with the receiving account.' })
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(proofFile.type) || proofFile.size > 10 * 1024 * 1024) {
+      setProofNotice({ tone: 'error', title: 'Unsupported receipt file', body: 'Use a JPG, PNG, WebP image or PDF up to 10 MB.' })
+      return
+    }
+    if (proofNote.trim().length > 2000) {
+      setProofNotice({ tone: 'error', title: 'Receipt note is too long', body: 'Keep your note under 2,000 characters.' })
+      return
+    }
+
+    setProofBusy(true)
+    setProofNotice({ tone: 'info', title: 'Submitting payment proof…', body: 'Your receipt is stored privately and sent to the administrator review queue. This does not mark the donation paid automatically.' })
+    let uploadedPath = ''
+    try {
+      uploadedPath = `${userId}/${session.orderId}-${Date.now()}-${evidenceFileName(proofFile.name)}`
+      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, proofFile, {
+        cacheControl: '3600', contentType: proofFile.type, upsert: false,
+      })
+      if (uploadError) throw uploadError
+      const { data, error: submitError } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
+        p_order_id: session.orderId,
+        p_screenshot_path: uploadedPath,
+        p_claimed_utr: utr,
+        p_claimed_amount_paise: claimedAmountPaise,
+        p_payment_timestamp: proofTime ? new Date(proofTime).toISOString() : null,
+        p_user_note: proofNote.trim() || null,
+      })
+      if (submitError) {
+        await supabase.storage.from('donation-payment-evidence').remove([uploadedPath])
+        throw submitError
+      }
+      const response = data as { status?: ManualClaimStatus; message?: string } | null
+      setActiveDonation(current => current?.orderId === session.orderId
+        ? { ...current, claimStatus: response?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null }
+        : current)
+      setProofOpen(false)
+      setProofFile(null)
+      setProofNotice({ tone: 'success', title: 'Sent to admin for review', body: 'Your screenshot and claimed UTR were submitted privately. The donation total updates only after an administrator verifies the UTR against the receiving bank statement. Do not pay again while this is being checked.' })
+      setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for administrator review.` })
+      void loadPublicData()
+    } catch (error) {
+      setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: error instanceof Error ? error.message : 'Please check your connection and try again.' })
+    } finally { setProofBusy(false) }
+  }
+
   async function startDonation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice(null)
     if (!amountValid || parsedAmount === null) {
@@ -223,25 +437,36 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
       })
       if (error) throw new Error(`Could not create a donation record: ${error.message}`)
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
-      await window.Youpi.pay({
+      const checkout = await window.Youpi.pay({
         key: merchantKey, order_id: orderId, amount: Number((parsedAmount / 100).toFixed(2)), currency: 'INR', name: 'LokPravaah',
         description: 'Voluntary contribution to support LokPravaah development and operating costs',
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `The checkout reported a result for ${orderId}. The public total and leaderboard update only after the signed server webhook verifies payment. ${settings.thank_you_message}` })
+          handlePaymentStatus(orderId, 'SUCCESS')
+          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Reference ${orderId} was confirmed by the payment gateway. ${settings.thank_you_message}` })
           setLaunching(false); void loadPublicData()
         },
         onSuccess: () => {
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Thank you! Reference ${orderId} is being verified. The public totals update after the payment service confirms it. ${settings.thank_you_message}` })
+          handlePaymentStatus(orderId, 'SUCCESS')
+          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Thank you! Reference ${orderId} was confirmed by the payment gateway. ${settings.thank_you_message}` })
           setLaunching(false); window.setTimeout(() => void loadPublicData(), 3500)
         },
-        onFailed: result => { setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
-        onSuspicious: () => { setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Please do not repeat payment until its status has been checked.` }); setLaunching(false) },
-        onExpired: () => { setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. Check your bank account before starting another attempt.` }); setLaunching(false) },
-        onCancelled: () => { setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
+        onFailed: result => { handlePaymentStatus(orderId, 'FAILED'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
+        onSuspicious: () => { handlePaymentStatus(orderId, 'SUSPICIOUS'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not retry until it is checked.` }); setLaunching(false) },
+        onExpired: () => { handlePaymentStatus(orderId, 'EXPIRED'); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. You can still submit the UTR and payment receipt for review.` }); setLaunching(false) },
+        onCancelled: () => { handlePaymentStatus(orderId, 'CANCELLED'); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
+        onManualPaymentRequest: () => { openManualProofForm(); setLaunching(false) },
         onClose: () => setLaunching(false),
       })
+      const paymentId = String(checkout?.options?.paymentId || '')
+      if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
+      setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
+      setProofOpen(false)
+      setProofUtr('')
+      setProofAmountText((parsedAmount / 100).toFixed(2))
+      setProofFile(null)
+      setProofNotice(null)
     } catch (error) {
       setNotice({ tone: 'error', title: 'Could not start UPI checkout', body: error instanceof Error ? error.message : 'Please check the gateway setup and try again.' })
       setLaunching(false)
@@ -293,7 +518,37 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
         </form>
-        <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook verifies the amount and order. Do not share your UPI PIN or OTP.</span></div>
+        {activeDonation && <section className="donation-active-payment" id="active-payment-checkout" aria-live="polite">
+          <div className="donation-active-payment-head">
+            <div className="donation-active-payment-icon"><Wallet size={20}/></div>
+            <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3>{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
+          </div>
+          <div className="donation-active-reference"><span>Donation reference</span><code>{activeDonation.orderId}</code></div>
+          <p className="donation-active-help">Closing the QR window will not cancel this session. Reopen the same QR here while it is active. If PhonePe does not auto-confirm after you actually paid, submit the UTR and receipt below. A screenshot alone does not verify payment.</p>
+          {activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed'
+            ? <div className="donation-proof-message proof-success"><CircleCheck size={17}/><span>This donation is verified. Thank you for supporting LokPravaah.</span></div>
+            : activeDonation.claimStatus === 'pending_review'
+              ? <div className="donation-proof-message proof-pending"><Clock3 size={17}/><span>Your claimed UTR and screenshot are in the administrator review queue. Do not pay again while it is being checked.</span></div>
+              : activeDonation.claimStatus === 'rejected'
+                ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>Admin review needs more information: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
+                : null}
+          <div className="donation-active-actions">
+            {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
+            {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => proofOpen ? setProofOpen(false) : openManualProofForm()}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
+            {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
+          </div>
+          {proofOpen && activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <form className="donation-manual-proof-form" id="manual-payment-confirmation" onSubmit={submitManualPaymentProof}>
+            <div><span className="donation-section-kicker">MANUAL PAYMENT CONFIRMATION</span><h4>Send your UTR and receipt to the admin team</h4><p>Only submit this after the UPI app or your bank confirms that money was sent. The administrator will compare your claim with the receiving bank record before confirming it.</p></div>
+            <label className="donation-field"><span>UPI transaction ID / UTR</span><input value={proofUtr} onChange={e => setProofUtr(e.target.value.trimStart())} minLength={6} maxLength={80} pattern="[A-Za-z0-9_-]{6,80}" autoComplete="off" spellCheck={false} placeholder="Enter UTR / transaction reference" required/></label>
+            <label className="donation-field"><span>Amount actually paid (₹)</span><input type="number" inputMode="decimal" min="1" max="100000" step="0.01" value={proofAmountText} onChange={e => setProofAmountText(e.target.value)} required/><small>Expected donation amount: {money(activeDonation.amountPaise)}. The admin checks the amount in your receipt and bank statement.</small></label>
+            <label className="donation-field"><span>Payment date and time <small>(optional)</small></span><input type="datetime-local" value={proofTime} onChange={e => setProofTime(e.target.value)}/></label>
+            <label className="donation-field"><span>Payment screenshot or PDF receipt</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setProofFile(e.target.files?.[0] || null)} required/><small>Private upload · JPG, PNG, WebP or PDF · maximum 10 MB. Do not upload a screenshot with UPI PIN or OTP visible.</small>{proofFile && <small>Selected: {proofFile.name} ({(proofFile.size / 1024 / 1024).toFixed(2)} MB)</small>}</label>
+            <label className="donation-field"><span>Additional details <small>(optional)</small></span><textarea rows={3} maxLength={2000} value={proofNote} onChange={e => setProofNote(e.target.value)} placeholder="Tell us what happened after payment"/></label>
+            <button className="donation-submit" type="submit" disabled={proofBusy}>{proofBusy ? <><LoaderCircle size={16} className="donation-spin"/> Sending receipt privately…</> : <><Upload size={16}/> Submit UTR & payment screenshot <ArrowRight size={15}/></>}</button>
+          </form>}
+          {proofNotice && <div className={`donation-proof-notice proof-${proofNotice.tone}`} role="status"><b>{proofNotice.title}</b><p>{proofNotice.body}</p></div>}
+        </section>}
+        <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook or an administrator's bank-statement review verifies the amount and UTR. Do not share your UPI PIN or OTP.</span></div>
       </section>
 
       <aside className="donation-info-column">
