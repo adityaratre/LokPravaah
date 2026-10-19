@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
   Heart, HeartHandshake, LoaderCircle, LockKeyhole, Medal, RefreshCw, ShieldCheck,
-  Sparkles, Target, Trophy, Users, Wallet, Upload,
+  Sparkles, Target, Ticket, Trophy, Users, Wallet, Upload,
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import './DonationPage.css'
