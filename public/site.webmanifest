@@ -1,7 +1,7 @@
 {
   "name": "LokPravaah",
   "short_name": "LokPravaah",
-  "description": "An independent civic-tech platform for documenting local issues and organising citizen action.",
+  "description": "Report local civic issues, track recorded updates, and prepare complaint or RTI drafts.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b1218",
