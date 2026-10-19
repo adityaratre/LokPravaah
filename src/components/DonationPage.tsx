@@ -691,6 +691,51 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           </form>}
           {proofNotice && <div className={`donation-proof-notice proof-${proofNotice.tone}`} role="status"><b>{proofNotice.title}</b><p>{proofNotice.body}</p></div>}
         </section>}
+        <section className="donation-history-panel" aria-labelledby="donation-history-title">
+          <div className="donation-history-heading">
+            <div><span className="donation-section-kicker">PRIVATE ACCOUNT AREA</span><h3 id="donation-history-title">My donations</h3><p>Track pending attempts, manual reviews and successful contributions. This history is private to your account.</p></div>
+            <button type="button" className="donation-history-refresh" onClick={() => { void loadMyDonations(); void loadPublicData() }} disabled={myDonationsLoading}><RefreshCw size={14} className={myDonationsLoading ? 'donation-spin' : ''}/> Refresh</button>
+          </div>
+          {!userId && <div className="donation-history-empty"><LockKeyhole size={18}/><span>Sign in to view donation history or submit payment proof.</span></div>}
+          {myDonationsLoading && !myDonations.length && <div className="donation-history-empty"><LoaderCircle size={17} className="donation-spin"/><span>Loading your donation history…</span></div>}
+          {myDonationsError && <div className="donation-history-error" role="alert"><CircleAlert size={16}/><span>{myDonationsError}</span><button type="button" onClick={() => void loadMyDonations()}>Try again</button></div>}
+          {!myDonationsLoading && !myDonationsError && userId && !myDonations.length && <div className="donation-history-empty"><HeartHandshake size={20}/><span>No donation records yet. Your new contribution will appear here after checkout creates its reference.</span></div>}
+          <div className="donation-history-list">
+            {myDonations.map(item => {
+              const label = donationStatusLabel(item)
+              const ticketClosed = ['resolved','closed','rejected'].includes(String(item.ticket_status || ''))
+              const canRaiseTicket = !item.ticket_number || ticketClosed
+              return <article className="donation-history-item" key={item.id}>
+                <div className="donation-history-item-top">
+                  <div><strong>{money(item.amount_paise)}</strong><span className={'donation-history-status status-' + donationStatusClass(item)}>{label}</span></div>
+                  <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</time>
+                </div>
+                <div className="donation-history-reference"><span>Reference</span><code>{item.order_id}</code></div>
+                <div className="donation-history-meta">
+                  <span>Source: {item.record_source === 'manual_cash' ? 'Offline cash' : item.record_source === 'manual_bank' ? 'Direct bank transfer' : item.record_source === 'manual_upi' ? 'Direct UPI' : item.record_source === 'manual_other' ? 'Other offline source' : 'UPI checkout'}</span>
+                  {item.utr && <span>UTR: <code>{item.utr}</code></span>}
+                  {item.claimed_utr && !item.utr && <span>Submitted UTR: <code>{item.claimed_utr}</code></span>}
+                  {item.verified_at && <span>Verified: {new Date(item.verified_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>}
+                </div>
+                {item.claim_status === 'pending_review' && <div className="donation-history-review-note"><Clock3 size={15}/><span><b>Under review</b> Your proof has been received. Admin will compare the amount and UTR with the receiving-bank statement. Please do not pay again.</span></div>}
+                {item.claim_status === 'rejected' && <div className="donation-history-action-note"><CircleAlert size={15}/><span><b>More information needed</b> {item.admin_review_note || 'Your claim was not verified. Check your receipt before resubmitting.'}</span></div>}
+                {item.status === 'succeeded' && <div className="donation-history-success-note"><CircleCheck size={15}/><span>Payment verified. Thank you for supporting LokPravaah.</span></div>}
+                {item.ticket_number && <div className="donation-history-ticket"><Ticket size={14}/><span>Ticket #{item.ticket_number} · {String(item.ticket_status || 'open').replaceAll('_',' ')}</span><button type="button" onClick={() => onOpenSupportTickets?.()}>View ticket</button></div>}
+                <div className="donation-history-actions">
+                  {item.claim_status === 'rejected' && <button type="button" className="donation-history-primary" onClick={() => { setActiveDonation({ orderId:item.order_id, paymentId:'', amountPaise:item.amount_paise, status:item.status.toUpperCase(), claimStatus:'rejected', claimedUtr:item.claimed_utr || '', adminReviewNote:item.admin_review_note || null }); setProofNotice({tone:'error',title:'Review needs more information',body:item.admin_review_note || 'Please raise a ticket with the correct receipt and payment reference.'}); setTicketDraftId(item.id); setTicketSubject('Payment review follow-up: ' + item.order_id); setTicketDescription('Please review the manual payment claim for donation ' + item.order_id + '. Admin review note: ' + (item.admin_review_note || 'More information requested') + '.'); }}>Resolve issue</button>}
+                  {canRaiseTicket && (ticketDraftId === item.id ? <form className="donation-history-ticket-form" onSubmit={e => { e.preventDefault(); void createDonationTicket(item) }}>
+                    <label>Ticket subject<input maxLength={120} minLength={6} value={ticketSubject} onChange={e => setTicketSubject(e.target.value)} required/></label>
+                    <label>Describe the issue<textarea rows={3} minLength={10} maxLength={5000} value={ticketDescription} onChange={e => setTicketDescription(e.target.value)} placeholder="Explain what happened and what help you need…" required/></label>
+                    <div><button type="button" className="donation-history-refresh" onClick={() => setTicketDraftId(null)} disabled={ticketBusy}>Cancel</button><button type="submit" className="donation-history-primary" disabled={ticketBusy}>{ticketBusy ? <><LoaderCircle size={14} className="donation-spin"/> Creating ticket…</> : <><Ticket size={14}/> Create support ticket</>}</button></div>
+                  </form> : <button type="button" className="donation-history-secondary" onClick={() => { setTicketDraftId(item.id); setTicketSubject('Donation issue: ' + item.order_id); setTicketDescription('Please help me with donation ' + item.order_id + '. Current status: ' + label + '.'); setTicketNotice(null) }}><Ticket size={14}/>{ticketClosed ? 'Raise another ticket' : 'Raise a ticket'}</button>)}
+                </div>
+              </article>
+            })}
+          </div>
+          {ticketNotice && <div className={'donation-history-ticket-notice ' + ticketNotice.tone} role="status">{ticketNotice.text}</div>}
+          <p className="donation-history-foot"><ShieldCheck size={13}/> Only the verified bank-record review changes a donation to successful. Ticket replies and status are available in Support tickets.</p>
+        </section>
+
         <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook or an administrator's bank-statement review verifies the amount and UTR. Do not share your UPI PIN or OTP.</span></div>
       </section>
 
