@@ -10,6 +10,7 @@ The current Worker builds `upi://pay` with `tr=payment.id`, where `payment.id` i
 2. Open Supabase → SQL Editor → New query.
 3. Run `database/LokPravaah_UPI_Database_Fix_v2.sql` against the same project already used by LokPravaah.
 4. Review the final query results. `old_single_active_index` should be `NULL`.
+5. If the database has both legacy and receiver-aware `upi_gateway_create_payment` overloads, also apply `supabase/lokpravaah_upi_payment_overload_compat.sql`. It removes ambiguous defaults from the receiver-aware function and keeps a secure compatibility wrapper for six-argument Workers.
 
 This is an update migration for an existing database. It expects the donation and Cloudflare gateway schema to already exist.
 
