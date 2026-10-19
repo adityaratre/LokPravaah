@@ -180,12 +180,11 @@ begin
   if auth.uid() is null or coalesce(v_role,'') not in ('admin','super_admin') then raise exception 'Administrator permission required'; end if;
   if p_donation_id is null or p_removed is null then raise exception 'Donation and remove/restore action are required'; end if;
   if p_removed and (v_note is null or char_length(v_note) not between 3 and 500) then
-    raise exception 'Add a reason (3–500 characters) before removing a donation from public totals';
+    raise exception 'Add a reason (3–500 characters) before archiving a donation record';
   end if;
 
   select * into v_row from public.donation_intents where id = p_donation_id for update;
   if not found then raise exception 'Donation record not found'; end if;
-  if v_row.status <> 'succeeded' then raise exception 'Only received/verified donation records can be removed from public totals'; end if;
   if v_row.admin_removed = p_removed then
     return jsonb_build_object('status','unchanged','admin_removed',p_removed,'message','This donation already has the requested state.');
   end if;
@@ -200,16 +199,16 @@ begin
 
   insert into public.donation_admin_audit(admin_user_id,donation_id,order_id,action,note)
   values(auth.uid(),v_row.id,v_row.order_id,
-    case when p_removed then 'donation_removed_from_public_totals' else 'donation_restored_to_public_totals' end,
+    case when p_removed then 'donation_record_archived' else 'donation_record_restored' end,
     coalesce(v_note,case when p_removed then 'Removed from public totals' else 'Restored to public totals' end));
   insert into public.audit_logs(actor_id,action,target_type,target_id,metadata)
-  values(auth.uid(),case when p_removed then 'donation_removed' else 'donation_restored' end,
+  values(auth.uid(),case when p_removed then 'donation_archived' else 'donation_restored' end,
     'donation',v_row.id::text,jsonb_build_object('order_id',v_row.order_id,'previous_status',v_row.status,
       'record_source',v_row.record_source,'note',v_note));
 
   return jsonb_build_object('status','saved','admin_removed',p_removed,
     'message',case when p_removed
-      then 'Donation excluded from public total, recent activity and leaderboard; the record was retained for audit.'
+      then 'Record archived from public donation totals/feed where applicable; the original payment history is retained for audit.'
       else 'Donation restored to public totals and leaderboard where the donor visibility settings allow it.'
     end);
 end;
