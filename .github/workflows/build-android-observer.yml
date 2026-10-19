@@ -1,0 +1,57 @@
+name: Build YOUPI Android Observer APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/lokpravaah-upi/apps/android-observer-app/**'
+      - '.github/workflows/build-android-observer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-observer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 34 toolchain
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up compatible Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
+
+      - name: Compile and package observer
+        working-directory: services/lokpravaah-upi/apps/android-observer-app
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Validate generated APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='services/lokpravaah-upi/apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | grep -E "package: name='com\.youpi\.observer'|sdkVersion"
+          echo "APK compiled. This debug-signed artifact is intended for testing, not public store distribution."
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: youpi-observer-debug-apk
+          path: services/lokpravaah-upi/apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
