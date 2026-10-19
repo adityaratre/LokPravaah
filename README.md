@@ -1,5 +1,9 @@
 # LokPravaah
 
+## Integrated repair (19 October 2026)
+
+See [`FINAL_FIX_HANDOFF.md`](./FINAL_FIX_HANDOFF.md) for the live admin reward RPC repair, payment verification steps, and known deployment limits. Run `npm run check:rpc-contract` to check literal frontend RPC calls against checked-in SQL function definitions before building. See [`FINAL_UPI_DEPLOYMENT_AND_CONFIG.md`](./FINAL_UPI_DEPLOYMENT_AND_CONFIG.md) for the verified Supabase project URL and the UPI deployment order.
+
 A React + Vite civic reporting platform backed by Supabase, with worker/referral workflows, Blog & Updates, and a voluntary donation page.
 
 ## Donation page
