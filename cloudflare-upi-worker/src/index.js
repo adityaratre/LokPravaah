@@ -403,6 +403,7 @@ async function handler(request, env) {
     return json(request, env, {
       status: ready ? 'UP' : 'CONFIGURATION_REQUIRED',
       service: 'lokpravaah-cloudflare-upi-gateway',
+      gateway_version: 'lokpravaah-upi-final-2026-10-19',
       checks: { ...config, database },
       diagnostics: {
         missing: [...new Set(missingEnvironment)],

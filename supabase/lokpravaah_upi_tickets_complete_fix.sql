@@ -177,6 +177,11 @@ create policy support_evidence_read_owner_admin on storage.objects for select to
 
 
 -- 1. Database-backed checkout timer and receiving-account settings controlled in the protected Admin Console.
+-- Reversible soft-removal: a removed donation remains in the private audit history but is excluded
+-- from public totals, leaderboards, and recent activity.
+alter table public.donation_intents add column if not exists admin_removed_at timestamptz;
+alter table public.donation_intents add column if not exists admin_removed_by uuid references auth.users(id) on delete set null;
+alter table public.donation_intents add column if not exists admin_removal_note text;
 alter table public.donation_settings add column if not exists upi_vpa text;
 alter table public.donation_settings add column if not exists upi_payee_name text;
 alter table public.donation_settings add column if not exists payment_session_minutes integer not null default 15;
@@ -355,7 +360,7 @@ begin
   end if;
 
   select coalesce(sum(amount_paise), 0), count(*) into v_total, v_count
-  from public.donation_intents where status = 'succeeded';
+  from public.donation_intents where status = 'succeeded' and admin_removed_at is null;
 
   if v_settings.leaderboard_enabled then
     with grouped as (
@@ -365,7 +370,7 @@ begin
         sum(amount_paise)::bigint as total_paise,
         count(*)::bigint as donations_count
       from public.donation_intents
-      where status = 'succeeded' and is_anonymous = false and show_on_leaderboard = true and admin_hidden = false
+      where status = 'succeeded' and admin_removed_at is null and is_anonymous = false and show_on_leaderboard = true and admin_hidden = false
       group by 1
     ), ranked as (
       select row_number() over (order by total_paise desc, donations_count desc, donor_name asc) as rank,
@@ -384,7 +389,7 @@ begin
       'message', case when v_settings.show_donor_messages and not is_anonymous and not admin_hidden and show_on_leaderboard and show_message_publicly then nullif(btrim(message), '') else null end
     ) order by verified_at desc), '[]'::jsonb)
     into v_recent
-    from (select * from public.donation_intents where status = 'succeeded' and not admin_hidden order by verified_at desc limit 8) recent;
+    from (select * from public.donation_intents where status = 'succeeded' and admin_removed_at is null and not admin_hidden order by verified_at desc limit 8) recent;
   end if;
 
   return jsonb_build_object(
@@ -439,7 +444,8 @@ begin
     'donor_user_id', d.donor_user_id, 'donor_name', d.donor_name, 'donor_email', d.donor_email,
     'is_anonymous', d.is_anonymous, 'show_on_leaderboard', d.show_on_leaderboard, 'show_message_publicly', d.show_message_publicly, 'admin_hidden', d.admin_hidden,
     'message', d.message, 'status', d.status, 'utr', d.utr, 'gateway_payment_id', d.gateway_payment_id,
-    'created_at', d.created_at, 'verified_at', d.verified_at
+    'created_at', d.created_at, 'verified_at', d.verified_at,
+    'admin_removed_at', d.admin_removed_at, 'admin_removal_note', d.admin_removal_note
   ) order by (d.status = 'succeeded') asc, d.created_at desc), '[]'::jsonb) into v_donations from (select * from public.donation_intents order by (status = 'succeeded') asc, created_at desc limit 500) d;
   select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'requested_by', r.requested_by, 'changes', r.changes, 'base_settings', r.base_settings, 'status', r.status, 'review_note', r.review_note, 'reviewed_by', r.reviewed_by, 'reviewed_at', r.reviewed_at, 'created_at', r.created_at) order by r.created_at desc), '[]'::jsonb)
     into v_requests from (select * from public.donation_settings_change_requests order by created_at desc limit 100) r;
@@ -721,5 +727,177 @@ grant select,insert,update,delete on public.support_ticket_categories to authent
 grant select,insert,update on public.support_tickets to authenticated;
 grant select,insert on public.support_ticket_messages to authenticated;
 grant select,insert on public.support_ticket_audit to authenticated;
+
+notify pgrst, 'reload schema';
+
+-- Payment-proof claims: user uploads remain private; only support/admin can create signed viewing links.
+create table if not exists public.donation_payment_claims (
+  id uuid primary key default gen_random_uuid(),
+  donation_id uuid not null references public.donation_intents(id) on delete cascade,
+  submitted_by uuid not null references auth.users(id) on delete cascade,
+  order_id text not null,
+  amount_paise bigint not null check (amount_paise between 100 and 10000000),
+  payment_reference text check (payment_reference is null or char_length(payment_reference) between 6 and 80),
+  user_note text not null check (char_length(btrim(user_note)) between 10 and 1000),
+  evidence_paths text[] not null default '{}',
+  status text not null default 'pending_review' check (status in ('pending_review','approved','rejected')),
+  admin_note text,
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists donation_payment_claims_created_idx on public.donation_payment_claims(status,created_at desc);
+create index if not exists donation_payment_claims_donation_idx on public.donation_payment_claims(donation_id,created_at desc);
+create unique index if not exists donation_payment_claims_one_open_per_donation_uq
+  on public.donation_payment_claims(donation_id) where status='pending_review';
+
+alter table public.donation_payment_claims enable row level security;
+revoke all on public.donation_payment_claims from public, anon, authenticated;
+grant all on public.donation_payment_claims to service_role;
+
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+values('donation-payment-evidence','donation-payment-evidence',false,10485760,array['image/jpeg','image/png','image/webp','application/pdf'])
+on conflict(id) do update set public=false,file_size_limit=10485760,allowed_mime_types=array['image/jpeg','image/png','image/webp','application/pdf'];
+drop policy if exists donation_payment_evidence_upload_own on storage.objects;
+create policy donation_payment_evidence_upload_own on storage.objects for insert to authenticated with check (
+  bucket_id='donation-payment-evidence' and (storage.foldername(name))[1]=auth.uid()::text
+);
+drop policy if exists donation_payment_evidence_read_own_admin on storage.objects;
+create policy donation_payment_evidence_read_own_admin on storage.objects for select to authenticated using (
+  bucket_id='donation-payment-evidence' and ((storage.foldername(name))[1]=auth.uid()::text or public.is_janwatch_admin())
+);
+drop policy if exists donation_payment_evidence_delete_own_admin on storage.objects;
+create policy donation_payment_evidence_delete_own_admin on storage.objects for delete to authenticated using (
+  bucket_id='donation-payment-evidence' and ((storage.foldername(name))[1]=auth.uid()::text or public.is_janwatch_admin())
+);
+
+create or replace function public.janwatch_submit_donation_payment_claim(
+  p_order_id text,
+  p_amount_paise bigint,
+  p_reference text,
+  p_note text,
+  p_evidence_paths text[]
+) returns jsonb
+language plpgsql security definer set search_path=pg_catalog,public,auth,pg_temp as $$
+declare
+  v_user uuid := auth.uid();
+  v_donation public.donation_intents%rowtype;
+  v_claim public.donation_payment_claims%rowtype;
+  v_ref text := nullif(btrim(p_reference),'');
+  v_note text := nullif(btrim(p_note),'');
+  v_paths text[] := coalesce(p_evidence_paths,'{}'::text[]);
+begin
+  if v_user is null then raise exception 'Please sign in to submit payment evidence'; end if;
+  if p_order_id is null or char_length(btrim(p_order_id)) not between 8 and 80 then raise exception 'Enter the donation order ID'; end if;
+  if p_amount_paise is null or p_amount_paise < 100 or p_amount_paise > 10000000 then raise exception 'Invalid amount'; end if;
+  if v_note is null or char_length(v_note) not between 10 and 1000 then raise exception 'Explain the payment issue in 10-1000 characters'; end if;
+  if v_ref is not null and v_ref !~ '^[A-Za-z0-9_-]{6,80}$' then raise exception 'UPI / bank reference must contain 6-80 letters, numbers, underscore or hyphen'; end if;
+  if cardinality(v_paths) < 1 or cardinality(v_paths) > 4 then raise exception 'Upload 1-4 payment screenshots or PDF files'; end if;
+  if exists(select 1 from unnest(v_paths) as evidence(path) where evidence.path is null or evidence.path !~ ('^' || v_user::text || '/[A-Za-z0-9._/-]{1,250}$') or evidence.path like '%..%') then
+    raise exception 'An evidence file path is invalid';
+  end if;
+  select * into v_donation from public.donation_intents where order_id=btrim(p_order_id) for update;
+  if not found then raise exception 'Donation order not found. Check the order ID from the checkout'; end if;
+  if v_donation.amount_paise <> p_amount_paise then raise exception 'Amount does not match this donation order'; end if;
+  if v_donation.donor_user_id is not null and v_donation.donor_user_id <> v_user then raise exception 'This donation order belongs to a different account'; end if;
+  if v_donation.status='succeeded' then raise exception 'This donation is already confirmed. Contact support if the confirmation is incorrect'; end if;
+  if v_donation.status not in ('pending','failed','suspicious','expired','cancelled') then raise exception 'This donation state cannot be submitted for manual review'; end if;
+
+  select * into v_claim from public.donation_payment_claims where donation_id=v_donation.id and status='pending_review' for update;
+  if found then
+    update public.donation_payment_claims set payment_reference=coalesce(v_ref,payment_reference),user_note=v_note,
+      evidence_paths=v_paths,updated_at=now() where id=v_claim.id returning * into v_claim;
+    return jsonb_build_object('status','pending_review','claim_id',v_claim.id,'message','Your open payment review was updated with the new evidence.');
+  end if;
+  insert into public.donation_payment_claims(donation_id,submitted_by,order_id,amount_paise,payment_reference,user_note,evidence_paths)
+  values(v_donation.id,v_user,v_donation.order_id,v_donation.amount_paise,v_ref,v_note,v_paths) returning * into v_claim;
+  insert into public.audit_logs(actor_id,action,target_type,target_id,metadata)
+  values(v_user,'donation_payment_claim_submitted','donation',v_donation.id::text,jsonb_build_object('order_id',v_donation.order_id,'claim_id',v_claim.id,'evidence_count',cardinality(v_paths)));
+  return jsonb_build_object('status','pending_review','claim_id',v_claim.id,'message','Payment proof submitted for administrator review. Do not pay again until the bank status is checked.');
+end;
+$$;
+revoke all on function public.janwatch_submit_donation_payment_claim(text,bigint,text,text,text[]) from public;
+grant execute on function public.janwatch_submit_donation_payment_claim(text,bigint,text,text,text[]) to authenticated;
+
+create or replace function public.janwatch_admin_get_donation_claims()
+returns jsonb language plpgsql stable security definer set search_path=pg_catalog,public,auth,pg_temp as $$
+declare v_role text; v_rows jsonb;
+begin
+  select role into v_role from public.user_roles where user_id=auth.uid() limit 1;
+  if auth.uid() is null or coalesce(v_role,'') not in ('admin','super_admin') then raise exception 'Administrator permission required'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id',c.id,'donation_id',c.donation_id,'submitted_by',c.submitted_by,'order_id',c.order_id,
+    'amount_paise',c.amount_paise,'payment_reference',c.payment_reference,'user_note',c.user_note,
+    'evidence_paths',c.evidence_paths,'status',c.status,'admin_note',c.admin_note,'reviewed_by',c.reviewed_by,
+    'reviewed_at',c.reviewed_at,'created_at',c.created_at,'updated_at',c.updated_at,
+    'donation_status',d.status,'donor_name',case when d.is_anonymous then 'Anonymous' else coalesce(d.donor_name,'Not supplied') end
+  ) order by (c.status='pending_review') desc,c.created_at desc),'[]'::jsonb)
+  into v_rows
+  from public.donation_payment_claims c join public.donation_intents d on d.id=c.donation_id;
+  return v_rows;
+end;
+$$;
+revoke all on function public.janwatch_admin_get_donation_claims() from public,anon;
+grant execute on function public.janwatch_admin_get_donation_claims() to authenticated;
+
+create or replace function public.janwatch_admin_review_donation_claim(
+  p_claim_id uuid,p_decision text,p_utr text,p_note text
+) returns jsonb
+language plpgsql security definer set search_path=pg_catalog,public,auth,pg_temp as $$
+declare
+  v_role text;
+  v_claim public.donation_payment_claims%rowtype;
+  v_result jsonb;
+  v_note text := nullif(btrim(p_note),'');
+  v_decision text := lower(btrim(p_decision));
+begin
+  select role into v_role from public.user_roles where user_id=auth.uid() limit 1;
+  if auth.uid() is null or coalesce(v_role,'') not in ('admin','super_admin') then raise exception 'Administrator permission required'; end if;
+  if v_note is null or char_length(v_note) not between 5 and 500 then raise exception 'Add a review note of 5-500 characters'; end if;
+  if v_decision not in ('approve','reject') then raise exception 'Decision must be approve or reject'; end if;
+  select * into v_claim from public.donation_payment_claims where id=p_claim_id for update;
+  if not found then raise exception 'Payment claim not found'; end if;
+  if v_claim.status <> 'pending_review' then raise exception 'This claim has already been reviewed'; end if;
+  if v_decision='approve' then
+    -- A screenshot by itself is not payment proof; manual verification requires a real UTR and note.
+    v_result := public.janwatch_admin_manual_verify_donation(v_claim.donation_id,p_utr,v_note);
+    update public.donation_payment_claims set status='approved',admin_note=v_note,reviewed_by=auth.uid(),reviewed_at=now(),updated_at=now() where id=p_claim_id;
+    insert into public.audit_logs(actor_id,action,target_type,target_id,metadata)
+    values(auth.uid(),'donation_payment_claim_approved','donation',v_claim.donation_id::text,jsonb_build_object('claim_id',p_claim_id,'order_id',v_claim.order_id,'utr',p_utr,'review_note',v_note));
+    return jsonb_build_object('status','approved','message','Claim approved and donation marked verified after recording the UTR.','verification',v_result);
+  end if;
+  update public.donation_payment_claims set status='rejected',admin_note=v_note,reviewed_by=auth.uid(),reviewed_at=now(),updated_at=now() where id=p_claim_id;
+  insert into public.audit_logs(actor_id,action,target_type,target_id,metadata)
+  values(auth.uid(),'donation_payment_claim_rejected','donation',v_claim.donation_id::text,jsonb_build_object('claim_id',p_claim_id,'order_id',v_claim.order_id,'review_note',v_note));
+  return jsonb_build_object('status','rejected','message','Payment evidence claim rejected with a recorded review reason.');
+end;
+$$;
+revoke all on function public.janwatch_admin_review_donation_claim(uuid,text,text,text) from public,anon;
+grant execute on function public.janwatch_admin_review_donation_claim(uuid,text,text,text) to authenticated;
+
+create or replace function public.janwatch_admin_set_donation_removed(p_donation_id uuid,p_removed boolean,p_note text)
+returns jsonb language plpgsql security definer set search_path=pg_catalog,public,auth,pg_temp as $$
+declare v_role text; v_row public.donation_intents%rowtype; v_note text := nullif(btrim(p_note),'');
+begin
+  select role into v_role from public.user_roles where user_id=auth.uid() limit 1;
+  if auth.uid() is null or coalesce(v_role,'') not in ('admin','super_admin') then raise exception 'Administrator permission required'; end if;
+  if v_note is null or char_length(v_note) not between 5 and 500 then raise exception 'A removal/restore reason (5-500 characters) is required'; end if;
+  select * into v_row from public.donation_intents where id=p_donation_id for update;
+  if not found then raise exception 'Donation record not found'; end if;
+  update public.donation_intents set
+    admin_removed_at=case when p_removed then coalesce(admin_removed_at,now()) else null end,
+    admin_removed_by=case when p_removed then auth.uid() else null end,
+    admin_removal_note=v_note,updated_at=now()
+  where id=p_donation_id;
+  insert into public.audit_logs(actor_id,action,target_type,target_id,metadata)
+  values(auth.uid(),case when p_removed then 'donation_removed_from_public_totals' else 'donation_restored_to_public_totals' end,
+    'donation',p_donation_id::text,jsonb_build_object('order_id',v_row.order_id,'amount_paise',v_row.amount_paise,'status',v_row.status,'reason',v_note));
+  return jsonb_build_object('status',case when p_removed then 'removed' else 'restored' end,
+    'message',case when p_removed then 'Donation was removed from public totals/activity; the private payment record and audit trail were preserved.' else 'Donation restored to public totals subject to the original public-visibility settings.' end);
+end;
+$$;
+revoke all on function public.janwatch_admin_set_donation_removed(uuid,boolean,text) from public,anon;
+grant execute on function public.janwatch_admin_set_donation_removed(uuid,boolean,text) to authenticated;
 
 notify pgrst, 'reload schema';

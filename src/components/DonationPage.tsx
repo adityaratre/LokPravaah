@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import './DonationPage.css'
+import DonationPaymentClaim from './DonationPaymentClaim'
 
 type CheckoutResult = {
   status?: string
@@ -65,6 +66,7 @@ type DonationSettings = {
 }
 type Donor = { rank: number; donor_name: string; total_paise: number; donations_count: number }
 type RecentDonation = { display_name: string; amount_paise: number; verified_at: string; message?: string | null }
+type DonationAttempt = { orderId: string; amountPaise: number; status: string; createdAt: number }
 type DonationPublicData = { settings: DonationSettings; total_raised_paise: number; successful_donations: number; top_donors: Donor[]; recent_donations: RecentDonation[]; refreshed_at?: string }
 
 const DEFAULT_SETTINGS: DonationSettings = {
@@ -109,6 +111,18 @@ function niceDate(value?: string): string {
 }
 function amountLabel(paise: number): string { return money(paise) }
 
+const DONATION_ATTEMPTS_KEY = 'lokpravaah.donationAttempts.v1'
+function readDonationAttempts(): DonationAttempt[] {
+  try {
+    const raw = window.sessionStorage.getItem(DONATION_ATTEMPTS_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    if (!Array.isArray(parsed)) return []
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+    return parsed.filter((item): item is DonationAttempt => item && typeof item.orderId === 'string' && /^LPDON-[A-Z0-9-]{8,80}$/.test(item.orderId) && Number.isSafeInteger(item.amountPaise) && item.amountPaise >= 100 && typeof item.status === 'string' && Number.isFinite(item.createdAt) && item.createdAt >= cutoff).slice(-5)
+  } catch { return [] }
+}
+
+
 export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [settings, setSettings] = useState<DonationSettings>(DEFAULT_SETTINGS)
   const [publicData, setPublicData] = useState<DonationPublicData | null>(null)
@@ -126,6 +140,8 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [launching, setLaunching] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
   const [lastOrderId, setLastOrderId] = useState('')
+  const [donationAttempts, setDonationAttempts] = useState<DonationAttempt[]>(() => readDonationAttempts())
+  const intentCreatedRef = useRef(false)
 
   const parsedAmount = useMemo(() => {
     if (!amountText.trim() || !/^\d+(?:\.\d{0,2})?$/.test(amountText.trim())) return null
@@ -168,6 +184,18 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     window.addEventListener('focus', onFocus)
     return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [loadPublicData])
+
+  useEffect(() => {
+    try { window.sessionStorage.setItem(DONATION_ATTEMPTS_KEY, JSON.stringify(donationAttempts.slice(-5))) } catch { /* session storage may be disabled */ }
+  }, [donationAttempts])
+
+  function trackAttempt(orderId: string, amountPaise: number, status: string) {
+    setDonationAttempts(current => {
+      const existing = current.find(item => item.orderId === orderId)
+      const nextAttempt: DonationAttempt = { orderId, amountPaise, status, createdAt: existing?.createdAt ?? Date.now() }
+      return [...current.filter(item => item.orderId !== orderId), nextAttempt].slice(-5)
+    })
+  }
 
   useEffect(() => { if (userName && !donorName) setDonorName(userName) }, [userName, donorName])
   useEffect(() => {
@@ -216,6 +244,7 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
 
     setLaunching(true)
+    intentCreatedRef.current = false
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       // Detect misrouted/stale gateway configuration before creating a pending intent.
@@ -241,6 +270,8 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
       if (error) throw new Error(`Could not create a donation record: ${error.message}`)
+      intentCreatedRef.current = true
+      trackAttempt(orderId, parsedAmount, 'checkout_opening')
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
       await window.Youpi.pay({
         key: merchantKey, order_id: orderId, amount: Number((parsedAmount / 100).toFixed(2)), currency: 'INR', name: 'LokPravaah',
@@ -248,21 +279,24 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `The checkout reported a result for ${orderId}. The public total and leaderboard update only after the signed server webhook verifies payment. ${settings.thank_you_message}` })
+          trackAttempt(orderId, parsedAmount, 'pending_confirmation')
+          setNotice({ tone: 'info', title: 'Payment is being verified', body: `Checkout returned a result for ${orderId}. This does not prove that money arrived. Wait for server verification or submit payment proof below if your bank shows a debit.` })
           setLaunching(false); void loadPublicData()
         },
         onSuccess: () => {
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Thank you! Reference ${orderId} is being verified. The public totals update after the payment service confirms it. ${settings.thank_you_message}` })
+          trackAttempt(orderId, parsedAmount, 'pending_confirmation')
+          setNotice({ tone: 'info', title: 'Payment is being verified', body: `Reference ${orderId} is awaiting verified confirmation. The browser callback is not proof of payment. If the bank shows a debit and this remains pending, submit payment proof below.` })
           setLaunching(false); window.setTimeout(() => void loadPublicData(), 3500)
         },
-        onFailed: result => { setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
-        onSuspicious: () => { setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Please do not repeat payment until its status has been checked.` }); setLaunching(false) },
-        onExpired: () => { setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. Check your bank account before starting another attempt.` }); setLaunching(false) },
-        onCancelled: () => { setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
+        onFailed: result => { trackAttempt(orderId, parsedAmount, 'failed'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If your bank shows a debit, upload the payment screenshot below and wait for a manual review. Avoid paying again until you check the bank status.` }); setLaunching(false) },
+        onSuspicious: () => { trackAttempt(orderId, parsedAmount, 'suspicious'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not repeat payment until its status has been checked. You can submit a screenshot below if your bank shows a debit.` }); setLaunching(false) },
+        onExpired: () => { trackAttempt(orderId, parsedAmount, 'expired'); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. If you already paid and your bank shows a debit, upload proof below instead of paying again.` }); setLaunching(false) },
+        onCancelled: () => { trackAttempt(orderId, parsedAmount, 'cancelled'); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app and your bank shows a debit, submit proof below.` }); setLaunching(false) },
         onClose: () => setLaunching(false),
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown checkout initialization error.'
+      if (intentCreatedRef.current) trackAttempt(orderId, parsedAmount, 'failed')
       setNotice(current => current?.title === 'Payment was not confirmed'
         ? current
         : { tone: 'error', title: 'Could not start UPI checkout', body: `${detail} Reference: ${orderId}. If this repeats, open Admin → Donations & UPI and use the active HTTPS Worker URL for both checkout portal and payment API. No bank debit should be inferred from this message.` })
@@ -316,6 +350,7 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
         </form>
+        {donationAttempts.length > 0 && <section className="donation-recovery-list" aria-label="Recent donation payment attempts"><h3>Payment confirmation help</h3><p>Saved in this browser tab so you can recover the references after a refresh. Upload evidence only if your bank shows a debit or a real completed UPI transfer.</p>{donationAttempts.slice().reverse().map(attempt => <DonationPaymentClaim key={attempt.orderId} orderId={attempt.orderId} amountPaise={attempt.amountPaise} initialStatus={attempt.status} defaultOpen={['failed','expired','cancelled','suspicious','pending_confirmation','claim_submitted'].includes(attempt.status)} onSubmitted={() => trackAttempt(attempt.orderId, attempt.amountPaise, 'claim_submitted')} />)}</section>}
         <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook verifies the amount and order. Do not share your UPI PIN or OTP.</span></div>
       </section>
 
