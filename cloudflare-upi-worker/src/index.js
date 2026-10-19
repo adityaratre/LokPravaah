@@ -191,7 +191,9 @@ function publicPayment(payment, env, receiver = null) {
   };
 }
 async function updateDonationWebhook(env, eventPayload) {
-  const secret = (env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim();
+  // Prefer a dedicated signing secret; the server-only Supabase key is a secure
+  // compatibility fallback for existing deployments that have not provisioned one.
+  const secret = (env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const target = (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim();
   if (!secret || !target || !/^https:\/\//i.test(target)) throw new Error('WEBHOOK_NOT_CONFIGURED');
   const raw = JSON.stringify(eventPayload);
@@ -395,7 +397,7 @@ async function handler(request, env) {
       serviceRoleKeyConfigured,
       receivingVpa: isValidReceiver(receiverSettings),
       receiverSettingsSource: receiverSettings.source,
-      webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim()
+      webhook: Boolean(((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || '').trim())
         && /^https:\/\//i.test((env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim())),
       admin: supabase,
     };
