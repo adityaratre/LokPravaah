@@ -1,3 +1,4 @@
+const GATEWAY_VERSION = 'lokpravaah-upi-final-2026-10-19-upi-uri-compat-2-admin-settings';
 const DEFAULT_MERCHANT_ID = '00000000-0000-0000-0000-000000000001';
 const MAX_BODY_BYTES = 16 * 1024;
 const SECURITY_HEADERS = {
@@ -115,29 +116,84 @@ async function sbRequest(env, path, options = {}) {
 async function rpc(env, name, args) {
   return sbRequest(env, `rpc/${name}`, { method: 'POST', body: args });
 }
+async function getDonationGatewaySettings(env) {
+  const fallbackMinutes = Math.max(5, Math.min(30, Number(env.PAYMENT_SESSION_MINUTES || 15) || 15));
+  const fallback = {
+    settingsAvailable: false,
+    donations_enabled: true,
+    payment_gateway_enabled: true,
+    payment_session_minutes: fallbackMinutes,
+    min_amount_paise: 100,
+    max_amount_paise: 10_000_000,
+    receiving_upi_vpa: '',
+    receiving_payee_name: '',
+  };
+  // Avoid noisy logs and a slow fetch when a local/test environment has no Supabase config.
+  // Fallback is for health diagnostics only: payment creation below fails closed if settings are unavailable.
+  if (!(env.SUPABASE_URL || '').trim() || !(env.SUPABASE_SERVICE_ROLE_KEY || '').trim()) return fallback;
+  try {
+    const rows = await sbRequest(env, 'donation_settings?select=donations_enabled,payment_gateway_enabled,payment_session_minutes,min_amount_paise,max_amount_paise,receiving_upi_vpa,receiving_payee_name&id=eq.true&limit=1');
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return fallback;
+    const minutes = Number(row.payment_session_minutes);
+    const minPaise = Number(row.min_amount_paise);
+    const maxPaise = Number(row.max_amount_paise);
+    return {
+      settingsAvailable: true,
+      donations_enabled: row.donations_enabled !== false,
+      payment_gateway_enabled: row.payment_gateway_enabled !== false,
+      payment_session_minutes: Number.isInteger(minutes) && minutes >= 5 && minutes <= 30 ? minutes : fallbackMinutes,
+      min_amount_paise: Number.isSafeInteger(minPaise) && minPaise >= 100 ? minPaise : 100,
+      max_amount_paise: Number.isSafeInteger(maxPaise) && maxPaise >= 100 && maxPaise <= 10_000_000 ? maxPaise : 10_000_000,
+      receiving_upi_vpa: String(row.receiving_upi_vpa || '').trim(),
+      receiving_payee_name: String(row.receiving_payee_name || '').trim(),
+    };
+  } catch (error) {
+    console.warn('Could not read approved donation settings; using safe compatibility defaults:', error.message);
+    return fallback;
+  }
+}
+function paymentEnvForSettings(env, settings) {
+  if (settings?.receiving_upi_vpa && settings?.receiving_payee_name) {
+    return { ...env, UPI_VPA: settings.receiving_upi_vpa, UPI_PAYEE_NAME: settings.receiving_payee_name };
+  }
+  return env;
+}
+async function getPaymentEnv(env) {
+  return paymentEnvForSettings(env, await getDonationGatewaySettings(env));
+}
 async function getPayment(env, id) {
-  const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,upi_transaction_ref,attempt_number,created_at&limit=1`);
+  const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,created_at&limit=1`);
   return Array.isArray(rows) ? rows[0] || null : null;
 }
+const UPI_VPA_PATTERN = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z0-9._-]{2,64}$/;
+const UPI_TXN_REF_MAX = 35;
+const UPI_TXN_NOTE_MAX = 50;
+
+function isValidReceivingVpa(value) {
+  return typeof value === 'string' && UPI_VPA_PATTERN.test(value.trim());
+}
+
 function buildUpiUri(payment, env) {
   const vpa = (env.UPI_VPA || '').trim();
-  const payee = (env.UPI_PAYEE_NAME || '').trim();
-  if (!vpa || !payee || !/^[^\s@]+@[^\s@]+$/.test(vpa)) return null;
-  // NPCI's UPI reference field is limited to 35 characters. A UUID with hyphens
-  // is 36 characters and may be rejected by some PSP apps. Keep a stable per-attempt
-  // 32-character reference (the migration stores the same value in the database).
-  const fallbackReference = String(payment.id || '').replace(/-/g, '').slice(0, 32);
-  const transactionReference = String(payment.upi_transaction_ref || fallbackReference)
-    .replace(/[^A-Za-z0-9._-]/g, '').slice(0, 35);
-  if (!transactionReference) return null;
-  const params = new URLSearchParams({
-    pa: vpa,
-    pn: payee,
-    am: rupees(payment.amount_paise),
-    cu: 'INR',
-    tn: 'LokPravaah Donation',
-    tr: transactionReference,
-  });
+  const payee = (env.UPI_PAYEE_NAME || '').trim().replace(/\s+/g, ' ').slice(0, 99);
+  // NPCI's UPI-link guidance limits merchant transaction references to 35 characters
+  // and expects short transaction notes. A UUID with hyphens is 36 chars, so do not
+  // put payment.id (UUID) directly in `tr`.
+  const candidateRef = String(payment.order_id || '').trim();
+  const transactionRef = /^[A-Za-z0-9._-]{1,35}$/.test(candidateRef)
+    ? candidateRef
+    : String(payment.id || '').replace(/-/g, '').slice(0, 32);
+  if (!isValidReceivingVpa(vpa) || !payee || !transactionRef) return null;
+
+  const transactionNote = 'LokPravaah donation'.slice(0, UPI_TXN_NOTE_MAX);
+  const params = new URLSearchParams();
+  params.set('pa', vpa);
+  params.set('pn', payee);
+  params.set('am', rupees(payment.amount_paise));
+  params.set('cu', 'INR');
+  params.set('tn', transactionNote);
+  params.set('tr', transactionRef);
   return `upi://pay?${params.toString()}`;
 }
 function publicPayment(payment, env) {
@@ -153,7 +209,6 @@ function publicPayment(payment, env) {
     queuePosition: payment.status === 'QUEUED' ? Number(payment.queue_position || 1) : 0,
     expiresAt: payment.expires_at,
     completedAt: payment.completed_at,
-    transactionReference: payment.upi_transaction_ref || String(payment.id || '').replace(/-/g, '').slice(0, 32),
     checkoutUrl: `${(env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/checkout/${payment.id}`,
     ...(canPay && buildUpiUri(payment, env) ? { upiUri: buildUpiUri(payment, env) } : {}),
   };
@@ -268,11 +323,9 @@ async function makePairing(request, env) {
 function checkoutHtml(paymentId, env) {
   const safeId = JSON.stringify(paymentId).replace(/</g, '\\u003c');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="strict-origin-when-cross-origin"><title>LokPravaah Secure UPI Checkout</title><style>
-  :root{color-scheme:light;--ink:#152136;--muted:#63718a;--line:#e2e8f0;--green:#12855c}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#e9fff5,#f4f7fb 60%,#edf2ff);color:var(--ink);font:15px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;display:grid;place-items:center;padding:16px}.wrap{background:white;border:1px solid #e0e8e6;border-radius:24px;width:min(100%,510px);overflow:hidden;box-shadow:0 22px 65px #1a4c3c1a}.top{padding:24px 24px 20px;background:#0b211d;color:white}.brand{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9be7c8;font-weight:800}.top h1{font-size:23px;margin:9px 0 2px}.top p{margin:0;color:#c7d9d4}.content{padding:24px}.amount{font-size:36px;font-weight:850;letter-spacing:-.04em;margin:3px 0 12px}.meta{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0;color:var(--muted);font-size:13px}.meta strong{color:var(--ink);text-align:right;overflow-wrap:anywhere}.state{margin:18px 0 14px;padding:12px 14px;border-radius:12px;background:#f1f5f9;color:#334155;font-size:14px}.qrbox{display:none;text-align:center;border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:16px}.qrbox img{width:min(100%,250px);height:auto;image-rendering:pixelated}.qrbox small{display:block;color:var(--muted)}.btn{display:block;width:100%;text-align:center;border:0;border-radius:12px;padding:14px 15px;text-decoration:none;font:inherit;font-weight:800;cursor:pointer;margin-top:10px}.primary{background:var(--green);color:white}.secondary{background:#f0f5f4;color:#215d49}.btn[hidden]{display:none!important}.note{font-size:12px;color:var(--muted);margin:16px 0 0}.ref{font:12px ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.spinner{display:inline-block;width:15px;height:15px;border:2px solid #b4c0cf;border-top-color:#12855c;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:400px){.content{padding:18px}.top{padding:20px}.amount{font-size:31px}}</style></head><body><main class="wrap"><header class="top"><div class="brand">LOKPRAVAAH · SECURE CHECKOUT</div><h1>Complete your contribution</h1><p>UPI payment directly to the configured receiving account</p></header><section class="content"><div id="amount" class="amount">Loading…</div><div class="meta"><span>Reference</span><strong id="order">—</strong></div><div class="meta"><span>Payment status</span><strong id="statusValue">Loading</strong></div><div class="meta"><span>Time remaining</span><strong id="timer">—</strong></div><div id="notice" class="state" role="status"><span class="spinner"></span> Checking your payment session…</div><div id="qrbox" class="qrbox"><img id="qr" alt="Scan with any UPI app"><small>Scan this QR using your UPI app</small></div><a id="openUpi" class="btn primary" href="#" hidden>Open UPI app</a><button id="cancel" class="btn secondary" type="button">Cancel checkout</button><p class="note">Do not pay if the reference, amount or receiving payee shown in your UPI app looks incorrect. Payment is marked successful only after the receiving-account notification is securely verified. Do not rely on screenshots.</p><p class="ref" id="pid"></p></section></main><script>
-  const id=${safeId};let current=null,done=false;const timerEl=document.getElementById('timer');const amountEl=document.getElementById('amount'),orderEl=document.getElementById('order'),statusEl=document.getElementById('statusValue'),notice=document.getElementById('notice'),qrbox=document.getElementById('qrbox'),qr=document.getElementById('qr'),openUpi=document.getElementById('openUpi'),cancel=document.getElementById('cancel'),pid=document.getElementById('pid');pid.textContent='Payment ID: '+id;function parentOrigin(){try{return new URL(document.referrer).origin}catch{return '*'}}function tell(event,data={}){try{window.parent.postMessage({event,data},parentOrigin())}catch{}}
-  function terminal(status){return ['SUCCESS','FAILED','SUSPICIOUS','EXPIRED','CANCELLED'].includes(status)}function show(s){current=s;amountEl.textContent='₹'+Number(s.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});orderEl.textContent=s.orderId||'—';statusEl.textContent=s.status||'UNKNOWN';updateTimer();qrbox.style.display='none';openUpi.hidden=true;cancel.hidden=terminal(s.status);if(s.status==='ACTIVE'&&s.upiUri){notice.textContent='Your payment slot is active. Scan the QR or open your UPI app. After payment, wait here while the receiving bank notification is verified.';qrbox.style.display='block';qr.alt='Loading UPI QR code';import('/qr.js').then(m=>{if(!done&&current&&current.status==='ACTIVE'){const svg=m.generateQrSvg(s.upiUri,260);if(qr.dataset.uri!==s.upiUri){if(qr.dataset.blobUrl)URL.revokeObjectURL(qr.dataset.blobUrl);const blobUrl=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));qr.src=blobUrl;qr.dataset.blobUrl=blobUrl;qr.dataset.uri=s.upiUri;}}}).catch(()=>{notice.textContent='QR generation failed on this device. Use the Open UPI app button if available.';});openUpi.href=s.upiUri;openUpi.hidden=false;}else if(s.status==='QUEUED'){notice.innerHTML='<span class="spinner"></span> You are in the secure payment queue. Do not send any payment yet. Queue position: '+String(Number(s.queuePosition||1)) +'.';}else if(s.status==='PROCESSING'){notice.innerHTML='<span class="spinner"></span> Receiving notification matched. Waiting for signed donation record confirmation…';}else if(s.status==='SUCCESS'){notice.textContent='Payment has been verified by the receiving-account observer. Thank you.';if(!done){done=true;tell('youpi.payment_success',{orderId:s.orderId,amount:Number(s.amount),method:'UPI',completedAt:s.completedAt||new Date().toISOString()});}}else if(s.status==='EXPIRED'){notice.textContent='This payment session expired. Check your bank statement before creating another attempt.';if(!done){done=true;tell('youpi.payment_expired',{orderId:s.orderId});}}else if(s.status==='FAILED'){notice.textContent='The payment was not confirmed. If money was debited, check your bank statement before retrying.';if(!done){done=true;tell('youpi.payment_failed',{orderId:s.orderId,reason:'PAYMENT_NOT_CONFIRMED'});}}else if(s.status==='SUSPICIOUS'){notice.textContent='This transaction needs review. Do not retry until it is checked.';if(!done){done=true;tell('youpi.payment_blocked',{orderId:s.orderId});}}else if(s.status==='CANCELLED'){notice.textContent='Checkout cancelled. Check your bank statement if you had already approved the transfer.';if(!done){done=true;tell('youpi.payment_cancelled',{orderId:s.orderId});}}else{notice.textContent='Payment status: '+String(s.status||'UNKNOWN');}}
-  function updateTimer(){if(!current||!current.expiresAt||!timerEl)return;const left=Math.max(0,Math.floor((new Date(current.expiresAt).getTime()-Date.now())/1000));timerEl.textContent=current.status==='ACTIVE'?String(Math.floor(left/60)).padStart(2,'0')+':'+String(left%60).padStart(2,'0'):(current.status==='PROCESSING'?'Verifying…':'—');if(current.status==='ACTIVE'&&left===0){timerEl.textContent='00:00';notice.textContent='Session timer ended. Do not assume your payment failed if you already approved it. Check your bank statement and submit payment proof for manual review if needed.';}}setInterval(updateTimer,1000);
-  function updateTimer(){if(!current||!current.expiresAt||!timerEl)return;const left=Math.max(0,Math.floor((new Date(current.expiresAt).getTime()-Date.now())/1000));timerEl.textContent=current.status==='ACTIVE'?String(Math.floor(left/60)).padStart(2,'0')+':'+String(left%60).padStart(2,'0'):(current.status==='PROCESSING'?'Verifying…':'—');if(current.status==='ACTIVE'&&left===0){timerEl.textContent='00:00';qrbox.style.display='none';openUpi.hidden=true;notice.textContent='Session timer ended. Do not assume your payment failed if you already approved it. Check your bank statement and submit payment proof for manual review if needed.';}}setInterval(updateTimer,1000);
+  :root{color-scheme:light;--ink:#152136;--muted:#63718a;--line:#e2e8f0;--green:#12855c}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#e9fff5,#f4f7fb 60%,#edf2ff);color:var(--ink);font:15px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;display:grid;place-items:center;padding:16px}.wrap{background:white;border:1px solid #e0e8e6;border-radius:24px;width:min(100%,510px);overflow:hidden;box-shadow:0 22px 65px #1a4c3c1a}.top{padding:24px 24px 20px;background:#0b211d;color:white}.brand{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9be7c8;font-weight:800}.top h1{font-size:23px;margin:9px 0 2px}.top p{margin:0;color:#c7d9d4}.content{padding:24px}.amount{font-size:36px;font-weight:850;letter-spacing:-.04em;margin:3px 0 12px}.meta{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0;color:var(--muted);font-size:13px}.meta strong{color:var(--ink);text-align:right;overflow-wrap:anywhere}.state{margin:18px 0 14px;padding:12px 14px;border-radius:12px;background:#f1f5f9;color:#334155;font-size:14px}.qrbox{display:none;text-align:center;border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:16px}.qrbox img{width:min(100%,250px);height:auto;image-rendering:pixelated}.qrbox small{display:block;color:var(--muted)}.btn{display:block;width:100%;text-align:center;border:0;border-radius:12px;padding:14px 15px;text-decoration:none;font:inherit;font-weight:800;cursor:pointer;margin-top:10px}.primary{background:var(--green);color:white}.secondary{background:#f0f5f4;color:#215d49}.btn[hidden]{display:none!important}.note{font-size:12px;color:var(--muted);margin:16px 0 0}.ref{font:12px ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.spinner{display:inline-block;width:15px;height:15px;border:2px solid #b4c0cf;border-top-color:#12855c;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:400px){.content{padding:18px}.top{padding:20px}.amount{font-size:31px}}</style></head><body><main class="wrap"><header class="top"><div class="brand">LOKPRAVAAH · SECURE CHECKOUT</div><h1>Complete your contribution</h1><p>UPI payment directly to the configured receiving account</p></header><section class="content"><div id="amount" class="amount">Loading…</div><div class="meta"><span>Reference</span><strong id="order">—</strong></div><div class="meta"><span>Payment status</span><strong id="statusValue">Loading</strong></div><div class="meta"><span>Time remaining</span><strong id="timer">--:--</strong></div><div id="notice" class="state" role="status"><span class="spinner"></span> Checking your payment session…</div><div id="qrbox" class="qrbox"><img id="qr" alt="Scan with any UPI app"><small>Scan this QR using your UPI app</small></div><a id="openUpi" class="btn primary" href="#" hidden>Open UPI app</a><button id="cancel" class="btn secondary" type="button">Cancel checkout</button><p class="note">Do not pay if the reference, amount or receiving payee shown in your UPI app looks incorrect. Payment is marked successful only after the receiving-account notification is securely verified. Do not rely on screenshots.</p><p class="ref" id="pid"></p></section></main><script>
+  const id=${safeId};let current=null,done=false,expiresAtMs=null;const timerEl=document.getElementById('timer');const amountEl=document.getElementById('amount'),orderEl=document.getElementById('order'),statusEl=document.getElementById('statusValue'),notice=document.getElementById('notice'),qrbox=document.getElementById('qrbox'),qr=document.getElementById('qr'),openUpi=document.getElementById('openUpi'),cancel=document.getElementById('cancel'),pid=document.getElementById('pid');pid.textContent='Payment ID: '+id;function parentOrigin(){try{return new URL(document.referrer).origin}catch{return '*'}}function tell(event,data={}){try{window.parent.postMessage({event,data},parentOrigin())}catch{}}
+  function terminal(status){return ['SUCCESS','FAILED','SUSPICIOUS','EXPIRED','CANCELLED'].includes(status)}function updateTimer(){if(!expiresAtMs){timerEl.textContent='—';return;}const ms=expiresAtMs-Date.now();if(ms<=0){timerEl.textContent='00:00 · checking';if(current&&current.status==='ACTIVE'){qrbox.style.display='none';openUpi.hidden=true;notice.textContent='Session timer ended. Checking the final bank status—do not retry if you already approved a transfer.';}return;}const seconds=Math.ceil(ms/1000);timerEl.textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');}setInterval(updateTimer,1000);function show(s){current=s;expiresAtMs=s.expiresAt?new Date(s.expiresAt).getTime():null;updateTimer();amountEl.textContent='₹'+Number(s.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});orderEl.textContent=s.orderId||'—';statusEl.textContent=s.status||'UNKNOWN';qrbox.style.display='none';openUpi.hidden=true;cancel.hidden=terminal(s.status);if(s.status==='ACTIVE'&&s.upiUri&&(!expiresAtMs||expiresAtMs>Date.now())){notice.textContent='Your payment slot is active. Scan the QR or open your UPI app. After payment, wait here while the receiving bank notification is verified.';qrbox.style.display='block';qr.alt='Loading UPI QR code';import('/qr.js').then(m=>{if(!done&&current&&current.status==='ACTIVE'){const svg=m.generateQrSvg(s.upiUri,260);if(qr.dataset.uri!==s.upiUri){if(qr.dataset.blobUrl)URL.revokeObjectURL(qr.dataset.blobUrl);const blobUrl=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));qr.src=blobUrl;qr.dataset.blobUrl=blobUrl;qr.dataset.uri=s.upiUri;}}}).catch(()=>{notice.textContent='QR generation failed on this device. Use the Open UPI app button if available.';});openUpi.href=s.upiUri;openUpi.hidden=false;}else if(s.status==='QUEUED'){notice.innerHTML='<span class="spinner"></span> You are in the secure payment queue. Do not send any payment yet. Queue position: '+String(Number(s.queuePosition||1)) +'.';}else if(s.status==='PROCESSING'){notice.innerHTML='<span class="spinner"></span> Receiving notification matched. Waiting for signed donation record confirmation…';}else if(s.status==='SUCCESS'){notice.textContent='Payment has been verified by the receiving-account observer. Thank you.';if(!done){done=true;tell('youpi.payment_success',{orderId:s.orderId,amount:Number(s.amount),method:'UPI',completedAt:s.completedAt||new Date().toISOString()});}}else if(s.status==='EXPIRED'){notice.textContent='This payment session expired. Check your bank statement before creating another attempt.';if(!done){done=true;tell('youpi.payment_expired',{orderId:s.orderId});}}else if(s.status==='FAILED'){notice.textContent='The payment was not confirmed. If money was debited, check your bank statement before retrying.';if(!done){done=true;tell('youpi.payment_failed',{orderId:s.orderId,reason:'PAYMENT_NOT_CONFIRMED'});}}else if(s.status==='SUSPICIOUS'){notice.textContent='This transaction needs review. Do not retry until it is checked.';if(!done){done=true;tell('youpi.payment_blocked',{orderId:s.orderId});}}else if(s.status==='CANCELLED'){notice.textContent='Checkout cancelled. Check your bank statement if you had already approved the transfer.';if(!done){done=true;tell('youpi.payment_cancelled',{orderId:s.orderId});}}else{notice.textContent='Payment status: '+String(s.status||'UNKNOWN');}}
   async function poll(){if(done)return;try{const r=await fetch('/api/v1/payments/'+encodeURIComponent(id),{cache:'no-store'});const s=await r.json();if(!r.ok)throw new Error(s.error||'Unable to load payment');show(s);}catch(e){notice.textContent='Connection issue. Retrying status check; do not pay again if your bank shows a debit.';}if(!done)setTimeout(poll,5000);}
   cancel.addEventListener('click',async()=>{cancel.disabled=true;try{const r=await fetch('/api/v1/payments/'+encodeURIComponent(id)+'/cancel',{method:'POST'});const d=await r.json();if(r.ok)show(d);else notice.textContent=d.error||'Could not cancel the session. Close the dialog only after checking payment status.';}catch{notice.textContent='Network issue while cancelling. Check payment status before retrying.'}finally{cancel.disabled=false;}});
   window.addEventListener('message',async e=>{if(e.data&&e.data.event==='youpi.request_cancel'){cancel.click();}});poll();
@@ -355,16 +408,38 @@ async function handler(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) } });
 
   if (request.method === 'GET' && path === '/health') {
+    const paymentSettings = await getDonationGatewaySettings(env);
+    const paymentEnv = paymentEnvForSettings(env, paymentSettings);
+    const healthUri = buildUpiUri({
+      id: '00000000-0000-0000-0000-000000000000',
+      order_id: 'LP-HEALTH-CHECK-01',
+      amount_paise: 100,
+    }, paymentEnv);
+    let upiIntentFormat = false;
+    try {
+      const params = healthUri ? new URL(healthUri).searchParams : null;
+      upiIntentFormat = Boolean(params && params.get('pa') && params.get('pn') && params.get('am') === '1.00'
+        && params.get('cu') === 'INR' && (params.get('tr') || '').length <= UPI_TXN_REF_MAX
+        && (params.get('tn') || '').length <= UPI_TXN_NOTE_MAX);
+    } catch {}
     const config = {
       supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-      receivingVpa: Boolean((env.UPI_VPA || '').trim() && (env.UPI_PAYEE_NAME || '').trim()),
+      receivingVpa: isValidReceivingVpa((paymentEnv.UPI_VPA || '').trim()) && Boolean((paymentEnv.UPI_PAYEE_NAME || '').trim()),
+      upiIntentFormat,
+      settings: paymentSettings.settingsAvailable,
       webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim() && (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim()),
       admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
     };
     let database = false;
     try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; } catch {}
     const ready = Object.values(config).every(Boolean) && database;
-    return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database } }, ready ? 200 : 503);
+    return json(request, env, {
+      status: ready ? 'UP' : 'CONFIGURATION_REQUIRED',
+      service: 'lokpravaah-cloudflare-upi-gateway',
+      gateway_version: GATEWAY_VERSION,
+      checks: { ...config, database },
+      diagnostics: { recipientSource: paymentEnv === env ? 'worker_environment_fallback' : 'admin_database_settings', settingsAvailable: paymentSettings.settingsAvailable, note: 'Configuration, database reachability and UPI link format checks passed; this does not verify live bank routing or guarantee that a transfer will be accepted.' },
+    }, ready ? 200 : 503);
   }
 
   // The standalone pairing page has been removed. Keep this path dark even on workers.dev.
@@ -445,30 +520,27 @@ async function handler(request, env) {
     if (String(body.currency || 'INR').toUpperCase() !== 'INR') return json(request, env, { error: 'Only INR is supported' }, 400);
     const amountPaise = paiseFromAmount(body.amount);
     if (amountPaise === null) return json(request, env, { error: 'Amount must be from ₹1 to ₹1,00,000 with at most two decimal places' }, 400);
-    if (!buildUpiUri({ id: 'validation', order_id: body.orderId, amount_paise: amountPaise }, env)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured' }, 503);
+    const paymentSettings = await getDonationGatewaySettings(env);
+    if (!paymentSettings.settingsAvailable) return json(request, env, { error: 'Donation settings are unavailable. Apply the final UPI settings migration and retry.' }, 503);
+    if (!paymentSettings.donations_enabled || !paymentSettings.payment_gateway_enabled) return json(request, env, { error: 'Online donations are temporarily disabled by the platform administrator.' }, 403);
+    if (amountPaise < paymentSettings.min_amount_paise || amountPaise > paymentSettings.max_amount_paise) return json(request, env, { error: 'Donation amount is outside the administrator-configured limits.' }, 400);
+    const paymentEnv = paymentEnvForSettings(env, paymentSettings);
+    if (!buildUpiUri({ id: 'validation', order_id: body.orderId, amount_paise: amountPaise }, paymentEnv)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured' }, 503);
     try {
       const paymentId = crypto.randomUUID();
       const idempotencyKey = (request.headers.get('Idempotency-Key') || body.idempotencyKey || '').slice(0, 150) || null;
-      let sessionMinutes = Math.max(5, Math.min(30, Number(env.PAYMENT_SESSION_MINUTES || 15)));
-      try {
-        const settingRows = await sbRequest(env, 'donation_settings?id=eq.true&select=payment_session_minutes&limit=1');
-        const configured = Number(Array.isArray(settingRows) ? settingRows[0]?.payment_session_minutes : NaN);
-        if (Number.isFinite(configured) && configured >= 5 && configured <= 30) sessionMinutes = Math.trunc(configured);
-      } catch (settingsError) {
-        console.warn('Donation timer setting unavailable; using Worker fallback:', settingsError.message);
-      }
       const result = await rpc(env, 'upi_gateway_create_payment', {
         p_payment_id: paymentId,
         p_order_id: String(body.orderId).trim(),
         p_amount_paise: amountPaise,
         p_merchant_id: expectedMerchantId,
         p_idempotency_key: idempotencyKey,
-        p_session_minutes: sessionMinutes,
+        p_session_minutes: paymentSettings.payment_session_minutes,
       });
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
       if (!payment) return json(request, env, { error: 'Payment session could not be loaded' }, 500);
-      return json(request, env, { ...publicPayment(payment, env), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
+      return json(request, env, { ...publicPayment(payment, paymentEnv), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
     } catch (error) {
       const status = error.status === 404 ? 404 : error.status === 409 ? 409 : error.status === 400 ? 400 : 400;
       console.error('Payment session creation failed:', error.message);
@@ -482,7 +554,8 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, paymentMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      return json(request, env, publicPayment(payment, env));
+      const paymentEnv = await getPaymentEnv(env);
+      return json(request, env, publicPayment(payment, paymentEnv));
     } catch (error) {
       console.error('Payment status lookup failed:', error.message);
       return json(request, env, { error: 'Payment status is temporarily unavailable' }, 503);
@@ -494,7 +567,8 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, stateMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      return json(request, env, publicPayment(payment, env));
+      const paymentEnv = await getPaymentEnv(env);
+      return json(request, env, publicPayment(payment, paymentEnv));
     } catch { return json(request, env, { error: 'Payment status unavailable' }, 503); }
   }
   const qrMatch = path.match(/^\/checkout\/([a-f0-9-]{36})\/qr\.svg$/i);

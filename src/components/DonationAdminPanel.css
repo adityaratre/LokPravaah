@@ -2,31 +2,5 @@
 @media(max-width:1050px){.donation-admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.donation-admin-gateway{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.donation-admin-intro{flex-direction:column}.donation-admin-stats{gap:7px}.donation-admin-stats article{padding:12px}.donation-admin-stats b{font-size:18px}.donation-admin-toggles,.donation-admin-config-grid,.donation-admin-gateway,.donation-admin-request-changes{grid-template-columns:1fr}.donation-admin-gateway>div,.donation-admin-gateway-note{grid-column:auto}.donation-admin-request-head{flex-direction:column}.donation-admin-request-head small{text-align:left}}
 
-.donation-admin-timer,.donation-admin-review-queue{padding:clamp(14px,2vw,22px)}
-.donation-admin-timer-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
-.donation-admin-timer-row label{display:grid;gap:6px;font-size:10px;font-weight:750;min-width:min(100%,240px);color:var(--text)}
-.donation-admin-timer-row select{width:100%;border:1px solid var(--border);border-radius:9px;padding:10px 11px;background:var(--field);color:var(--text);font:inherit;font-size:11px}
-.donation-review-list{display:grid;gap:12px}
-.donation-review-item{display:grid;gap:10px;border:1px solid var(--border);border-radius:13px;background:var(--panel2);padding:14px;min-width:0}
-.donation-review-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.donation-review-top>div{display:grid;gap:4px;min-width:0}
-.donation-review-top>div>b{font-size:11px;overflow-wrap:anywhere}
-.donation-review-top small{font-size:9px;color:var(--muted)}
-.donation-review-note,.donation-review-decision{margin:0;color:var(--muted);font-size:10px;line-height:1.7;overflow-wrap:anywhere}
-.donation-review-label{display:grid;gap:6px;font-size:9px;color:var(--muted2);font-weight:700}
-.donation-review-label input{width:100%;min-width:0;border:1px solid var(--border);border-radius:9px;padding:10px 11px;background:var(--field);color:var(--text);font:inherit;font-size:10px;box-sizing:border-box}
-.donation-review-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.donation-review-actions>a{font-size:9px;color:var(--mint-strong);overflow-wrap:anywhere}
-.donation-review-actions .btn{display:inline-flex;align-items:center;gap:6px}
-@media(max-width:650px){.donation-admin-timer-row{align-items:stretch;flex-direction:column}.donation-admin-timer-row label{min-width:0}.donation-review-top{flex-direction:column}}
-.donation-admin-diagnostics{padding:clamp(14px,2vw,22px)}
-.donation-diag-results{display:grid;gap:12px;margin-top:13px}
-.donation-diag-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
-.donation-diag-grid article{display:grid;align-content:start;gap:5px;min-width:0;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--panel2)}
-.donation-diag-grid small{font-size:8px;color:var(--muted);overflow-wrap:anywhere}
-.donation-diag-grid b{font-size:11px;overflow-wrap:anywhere}
-.donation-diag-results pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--panel2);padding:11px;color:var(--muted);font-size:9px}
-.donation-diag-results ul{margin:0;padding:10px 12px 10px 28px;border-radius:10px;background:#c96c4d12;color:var(--gold);font-size:10px}
-@media(max-width:720px){.donation-diag-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:420px){.donation-diag-grid{grid-template-columns:1fr}}
-.donation-admin-receiver-settings .donation-admin-form-actions{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.donation-admin-receiver-requests{display:grid;gap:8px;margin-top:18px}.donation-admin-receiver-requests h4{font:800 12px Manrope,sans-serif;margin:0;color:var(--text)}.donation-admin-receiver-settings .donation-admin-footnote{margin:8px 0 0}
+.donation-admin-claim{gap:12px}.donation-admin-claim>label{display:grid;gap:6px;font-size:10px;color:var(--muted2);font-weight:700}.donation-admin-claim>label input{width:100%;min-width:0;border:1px solid var(--border);border-radius:9px;padding:10px 11px;background:var(--field);color:var(--text);font:inherit;font-size:11px}.donation-admin-claim-actions,.donation-admin-row-actions{display:flex;gap:7px;align-items:flex-start;flex-wrap:wrap}.donation-admin-row-actions{min-width:125px;flex-direction:column}.donation-admin-row-actions small{font-size:8px;color:var(--muted)}.donation-admin-claim .donation-admin-request-changes{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:700px){.donation-admin-claim .donation-admin-request-changes{grid-template-columns:1fr}}
