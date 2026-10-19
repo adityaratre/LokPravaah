@@ -263,7 +263,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     event.preventDefault()
     if (!supabase) return
     const rawAmount = manualAmount.trim()
-    if (!/^\\d{1,6}(?:\\.\\d{1,2})?$/.test(rawAmount)) { setError('Enter an amount from ₹1 to ₹100,000 with at most 2 decimal places.'); return }
+    if (!/^\d{1,6}(?:\.\d{1,2})?$/.test(rawAmount)) { setError('Enter an amount from ₹1 to ₹100,000 with at most 2 decimal places.'); return }
     const amountPaise = Math.round(Number(rawAmount) * 100)
     if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 10000000) { setError('Amount must be between ₹1 and ₹100,000.'); return }
     const receivedDate = new Date(manualReceivedAt)
