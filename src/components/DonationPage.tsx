@@ -358,13 +358,13 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         apiUrl: gatewayApiUrl,
         theme: { color: '#55d8a1' },
         metadata: { purpose: 'lokpravaah_donation', order_id: session.orderId, amount_paise: session.amountPaise },
-        handler: () => handlePaymentStatus(session.orderId, 'SUCCESS'),
-        onSuccess: () => { handlePaymentStatus(session.orderId, 'SUCCESS'); setLaunching(false); setNotice({ tone: 'success', title: 'Payment verified', body: `Reference ${session.orderId} was confirmed by the payment gateway.` }) },
+        handler: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'Checkout reported a payment response. Only admin verification against the receiving-bank statement can mark this donation successful.' }) },
+        onSuccess: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'The donation is not successful until an administrator verifies the bank record.' }); void loadPublicData(); void loadMyDonations() },
         onFailed: () => { handlePaymentStatus(session.orderId, 'FAILED'); setLaunching(false) },
-        onSuspicious: () => { handlePaymentStatus(session.orderId, 'SUSPICIOUS'); setLaunching(false) },
+        onSuspicious: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false) },
         onExpired: () => { handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
         onCancelled: () => { handlePaymentStatus(session.orderId, 'CANCELLED'); setLaunching(false) },
-        onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
+        onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId: session.orderId, amountPaise: session.amountPaise }),
         onClose: () => setLaunching(false),
       })
     } catch (error) {
