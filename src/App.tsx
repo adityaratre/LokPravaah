@@ -334,19 +334,13 @@ export default function App() {
       }
       try {
         const authFlow = sessionStorage.getItem('janwatch.authFlow')
-        if (sessionUser) {
+        if (sessionUser && authFlow) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          // Restore the signed-in view after a full page refresh; previously the auth session
-          // was restored but entryScreen stayed at 'welcome', which looked like a logout.
-          if (authFlow) {
-            setOnboardingMode(setupComplete ? 'edit' : 'setup')
-            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
-            sessionStorage.removeItem('janwatch.authFlow')
-          } else {
-            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
-          }
+          setOnboardingMode(setupComplete ? 'edit' : 'setup')
+          setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
+          sessionStorage.removeItem('janwatch.authFlow')
         }
-      } catch { if (sessionUser) setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding') }
+      } catch { /* session storage may be unavailable */ }
       setAuthLoading(false)
     }).catch((error: unknown) => {
       if (!mounted) return
@@ -379,10 +373,8 @@ export default function App() {
         if (sessionUser && authFlow) {
           setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding')
           sessionStorage.removeItem('janwatch.authFlow')
-        } else if (sessionUser && event === 'INITIAL_SESSION') {
-          setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding')
         }
-      } catch { if (sessionUser && event === 'INITIAL_SESSION') setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding') }
+      } catch { /* session storage may be unavailable */ }
       if (!session?.user) {
         setEntryScreen('welcome')
         setIssues([])

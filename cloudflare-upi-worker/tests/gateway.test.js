@@ -56,26 +56,6 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const body = await response.json();
   assert.equal(body.status, 'UP');
   assert.equal(body.checks.database, true);
-  assert.equal(body.gateway_version, 'lokpravaah-upi-payment-reliability-2026-10-19-v2');
-  assert.equal(body.diagnostics.paymentReadiness, 'NEEDS_ATTENTION');
-  assert.equal(body.diagnostics.observerPrerequisitesReady, false);
-});
-
-test('approved database receiving-account settings override Worker bootstrap variables', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    assert.equal(url.pathname, '/rest/v1/rpc/upi_gateway_get_receiver_settings');
-    return new Response(JSON.stringify({ receivingVpa: 'approved.receiver@bank', payeeName: 'Approved Account Holder' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  };
-  const response = await worker.fetch(req('/api/v1/merchant/receiver-settings'), defaultEnv, {});
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.equal(body.receivingVpa, 'approved.receiver@bank');
-  assert.equal(body.payeeName, 'Approved Account Holder');
-  assert.equal(body.source, 'admin_settings');
-  assert.equal(body.configured, true);
 });
 
 test('standalone /admin page is not exposed', async () => {
@@ -186,13 +166,6 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
   assert.match(body.upiUri, /^upi:\/\/pay\?/);
-  const upi = new URL(body.upiUri);
-  const transactionReference = upi.searchParams.get('tr') || '';
-  assert.match(transactionReference, /^\d{1,35}$/);
-  assert.equal(upi.searchParams.get('pa'), defaultEnv.UPI_VPA);
-  assert.equal(upi.searchParams.get('pn'), defaultEnv.UPI_PAYEE_NAME);
-  assert.equal(upi.searchParams.get('am'), '251.00');
-  assert.equal(upi.searchParams.get('cu'), 'INR');
 });
 
 test('checkout never exposes QR for a queued payment', async t => {

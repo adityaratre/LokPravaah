@@ -1,6 +1,5 @@
 const DEFAULT_MERCHANT_ID = '00000000-0000-0000-0000-000000000001';
 const MAX_BODY_BYTES = 16 * 1024;
-const GATEWAY_VERSION = 'lokpravaah-upi-payment-reliability-2026-10-19-v2';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -120,43 +119,21 @@ async function getPayment(env, id) {
   const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,created_at&limit=1`);
   return Array.isArray(rows) ? rows[0] || null : null;
 }
-async function getReceiverSettings(env) {
-  // Approved admin settings in Supabase take precedence over deployment variables.
-  // Keep env vars as a safe bootstrap/fallback if the settings table has not been installed yet.
-  try {
-    const saved = await rpc(env, 'upi_gateway_get_receiver_settings', {});
-    const receivingVpa = String(saved?.receivingVpa || saved?.receiving_vpa || '').trim();
-    const payeeName = String(saved?.payeeName || saved?.payee_name || '').trim();
-    if (receivingVpa || payeeName) return { receivingVpa, payeeName, source: 'admin_settings' };
-  } catch { /* migration may not have been applied yet; continue with the environment fallback */ }
-  return { receivingVpa: String(env.UPI_VPA || '').trim(), payeeName: String(env.UPI_PAYEE_NAME || '').trim(), source: 'worker_environment' };
-}
-function isValidReceiver(receiver) {
-  return Boolean(receiver && /^[^\s@]+@[^\s@]+$/.test(String(receiver.receivingVpa || '').trim()) && String(receiver.payeeName || '').trim() && String(receiver.payeeName).trim().length <= 99);
-}
-function buildUpiUri(payment, env, receiver = null) {
-  const vpa = String(receiver?.receivingVpa || env.UPI_VPA || '').trim();
-  const payee = String(receiver?.payeeName || env.UPI_PAYEE_NAME || '').trim();
-  if (!vpa || !payee || !/^[^\s@]+@[^\s@]+$/.test(vpa) || payee.length > 99) return null;
-  // NPCI's UPI linking guidance constrains merchant transaction references to 35 digits.
-  // A UUID with hyphens is 36 chars and some UPI apps reject it. Use the 32 hex chars instead.
-  const uuidHex = String(payment.id || '').replace(/[^a-f0-9]/gi, '');
-  if (uuidHex.length !== 32) return null;
-  // UPI tr is emitted as digits only (35 digits max) for broad app compatibility.
-  // The 128-bit UUID is converted to decimal; reducing to 35 digits keeps the reference unique in practice.
-  const transactionReference = BigInt('0x' + uuidHex).toString(10).slice(-35);
-  if (!/^\d{1,35}$/.test(transactionReference)) return null;
+function buildUpiUri(payment, env) {
+  const vpa = (env.UPI_VPA || '').trim();
+  const payee = (env.UPI_PAYEE_NAME || '').trim();
+  if (!vpa || !payee || !/^[^\s@]+@[^\s@]+$/.test(vpa)) return null;
   const params = new URLSearchParams({
     pa: vpa,
     pn: payee,
     am: rupees(payment.amount_paise),
     cu: 'INR',
-    tn: `LokPravaah ${payment.order_id}`.slice(0, 50),
-    tr: transactionReference,
+    tn: `LokPravaah ${payment.order_id}`.slice(0, 80),
+    tr: payment.id,
   });
   return `upi://pay?${params.toString()}`;
 }
-function publicPayment(payment, env, receiver = null) {
+function publicPayment(payment, env) {
   const canPay = payment.status === 'ACTIVE';
   return {
     paymentId: payment.id,
@@ -170,7 +147,7 @@ function publicPayment(payment, env, receiver = null) {
     expiresAt: payment.expires_at,
     completedAt: payment.completed_at,
     checkoutUrl: `${(env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/checkout/${payment.id}`,
-    ...(canPay && buildUpiUri(payment, env, receiver) ? { upiUri: buildUpiUri(payment, env, receiver) } : {}),
+    ...(canPay && buildUpiUri(payment, env) ? { upiUri: buildUpiUri(payment, env) } : {}),
   };
 }
 async function updateDonationWebhook(env, eventPayload) {
@@ -283,9 +260,9 @@ async function makePairing(request, env) {
 function checkoutHtml(paymentId, env) {
   const safeId = JSON.stringify(paymentId).replace(/</g, '\\u003c');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="strict-origin-when-cross-origin"><title>LokPravaah Secure UPI Checkout</title><style>
-  :root{color-scheme:light;--ink:#152136;--muted:#63718a;--line:#e2e8f0;--green:#12855c}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#e9fff5,#f4f7fb 60%,#edf2ff);color:var(--ink);font:15px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;display:grid;place-items:center;padding:16px}.wrap{background:white;border:1px solid #e0e8e6;border-radius:24px;width:min(100%,510px);overflow:hidden;box-shadow:0 22px 65px #1a4c3c1a}.top{padding:24px 24px 20px;background:#0b211d;color:white}.brand{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9be7c8;font-weight:800}.top h1{font-size:23px;margin:9px 0 2px}.top p{margin:0;color:#c7d9d4}.content{padding:24px}.amount{font-size:36px;font-weight:850;letter-spacing:-.04em;margin:3px 0 12px}.meta{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0;color:var(--muted);font-size:13px}.meta strong{color:var(--ink);text-align:right;overflow-wrap:anywhere}.state{margin:18px 0 14px;padding:12px 14px;border-radius:12px;background:#f1f5f9;color:#334155;font-size:14px}.qrbox{display:none;text-align:center;border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:16px}.qrbox img{width:min(100%,250px);height:auto;image-rendering:pixelated}.qrbox small{display:block;color:var(--muted)}.btn{display:block;width:100%;text-align:center;border:0;border-radius:12px;padding:14px 15px;text-decoration:none;font:inherit;font-weight:800;cursor:pointer;margin-top:10px}.primary{background:var(--green);color:white}.secondary{background:#f0f5f4;color:#215d49}.btn[hidden]{display:none!important}.note{font-size:12px;color:var(--muted);margin:16px 0 0}.ref{font:12px ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.spinner{display:inline-block;width:15px;height:15px;border:2px solid #b4c0cf;border-top-color:#12855c;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:400px){.content{padding:18px}.top{padding:20px}.amount{font-size:31px}}</style></head><body><main class="wrap"><header class="top"><div class="brand">LOKPRAVAAH · SECURE CHECKOUT</div><h1>Complete your contribution</h1><p>UPI payment directly to the configured receiving account</p></header><section class="content"><div id="amount" class="amount">Loading…</div><div class="meta"><span>Reference</span><strong id="order">—</strong></div><div class="meta"><span>Payment status</span><strong id="statusValue">Loading</strong></div><div class="meta"><span>Time remaining</span><strong id="countdown">—</strong></div><div id="notice" class="state" role="status"><span class="spinner"></span> Checking your payment session…</div><div id="qrbox" class="qrbox"><img id="qr" alt="Scan with any UPI app"><small>Scan this QR using your UPI app</small></div><a id="openUpi" class="btn primary" href="#" hidden>Open UPI app</a><button id="cancel" class="btn secondary" type="button">Cancel checkout</button><p class="note">Do not pay if the reference, amount or receiving payee shown in your UPI app looks incorrect. Payment is marked successful only after the receiving-account notification is securely verified. Do not rely on screenshots.</p><p class="ref" id="pid"></p></section></main><script>
-  const id=${safeId};let current=null,done=false,countdownTimer=null;const amountEl=document.getElementById('amount'),orderEl=document.getElementById('order'),statusEl=document.getElementById('statusValue'),countdownEl=document.getElementById('countdown'),notice=document.getElementById('notice'),qrbox=document.getElementById('qrbox'),qr=document.getElementById('qr'),openUpi=document.getElementById('openUpi'),cancel=document.getElementById('cancel'),pid=document.getElementById('pid');pid.textContent='Payment ID: '+id;function updateCountdown(){if(!current||current.status!=='ACTIVE'||!current.expiresAt){countdownEl.textContent='—';return;}const seconds=Math.max(0,Math.ceil((new Date(current.expiresAt).getTime()-Date.now())/1000));countdownEl.textContent=seconds>0?(String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0')):'Expired · checking status';}function scheduleCountdown(){if(countdownTimer)clearInterval(countdownTimer);updateCountdown();countdownTimer=setInterval(updateCountdown,1000);}function parentOrigin(){try{return new URL(document.referrer).origin}catch{return '*'}}function tell(event,data={}){try{window.parent.postMessage({event,data},parentOrigin())}catch{}}
-  function terminal(status){return ['SUCCESS','FAILED','SUSPICIOUS','EXPIRED','CANCELLED'].includes(status)}function show(s){current=s;scheduleCountdown();amountEl.textContent='₹'+Number(s.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});orderEl.textContent=s.orderId||'—';statusEl.textContent=s.status||'UNKNOWN';qrbox.style.display='none';openUpi.hidden=true;cancel.hidden=terminal(s.status);if(s.status==='ACTIVE'&&s.upiUri){notice.textContent='Your payment slot is active. Scan the QR or open your UPI app. After payment, wait here while the receiving bank notification is verified.';qrbox.style.display='block';qr.alt='Loading UPI QR code';import('/qr.js').then(m=>{if(!done&&current&&current.status==='ACTIVE'){const svg=m.generateQrSvg(s.upiUri,260);if(qr.dataset.uri!==s.upiUri){if(qr.dataset.blobUrl)URL.revokeObjectURL(qr.dataset.blobUrl);const blobUrl=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));qr.src=blobUrl;qr.dataset.blobUrl=blobUrl;qr.dataset.uri=s.upiUri;}}}).catch(()=>{notice.textContent='QR generation failed on this device. Use the Open UPI app button if available.';});openUpi.href=s.upiUri;openUpi.hidden=false;}else if(s.status==='QUEUED'){notice.innerHTML='<span class="spinner"></span> You are in the secure payment queue. Do not send any payment yet. Queue position: '+String(Number(s.queuePosition||1)) +'.';}else if(s.status==='PROCESSING'){notice.innerHTML='<span class="spinner"></span> Receiving notification matched. Waiting for signed donation record confirmation…';}else if(s.status==='SUCCESS'){notice.textContent='Payment has been verified by the receiving-account observer. Thank you.';if(!done){done=true;tell('youpi.payment_success',{orderId:s.orderId,amount:Number(s.amount),method:'UPI',completedAt:s.completedAt||new Date().toISOString()});}}else if(s.status==='EXPIRED'){notice.textContent='This payment session expired. Check your bank statement before creating another attempt.';if(!done){done=true;tell('youpi.payment_expired',{orderId:s.orderId});}}else if(s.status==='FAILED'){notice.textContent='The payment was not confirmed. If money was debited, check your bank statement before retrying.';if(!done){done=true;tell('youpi.payment_failed',{orderId:s.orderId,reason:'PAYMENT_NOT_CONFIRMED'});}}else if(s.status==='SUSPICIOUS'){notice.textContent='This transaction needs review. Do not retry until it is checked.';if(!done){done=true;tell('youpi.payment_blocked',{orderId:s.orderId});}}else if(s.status==='CANCELLED'){notice.textContent='Checkout cancelled. Check your bank statement if you had already approved the transfer.';if(!done){done=true;tell('youpi.payment_cancelled',{orderId:s.orderId});}}else{notice.textContent='Payment status: '+String(s.status||'UNKNOWN');}}
+  :root{color-scheme:light;--ink:#152136;--muted:#63718a;--line:#e2e8f0;--green:#12855c}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#e9fff5,#f4f7fb 60%,#edf2ff);color:var(--ink);font:15px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh;display:grid;place-items:center;padding:16px}.wrap{background:white;border:1px solid #e0e8e6;border-radius:24px;width:min(100%,510px);overflow:hidden;box-shadow:0 22px 65px #1a4c3c1a}.top{padding:24px 24px 20px;background:#0b211d;color:white}.brand{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9be7c8;font-weight:800}.top h1{font-size:23px;margin:9px 0 2px}.top p{margin:0;color:#c7d9d4}.content{padding:24px}.amount{font-size:36px;font-weight:850;letter-spacing:-.04em;margin:3px 0 12px}.meta{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 0;color:var(--muted);font-size:13px}.meta strong{color:var(--ink);text-align:right;overflow-wrap:anywhere}.state{margin:18px 0 14px;padding:12px 14px;border-radius:12px;background:#f1f5f9;color:#334155;font-size:14px}.qrbox{display:none;text-align:center;border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:16px}.qrbox img{width:min(100%,250px);height:auto;image-rendering:pixelated}.qrbox small{display:block;color:var(--muted)}.btn{display:block;width:100%;text-align:center;border:0;border-radius:12px;padding:14px 15px;text-decoration:none;font:inherit;font-weight:800;cursor:pointer;margin-top:10px}.primary{background:var(--green);color:white}.secondary{background:#f0f5f4;color:#215d49}.btn[hidden]{display:none!important}.note{font-size:12px;color:var(--muted);margin:16px 0 0}.ref{font:12px ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.spinner{display:inline-block;width:15px;height:15px;border:2px solid #b4c0cf;border-top-color:#12855c;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:400px){.content{padding:18px}.top{padding:20px}.amount{font-size:31px}}</style></head><body><main class="wrap"><header class="top"><div class="brand">LOKPRAVAAH · SECURE CHECKOUT</div><h1>Complete your contribution</h1><p>UPI payment directly to the configured receiving account</p></header><section class="content"><div id="amount" class="amount">Loading…</div><div class="meta"><span>Reference</span><strong id="order">—</strong></div><div class="meta"><span>Payment status</span><strong id="statusValue">Loading</strong></div><div id="notice" class="state" role="status"><span class="spinner"></span> Checking your payment session…</div><div id="qrbox" class="qrbox"><img id="qr" alt="Scan with any UPI app"><small>Scan this QR using your UPI app</small></div><a id="openUpi" class="btn primary" href="#" hidden>Open UPI app</a><button id="cancel" class="btn secondary" type="button">Cancel checkout</button><p class="note">Do not pay if the reference, amount or receiving payee shown in your UPI app looks incorrect. Payment is marked successful only after the receiving-account notification is securely verified. Do not rely on screenshots.</p><p class="ref" id="pid"></p></section></main><script>
+  const id=${safeId};let current=null,done=false;const amountEl=document.getElementById('amount'),orderEl=document.getElementById('order'),statusEl=document.getElementById('statusValue'),notice=document.getElementById('notice'),qrbox=document.getElementById('qrbox'),qr=document.getElementById('qr'),openUpi=document.getElementById('openUpi'),cancel=document.getElementById('cancel'),pid=document.getElementById('pid');pid.textContent='Payment ID: '+id;function parentOrigin(){try{return new URL(document.referrer).origin}catch{return '*'}}function tell(event,data={}){try{window.parent.postMessage({event,data},parentOrigin())}catch{}}
+  function terminal(status){return ['SUCCESS','FAILED','SUSPICIOUS','EXPIRED','CANCELLED'].includes(status)}function show(s){current=s;amountEl.textContent='₹'+Number(s.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});orderEl.textContent=s.orderId||'—';statusEl.textContent=s.status||'UNKNOWN';qrbox.style.display='none';openUpi.hidden=true;cancel.hidden=terminal(s.status);if(s.status==='ACTIVE'&&s.upiUri){notice.textContent='Your payment slot is active. Scan the QR or open your UPI app. After payment, wait here while the receiving bank notification is verified.';qrbox.style.display='block';qr.alt='Loading UPI QR code';import('/qr.js').then(m=>{if(!done&&current&&current.status==='ACTIVE'){const svg=m.generateQrSvg(s.upiUri,260);if(qr.dataset.uri!==s.upiUri){if(qr.dataset.blobUrl)URL.revokeObjectURL(qr.dataset.blobUrl);const blobUrl=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));qr.src=blobUrl;qr.dataset.blobUrl=blobUrl;qr.dataset.uri=s.upiUri;}}}).catch(()=>{notice.textContent='QR generation failed on this device. Use the Open UPI app button if available.';});openUpi.href=s.upiUri;openUpi.hidden=false;}else if(s.status==='QUEUED'){notice.innerHTML='<span class="spinner"></span> You are in the secure payment queue. Do not send any payment yet. Queue position: '+String(Number(s.queuePosition||1)) +'.';}else if(s.status==='PROCESSING'){notice.innerHTML='<span class="spinner"></span> Receiving notification matched. Waiting for signed donation record confirmation…';}else if(s.status==='SUCCESS'){notice.textContent='Payment has been verified by the receiving-account observer. Thank you.';if(!done){done=true;tell('youpi.payment_success',{orderId:s.orderId,amount:Number(s.amount),method:'UPI',completedAt:s.completedAt||new Date().toISOString()});}}else if(s.status==='EXPIRED'){notice.textContent='This payment session expired. Check your bank statement before creating another attempt.';if(!done){done=true;tell('youpi.payment_expired',{orderId:s.orderId});}}else if(s.status==='FAILED'){notice.textContent='The payment was not confirmed. If money was debited, check your bank statement before retrying.';if(!done){done=true;tell('youpi.payment_failed',{orderId:s.orderId,reason:'PAYMENT_NOT_CONFIRMED'});}}else if(s.status==='SUSPICIOUS'){notice.textContent='This transaction needs review. Do not retry until it is checked.';if(!done){done=true;tell('youpi.payment_blocked',{orderId:s.orderId});}}else if(s.status==='CANCELLED'){notice.textContent='Checkout cancelled. Check your bank statement if you had already approved the transfer.';if(!done){done=true;tell('youpi.payment_cancelled',{orderId:s.orderId});}}else{notice.textContent='Payment status: '+String(s.status||'UNKNOWN');}}
   async function poll(){if(done)return;try{const r=await fetch('/api/v1/payments/'+encodeURIComponent(id),{cache:'no-store'});const s=await r.json();if(!r.ok)throw new Error(s.error||'Unable to load payment');show(s);}catch(e){notice.textContent='Connection issue. Retrying status check; do not pay again if your bank shows a debit.';}if(!done)setTimeout(poll,5000);}
   cancel.addEventListener('click',async()=>{cancel.disabled=true;try{const r=await fetch('/api/v1/payments/'+encodeURIComponent(id)+'/cancel',{method:'POST'});const d=await r.json();if(r.ok)show(d);else notice.textContent=d.error||'Could not cancel the session. Close the dialog only after checking payment status.';}catch{notice.textContent='Network issue while cancelling. Check payment status before retrying.'}finally{cancel.disabled=false;}});
   window.addEventListener('message',async e=>{if(e.data&&e.data.event==='youpi.request_cancel'){cancel.click();}});poll();
@@ -368,88 +345,16 @@ async function handler(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) } });
 
   if (request.method === 'GET' && path === '/health') {
-    const receiverSettings = await getReceiverSettings(env);
-    const webhookUrl = (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim();
     const config = {
-      supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim() && /^https:\/\//i.test(env.SUPABASE_URL || '')),
-      receivingVpa: isValidReceiver(receiverSettings),
-      webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim() && /^https:\/\//i.test(webhookUrl) && /\.supabase\.co\/functions\/v1\/donation-webhook(?:\?.*)?$/i.test(webhookUrl)),
+      supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+      receivingVpa: Boolean((env.UPI_VPA || '').trim() && (env.UPI_PAYEE_NAME || '').trim()),
+      webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim() && (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim()),
       admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
     };
     let database = false;
-    let databaseDiagnostics = null;
-    let databaseError = null;
-    let observer = { pairedDevices: 0, recentlyOnline: false, lastHeartbeatAt: null };
-    try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; } catch (error) { databaseError = error?.message || 'DB_CHECK_FAILED'; }
-    if (database) {
-      try { databaseDiagnostics = await rpc(env, 'upi_gateway_health_diagnostics', {}); }
-      catch (error) { databaseDiagnostics = { available: false, error: error?.message || 'DIAGNOSTIC_RPC_NOT_INSTALLED' }; }
-      try {
-        const devices = await sbRequest(env, 'upi_gateway_devices?is_active=eq.true&select=last_heartbeat_at,last_observation_at&order=last_heartbeat_at.desc&limit=50');
-        const rows = Array.isArray(devices) ? devices : [];
-        const latest = rows.map(row => row.last_heartbeat_at).filter(Boolean).sort().reverse()[0] || null;
-        observer = { pairedDevices: rows.length, recentlyOnline: rows.some(row => row.last_heartbeat_at && Date.now() - new Date(row.last_heartbeat_at).getTime() <= 5 * 60 * 1000), lastHeartbeatAt: latest };
-      } catch (error) { observer = { pairedDevices: 0, recentlyOnline: false, lastHeartbeatAt: null, error: error?.message || 'OBSERVER_CHECK_FAILED' }; }
-    }
+    try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; } catch {}
     const ready = Object.values(config).every(Boolean) && database;
-    return json(request, env, {
-      status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', gateway_version: GATEWAY_VERSION,
-      checks: { ...config, database }, diagnostics: {
-        databaseError, databaseDiagnostics,
-        observerConfigured: observer.pairedDevices > 0, observerRecentlyOnline: observer.recentlyOnline,
-        pairedDeviceCount: observer.pairedDevices, observerLastHeartbeatAt: observer.lastHeartbeatAt,
-        schemaReady: Boolean(databaseDiagnostics?.available === true && databaseDiagnostics?.singleActiveIndexPresent === false),
-        observerPrerequisitesReady: Boolean(ready && observer.pairedDevices > 0 && observer.recentlyOnline && databaseDiagnostics?.available === true && databaseDiagnostics?.singleActiveIndexPresent === false),
-        paymentReadiness: ready && databaseDiagnostics?.available === true && databaseDiagnostics?.singleActiveIndexPresent === false && observer.recentlyOnline ? 'OBSERVER_READY_CHECK_WEBHOOK_SIGNATURE' : 'NEEDS_ATTENTION',
-        note: 'UP confirms configuration presence and database reachability only. Automatic payment verification also needs the current SQL diagnostics migration, a recently-online receiving-account observer and an accepted signed webhook. Use the authenticated payment diagnostics endpoint before accepting real payments.'
-      }
-    }, ready ? 200 : 503);
-  }
-
-  if (request.method === 'GET' && path === '/api/v1/admin/payment-diagnostics') {
-    const authorization = await authorizeConsoleSuperAdmin(request, env);
-    if (!authorization.authorized) return json(request, env, { error: authorization.status === 403 ? 'Super administrator permission required' : 'Sign in again to continue' }, authorization.status === 403 ? 403 : 401);
-    const diagnostics = { gatewayVersion: GATEWAY_VERSION, receiverSettings: null, database: false, databaseDiagnostics: null, observer: { pairedDevices: 0, recentlyOnline: false, lastHeartbeatAt: null }, webhookEndpointReachable: false, webhookSignatureAccepted: false, webhookResult: null, payments: { active: 0, processing: 0, queued: 0, expired: 0, failed: 0, suspicious: 0, stuckProcessing: 0 }, errors: [] };
-    const receiver = await getReceiverSettings(env);
-    diagnostics.receiverSettings = { receivingVpa: receiver.receivingVpa, payeeName: receiver.payeeName, source: receiver.source, valid: isValidReceiver(receiver) };
-    try {
-      await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); diagnostics.database = true;
-      diagnostics.databaseDiagnostics = await rpc(env, 'upi_gateway_health_diagnostics', {});
-      const devices = await sbRequest(env, 'upi_gateway_devices?is_active=eq.true&select=last_heartbeat_at,last_observation_at&order=last_heartbeat_at.desc&limit=50');
-      const rows = Array.isArray(devices) ? devices : [];
-      const latest = rows.map(row => row.last_heartbeat_at).filter(Boolean).sort().reverse()[0] || null;
-      diagnostics.observer = { pairedDevices: rows.length, recentlyOnline: rows.some(row => row.last_heartbeat_at && Date.now() - new Date(row.last_heartbeat_at).getTime() <= 5 * 60 * 1000), lastHeartbeatAt: latest };
-      const paymentRows = await sbRequest(env, 'upi_gateway_payments?select=status,processing_started_at,created_at&order=created_at.desc&limit=250');
-      for (const row of (Array.isArray(paymentRows) ? paymentRows : [])) {
-        const status = String(row.status || '').toUpperCase();
-        if (status === 'ACTIVE') diagnostics.payments.active++;
-        else if (status === 'PROCESSING') { diagnostics.payments.processing++; if (row.processing_started_at && Date.now() - new Date(row.processing_started_at).getTime() > 3 * 60 * 1000) diagnostics.payments.stuckProcessing++; }
-        else if (status === 'QUEUED') diagnostics.payments.queued++;
-        else if (status === 'EXPIRED') diagnostics.payments.expired++;
-        else if (status === 'FAILED') diagnostics.payments.failed++;
-        else if (status === 'SUSPICIOUS') diagnostics.payments.suspicious++;
-      }
-    } catch (error) { diagnostics.errors.push(error?.message || 'DATABASE_DIAGNOSTIC_FAILED'); }
-    const target = (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim();
-    const secret = (env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim();
-    if (target && secret && /^https:\/\//i.test(target)) {
-      diagnostics.webhookEndpointReachable = true;
-      try {
-        // The donation-webhook function acknowledges unknown diagnostic events after signature validation,
-        // before doing any donation lookup or state update. This proves the configured secret matches.
-        const payload = { event: 'DIAGNOSTIC', orderId: `LPDIAG-${crypto.randomUUID().replace(/-/g, '')}` };
-        const raw = JSON.stringify(payload);
-        const signature = await hmacHex(secret, raw);
-        const response = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Gateway-Event': 'DIAGNOSTIC', 'X-Gateway-Signature': `sha256=${signature}`, 'X-Gateway-Delivery-Id': crypto.randomUUID() }, body: raw });
-        const resultText = await response.text();
-        let result = {}; try { result = resultText ? JSON.parse(resultText) : {}; } catch {}
-        diagnostics.webhookSignatureAccepted = response.ok && result?.ignored === true;
-        diagnostics.webhookResult = { httpStatus: response.status, signatureAccepted: diagnostics.webhookSignatureAccepted, response: response.ok ? result : undefined };
-        if (!response.ok) diagnostics.errors.push(`WEBHOOK_TEST_HTTP_${response.status}`);
-      } catch (error) { diagnostics.webhookEndpointReachable = false; diagnostics.errors.push(error?.message || 'WEBHOOK_TEST_FAILED'); }
-    } else diagnostics.errors.push('WEBHOOK_URL_OR_SECRET_MISSING');
-    diagnostics.readyForAutomaticVerification = diagnostics.database && diagnostics.databaseDiagnostics?.available !== false && diagnostics.databaseDiagnostics?.singleActiveIndexPresent === false && diagnostics.observer.recentlyOnline && diagnostics.webhookSignatureAccepted;
-    return json(request, env, diagnostics, 200);
+    return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database } }, ready ? 200 : 503);
   }
 
   // The standalone pairing page has been removed. Keep this path dark even on workers.dev.
@@ -457,10 +362,6 @@ async function handler(request, env) {
     return json(request, env, { error: 'Not found' }, 404);
   }
   if (request.method === 'GET' && path === '/youpi.js') return respondAsset(request, env);
-  if (request.method === 'GET' && path === '/api/v1/merchant/receiver-settings') {
-    const receiver = await getReceiverSettings(env);
-    return json(request, env, { receivingVpa: receiver.receivingVpa, payeeName: receiver.payeeName, source: receiver.source, configured: isValidReceiver(receiver) });
-  }
   if (path === '/api/v1/admin/sms-gateway/pair-qr') {
     if (request.method !== 'POST') return json(request, env, { error: 'Method not allowed' }, 405, { Allow: 'POST' });
     const made = await makePairing(request, env);
@@ -516,8 +417,7 @@ async function handler(request, env) {
       if (!result?.paymentId) return json(request, env, { error: 'Payment session not found or no longer cancellable' }, 409);
       const payment = await getPayment(env, cancelMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      const receiver = await getReceiverSettings(env);
-      const state = publicPayment(payment, env, receiver);
+      const state = publicPayment(payment, env);
       if (result.retainedForVerification) return json(request, env, { ...state, status: 'CANCELLED', retainedForVerification: true });
       return json(request, env, state);
     } catch { return json(request, env, { error: 'Could not cancel payment session' }, 409); }
@@ -535,8 +435,7 @@ async function handler(request, env) {
     if (String(body.currency || 'INR').toUpperCase() !== 'INR') return json(request, env, { error: 'Only INR is supported' }, 400);
     const amountPaise = paiseFromAmount(body.amount);
     if (amountPaise === null) return json(request, env, { error: 'Amount must be from ₹1 to ₹1,00,000 with at most two decimal places' }, 400);
-    const receiver = await getReceiverSettings(env);
-    if (!buildUpiUri({ id: '12345678-1234-1234-1234-123456789abc', order_id: body.orderId, amount_paise: amountPaise }, env, receiver)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured. Configure the Worker variables or approve the receiving-account settings in Admin → Donations & UPI.' }, 503);
+    if (!buildUpiUri({ id: 'validation', order_id: body.orderId, amount_paise: amountPaise }, env)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured' }, 503);
     try {
       const paymentId = crypto.randomUUID();
       const idempotencyKey = (request.headers.get('Idempotency-Key') || body.idempotencyKey || '').slice(0, 150) || null;
@@ -551,18 +450,11 @@ async function handler(request, env) {
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
       if (!payment) return json(request, env, { error: 'Payment session could not be loaded' }, 500);
-      return json(request, env, { ...publicPayment(payment, env, receiver), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
+      return json(request, env, { ...publicPayment(payment, env), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
     } catch (error) {
-      const message = String(error?.message || 'PAYMENT_SESSION_CREATION_FAILED');
-      const details = String(error?.details || '');
-      const rawStatus = Number(error?.status || 0);
-      const isBusinessConflict = /DONATION_INTENT_NOT_PENDING|DONATION_AMOUNT_MISMATCH|MERCHANT_NOT_SUPPORTED|INVALID_AMOUNT|duplicate key|unique constraint/i.test(`${message} ${details}`);
-      const status = rawStatus === 404 ? 404 : rawStatus === 409 || isBusinessConflict ? 409 : rawStatus >= 500 ? 503 : rawStatus === 400 ? 400 : 500;
-      console.error('Payment session creation failed:', message, details);
-      return json(request, env, {
-        error: status === 404 ? 'Donation reference not found' : status === 409 ? 'This donation reference could not start a new payment session. Refresh the donation page and retry only after checking that no transfer was made.' : status === 503 ? 'Payment database is temporarily unavailable. Do not retry if your UPI app shows a debit.' : 'Could not create the payment session. Check that the active Worker and Supabase gateway migration are deployed.',
-        diagnosticCode: message.slice(0, 80),
-      }, status);
+      const status = error.status === 404 ? 404 : error.status === 409 ? 409 : error.status === 400 ? 400 : 400;
+      console.error('Payment session creation failed:', error.message);
+      return json(request, env, { error: status === 404 ? 'Donation reference not found' : 'Could not create a session for this donation reference. Check the Supabase gateway migration and ensure the intent is pending with the same amount.' }, status);
     }
   }
 
@@ -572,8 +464,7 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, paymentMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      const receiver = await getReceiverSettings(env);
-      return json(request, env, publicPayment(payment, env, receiver));
+      return json(request, env, publicPayment(payment, env));
     } catch (error) {
       console.error('Payment status lookup failed:', error.message);
       return json(request, env, { error: 'Payment status is temporarily unavailable' }, 503);
@@ -585,8 +476,7 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, stateMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      const receiver = await getReceiverSettings(env);
-      return json(request, env, publicPayment(payment, env, receiver));
+      return json(request, env, publicPayment(payment, env));
     } catch { return json(request, env, { error: 'Payment status unavailable' }, 503); }
   }
   const qrMatch = path.match(/^\/checkout\/([a-f0-9-]{36})\/qr\.svg$/i);
@@ -595,8 +485,7 @@ async function handler(request, env) {
       const payment = await getPayment(env, qrMatch[1]);
       if (!payment) return text(request, env, 'Payment session not found', 404);
       if (payment.status !== 'ACTIVE') return text(request, env, 'QR is only available when this payment has the active queue slot.', 409);
-      const receiver = await getReceiverSettings(env);
-      const uri = buildUpiUri(payment, env, receiver);
+      const uri = buildUpiUri(payment, env);
       if (!uri) return text(request, env, 'Receiver UPI details are not configured.', 503);
       return text(request, env, 'QR codes are generated client-side by the hosted checkout. Open /checkout/' + payment.id + ' in a browser.', 410);
     } catch { return text(request, env, 'QR temporarily unavailable', 503); }

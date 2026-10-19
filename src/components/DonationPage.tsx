@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
   Heart, HeartHandshake, LoaderCircle, LockKeyhole, Medal, RefreshCw, ShieldCheck,
-  Sparkles, Target, Trophy, Users, Wallet, UploadCloud, FileImage,
+  Sparkles, Target, Trophy, Users, Wallet,
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import './DonationPage.css'
@@ -106,9 +106,6 @@ function niceDate(value?: string): string {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 function amountLabel(paise: number): string { return money(paise) }
-function savedDonationOrder(): string {
-  try { return typeof window !== 'undefined' ? (window.localStorage.getItem('lokpravaah.pendingDonationOrderId') || '') : '' } catch { return '' }
-}
 
 export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [settings, setSettings] = useState<DonationSettings>(DEFAULT_SETTINGS)
@@ -126,12 +123,7 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
   const [gatewayState, setGatewayState] = useState<GatewayState>('loading')
   const [launching, setLaunching] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
-  const [lastOrderId, setLastOrderId] = useState<string>(savedDonationOrder)
-  const [lastIntentCreated, setLastIntentCreated] = useState<boolean>(() => Boolean(savedDonationOrder()))
-  const [proofFile, setProofFile] = useState<File | null>(null)
-  const [proofNote, setProofNote] = useState('')
-  const [proofBusy, setProofBusy] = useState(false)
-  const [proofSubmitted, setProofSubmitted] = useState(false)
+  const [lastOrderId, setLastOrderId] = useState('')
 
   const parsedAmount = useMemo(() => {
     if (!amountText.trim() || !/^\d+(?:\.\d{0,2})?$/.test(amountText.trim())) return null
@@ -222,7 +214,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
 
     setLaunching(true)
-    setLastIntentCreated(false); setProofSubmitted(false); setProofFile(null)
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
@@ -231,8 +222,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
       if (error) throw new Error(`Could not create a donation record: ${error.message}`)
-      setLastIntentCreated(true)
-      try { window.localStorage.setItem('lokpravaah.pendingDonationOrderId', orderId) } catch { /* evidence fallback is still available during this visit */ }
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
       await window.Youpi.pay({
         key: merchantKey, order_id: orderId, amount: Number((parsedAmount / 100).toFixed(2)), currency: 'INR', name: 'LokPravaah',
@@ -257,29 +246,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
       setNotice({ tone: 'error', title: 'Could not start UPI checkout', body: error instanceof Error ? error.message : 'Please check the gateway setup and try again.' })
       setLaunching(false)
     }
-  }
-
-  async function submitPaymentEvidence() {
-    if (!supabase || !isSupabaseConfigured) { setNotice({ tone: 'error', title: 'Evidence upload is unavailable', body: 'The database is not configured. Please contact support with your donation reference.' }); return }
-    if (!lastOrderId || !lastIntentCreated) { setNotice({ tone: 'error', title: 'Donation reference unavailable', body: 'Start or restore a donation attempt before uploading evidence.' }); return }
-    if (!proofFile) { setNotice({ tone: 'warning', title: 'Select a screenshot first', body: 'Choose the payment-success or bank-debit screenshot you want our team to review.' }); return }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(proofFile.type)) { setNotice({ tone: 'error', title: 'Unsupported screenshot format', body: 'Upload a JPG, PNG or WEBP image only.' }); return }
-    if (proofFile.size > 8 * 1024 * 1024) { setNotice({ tone: 'error', title: 'Screenshot is too large', body: 'Choose an image smaller than 8 MB.' }); return }
-    const extension = proofFile.type === 'image/png' ? 'png' : proofFile.type === 'image/webp' ? 'webp' : 'jpg'
-    const evidencePath = `${lastOrderId}/${window.crypto.randomUUID()}.${extension}`
-    setProofBusy(true)
-    try {
-      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(evidencePath, proofFile, { contentType: proofFile.type, upsert: false })
-      if (uploadError) throw uploadError
-      const { data, error: reviewError } = await supabase.rpc('janwatch_submit_donation_payment_evidence', { p_order_id: lastOrderId, p_evidence_path: evidencePath, p_note: proofNote.trim() || null })
-      if (reviewError) throw reviewError
-      setProofSubmitted(true); setProofFile(null); setProofNote('')
-      setNotice({ tone: 'info', title: 'Payment review request submitted', body: `Reference ${lastOrderId} is now waiting for an administrator to inspect the screenshot and reconcile the bank reference. This does not automatically confirm the donation.` })
-      void loadPublicData()
-      void data
-    } catch (error) {
-      setNotice({ tone: 'error', title: 'Could not submit payment evidence', body: error instanceof Error ? error.message : 'Please retry the upload. Your screenshot will not confirm the donation automatically.' })
-    } finally { setProofBusy(false) }
   }
 
   const topThree = publicData?.top_donors.slice(0, 3) ?? []
@@ -326,7 +292,6 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           {gatewayState === 'error' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The UPI checkout SDK could not be loaded. Check the gateway service URL and its availability.</span></div>}
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
-          {lastOrderId && lastIntentCreated && <details className="donation-proof-panel"><summary><UploadCloud size={16}/><span>Already paid, but the website has not confirmed it?</span></summary><p>Only submit this if your UPI/bank app shows a completed payment or a debit. Upload the screenshot and add the UTR if visible. Admins must verify the transaction against the receiving account; screenshots alone do not prove receipt.</p>{proofSubmitted ? <div className="donation-proof-submitted"><CircleCheck size={16}/> Evidence submitted for manual review. Please do not pay again until the team checks your bank reference.</div> : <div className="donation-proof-fields"><label>Payment screenshot<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setProofFile(e.target.files?.[0] || null)}/><small>JPG, PNG or WEBP · maximum 8 MB · stored privately.</small></label><label>UTR / bank reference or extra details (optional)<textarea rows={2} maxLength={2000} value={proofNote} onChange={e => setProofNote(e.target.value)} placeholder="Enter the UTR/reference visible in your payment app, or briefly describe the issue."/></label><button type="button" className="donation-proof-submit" disabled={proofBusy || !proofFile} onClick={() => void submitPaymentEvidence()}>{proofBusy ? <><LoaderCircle size={15} className="donation-spin"/> Uploading for review…</> : <><FileImage size={15}/> Submit for manual verification</>}</button></div>}</details>}
         </form>
         <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after the gateway's signed server webhook verifies the amount and order. Do not share your UPI PIN or OTP.</span></div>
       </section>
