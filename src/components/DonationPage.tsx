@@ -177,6 +177,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [myDonations, setMyDonations] = useState<MyDonationRow[]>([])
   const [myDonationsLoading, setMyDonationsLoading] = useState(false)
   const [myDonationsError, setMyDonationsError] = useState('')
+  const [donationHistoryFilter, setDonationHistoryFilter] = useState<'all' | 'pending' | 'successful'>('all')
   const [ticketDraftId, setTicketDraftId] = useState<string | null>(null)
   const [ticketSubject, setTicketSubject] = useState('Payment status clarification')
   const [ticketDescription, setTicketDescription] = useState('')
@@ -230,7 +231,23 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const { data, error } = await supabase.rpc('janwatch_get_my_donations')
       if (error) throw error
       const result = data as { donations?: MyDonationRow[] } | null
-      setMyDonations(Array.isArray(result?.donations) ? result!.donations! : [])
+      const rows = Array.isArray(result?.donations) ? result!.donations! : []
+      setMyDonations(rows)
+      setActiveDonation(current => {
+        if (!current) return current
+        const row = rows.find(item => item.order_id === current.orderId)
+        if (!row) return current
+        if (row.status === 'succeeded' || row.claim_status === 'confirmed') {
+          return { ...current, status: 'SUCCESS', claimStatus: row.claim_status || 'confirmed', claimedUtr: row.claimed_utr || current.claimedUtr, adminReviewNote: row.admin_review_note || null }
+        }
+        if (row.claim_status === 'pending_review') {
+          return { ...current, status: 'PENDING_REVIEW', claimStatus: 'pending_review', claimedUtr: row.claimed_utr || current.claimedUtr, adminReviewNote: row.admin_review_note || null }
+        }
+        if (row.claim_status === 'rejected') {
+          return { ...current, status: 'PENDING_REVIEW', claimStatus: 'rejected', claimedUtr: row.claimed_utr || current.claimedUtr, adminReviewNote: row.admin_review_note || null }
+        }
+        return current
+      })
       setMyDonationsError('')
     } catch (caught) {
       setMyDonationsError(caught instanceof Error ? caught.message : 'Could not load your donation history. Please refresh.')
@@ -618,6 +635,14 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   const topThree = publicData?.top_donors.slice(0, 3) ?? []
   const remainingLeaders = publicData?.top_donors.slice(3) ?? []
+  const filteredMyDonations = myDonations.filter(item => {
+    const successful = item.status === 'succeeded' || item.claim_status === 'confirmed'
+    if (donationHistoryFilter === 'successful') return successful
+    if (donationHistoryFilter === 'pending') return !successful
+    return true
+  })
+  const pendingDonationCount = myDonations.filter(item => item.status !== 'succeeded' && item.claim_status !== 'confirmed').length
+  const successfulDonationCount = myDonations.filter(item => item.status === 'succeeded' || item.claim_status === 'confirmed').length
 
   return <div className="donation-page">
     <section className="donation-hero">
@@ -676,7 +701,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                 ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>Admin review needs more information: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
                 : null}
           <div className="donation-active-actions">
-            {activeDonation.status !== 'SUCCESS' && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
+            {activeDonation.status !== 'SUCCESS' && Boolean(activeDonation.paymentId) && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
             {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => proofOpen ? setProofOpen(false) : openManualProofForm()}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
             {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
           </div>
@@ -700,8 +725,14 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {myDonationsLoading && !myDonations.length && <div className="donation-history-empty"><LoaderCircle size={17} className="donation-spin"/><span>Loading your donation history…</span></div>}
           {myDonationsError && <div className="donation-history-error" role="alert"><CircleAlert size={16}/><span>{myDonationsError}</span><button type="button" onClick={() => void loadMyDonations()}>Try again</button></div>}
           {!myDonationsLoading && !myDonationsError && userId && !myDonations.length && <div className="donation-history-empty"><HeartHandshake size={20}/><span>No donation records yet. Your new contribution will appear here after checkout creates its reference.</span></div>}
+          <div className="donation-history-filters" role="tablist" aria-label="Filter donation history">
+            <button type="button" role="tab" aria-selected={donationHistoryFilter === 'all'} className={'donation-history-filter' + (donationHistoryFilter === 'all' ? ' active' : '')} onClick={() => setDonationHistoryFilter('all')}>All <span>{myDonations.length}</span></button>
+            <button type="button" role="tab" aria-selected={donationHistoryFilter === 'pending'} className={'donation-history-filter' + (donationHistoryFilter === 'pending' ? ' active' : '')} onClick={() => setDonationHistoryFilter('pending')}>Pending / review <span>{pendingDonationCount}</span></button>
+            <button type="button" role="tab" aria-selected={donationHistoryFilter === 'successful'} className={'donation-history-filter' + (donationHistoryFilter === 'successful' ? ' active' : '')} onClick={() => setDonationHistoryFilter('successful')}>Successful <span>{successfulDonationCount}</span></button>
+          </div>
+          {myDonations.length > 0 && filteredMyDonations.length === 0 && <div className="donation-history-empty"><HeartHandshake size={19}/><span>{donationHistoryFilter === 'successful' ? 'No successful donations yet. Verified payments will appear here after admin approval.' : 'No pending donations or reviews. You are all caught up.'}</span></div>}
           <div className="donation-history-list">
-            {myDonations.map(item => {
+            {filteredMyDonations.map(item => {
               const label = donationStatusLabel(item)
               const ticketClosed = ['resolved','closed','rejected'].includes(String(item.ticket_status || ''))
               const canRaiseTicket = !item.ticket_number || ticketClosed
