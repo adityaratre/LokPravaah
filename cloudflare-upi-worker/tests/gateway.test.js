@@ -78,66 +78,14 @@ test('standalone /admin page is not exposed', async () => {
   assert.equal(body.error, 'Not found');
 });
 
-test('pairing API rejects unauthenticated requests and requires POST', async () => {
-  const missingToken = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', { method: 'POST' }), defaultEnv, {});
-  assert.equal(missingToken.status, 401);
-  const wrongMethod = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', { method: 'GET' }), defaultEnv, {});
-  assert.equal(wrongMethod.status, 405);
-});
-
-test('pairing API verifies the signed-in Supabase user and super_admin role', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const authToken = 'signed-in-test-session';
-  let sawAuthUser = false;
-  let sawRoleCheck = false;
-  let sawTokenInsert = false;
-  globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/auth/v1/user')) {
-      sawAuthUser = true;
-      assert.equal(new Headers(init.headers).get('Authorization'), `Bearer ${authToken}`);
-      return new Response(JSON.stringify({ id: 'super-admin-user-id' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    if (url.pathname.endsWith('/rest/v1/user_roles') && url.search === '?user_id=eq.super-admin-user-id&select=role&limit=20') {
-      sawRoleCheck = true;
-      return new Response(JSON.stringify([{ role: 'super_admin' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    if (url.pathname.endsWith('/rest/v1/upi_gateway_pairing_tokens')) {
-      sawTokenInsert = true;
-      assert.equal(init.method, 'POST');
-      return new Response(null, { status: 201 });
-    }
-    throw new Error(`Unexpected test fetch: ${url.pathname}${url.search}`);
-  };
-  const response = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', {
-    method: 'POST', headers: { Authorization: `Bearer ${authToken}` },
-  }), defaultEnv, {});
-  assert.equal(response.status, 200);
-  const result = await response.json();
-  assert.equal(sawAuthUser, true);
-  assert.equal(sawRoleCheck, true);
-  assert.equal(sawTokenInsert, true);
-  assert.ok(result.pairingPayload.includes('YOUPI_SMS_GATEWAY_PAIR'));
-  assert.ok(result.expiresAt > Date.now());
-});
-
-test('pairing API denies a signed-in non-super-admin', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  let insertedPairing = false;
-  globalThis.fetch = async (input) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/auth/v1/user')) return new Response(JSON.stringify({ id: 'regular-user-id' }), { status: 200 });
-    if (url.pathname.endsWith('/rest/v1/user_roles')) return new Response(JSON.stringify([{ role: 'admin' }]), { status: 200 });
-    if (url.pathname.endsWith('/rest/v1/upi_gateway_pairing_tokens')) insertedPairing = true;
-    throw new Error(`Unexpected test fetch: ${url.pathname}${url.search}`);
-  };
-  const response = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', {
-    method: 'POST', headers: { Authorization: 'Bearer regular-user-session' },
-  }), defaultEnv, {});
-  assert.equal(response.status, 403);
-  assert.equal(insertedPairing, false);
+test('manual-only mode disables admin QR pairing endpoint for every method', async () => {
+  for (const method of ['GET','POST']) {
+    const response = await worker.fetch(req('/api/v1/admin/sms-gateway/pair-qr', { method }), defaultEnv, {});
+    assert.equal(response.status, 410);
+    const body = await response.json();
+    assert.equal(body.code, 'MANUAL_REVIEW_MODE');
+    assert.equal(body.manualReviewEnabled, true);
+  }
 });
 
 test('payment creation requires the expected public merchant identifier', async t => {
@@ -244,178 +192,26 @@ test('checkout never exposes QR for a queued payment', async t => {
 });
 
 
-test('Android observer can pair without sending QR expiry back in its enrollment request', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  let args;
-  globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/rpc/upi_gateway_pair_device')) {
-      args = JSON.parse(init.body || '{}');
-      return new Response(JSON.stringify({ paired: true, deviceId: 'paired-device' }), { status: 200 });
-    }
-    throw new Error(`Unexpected test fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req('/api/v1/pollers/android/pair', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enrollmentToken: 'a'.repeat(64), merchantId: defaultEnv.MERCHANT_ID, deviceName: 'Receiving phone' }),
-  }), defaultEnv, {});
-  assert.equal(response.status, 200);
-  const payload = await response.json();
-  assert.equal(payload.paired, true);
-  assert.ok(payload.signingKey);
-  assert.equal(args.p_expires_at, null);
-});
-
-test('checkout CSP allows the client-side QR module and blob QR image', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/upi_gateway_payments')) return new Response(JSON.stringify([sampleDbPayment]), { status: 200 });
-    throw new Error(`Unexpected test fetch: ${url.pathname}`);
-  };
-  const response = await worker.fetch(req(`/checkout/${sampleDbPayment.id}`), defaultEnv, {});
-  assert.equal(response.status, 200);
-  const csp = response.headers.get('Content-Security-Policy') || '';
-  assert.match(csp, /script-src 'self' 'unsafe-inline'/);
-  assert.match(csp, /img-src 'self' data: blob:/);
-});
-
-
-test('a valid signed receiving-bank notification updates donation only through the signed webhook path', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const deviceId = 'device-test-001';
-  const signingKey = 'device-test-signing-key';
-  const payment = { ...sampleDbPayment, status: 'PROCESSING', bank_reference_number: 'UTR123456789' };
-  let webhookPayload = null;
-  globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/upi_gateway_devices') && init.method === 'PATCH') return new Response(null, { status: 204 });
-    if (url.pathname.endsWith('/upi_gateway_devices')) {
-      return new Response(JSON.stringify([{ id: deviceId, merchant_id: defaultEnv.MERCHANT_ID, signing_key: signingKey }]), { status: 200 });
-    }
-    if (url.pathname.endsWith('/rpc/upi_gateway_prepare_observation')) {
-      return new Response(JSON.stringify({ matched: true, status: 'PROCESSING', paymentId: payment.id, orderId: payment.order_id, amountPaise: '25100' }), { status: 200 });
-    }
-    if (url.pathname.endsWith('/upi_gateway_payments')) return new Response(JSON.stringify([payment]), { status: 200 });
-    if (url.pathname.endsWith('/functions/v1/donation-webhook')) {
-      const raw = String(init.body || '');
-      const supplied = new Headers(init.headers).get('X-Gateway-Signature');
-      const expected = 'sha256=' + createHmac('sha256', defaultEnv.LOKPRAVAAH_DONATION_WEBHOOK_SECRET).update(raw).digest('hex');
-      assert.equal(supplied, expected);
-      webhookPayload = JSON.parse(raw);
-      return new Response(JSON.stringify({ received: true, status: 'succeeded' }), { status: 200 });
-    }
-    if (url.pathname.endsWith('/rpc/upi_gateway_finalize_success')) return new Response(JSON.stringify({ paymentId: payment.id, status: 'SUCCESS' }), { status: 200 });
-    throw new Error(`Unexpected test fetch: ${url.pathname}`);
-  };
-
-  const payload = {
-    deviceId,
-    amountPaise: 25100,
-    amount: 251,
-    bankReferenceNumber: 'UTR123456789',
-    senderVpa: 'sender@upi',
-    observedAt: new Date().toISOString(),
-    rawNotification: { title: 'Payment received', text: 'INR 251.00 credited UTR UTR123456789' },
-  };
-  const rawBody = JSON.stringify(payload);
-  const timestamp = String(Date.now());
-  const signature = createHmac('sha256', signingKey).update(`${rawBody}:${timestamp}`).digest('hex');
-  const response = await worker.fetch(req('/api/v1/pollers/android/events', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId, 'X-Timestamp': timestamp, 'X-Signature': signature },
-    body: rawBody,
-  }), defaultEnv, {});
-  const body = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(body.status, 'SUCCESS');
-  assert.equal(webhookPayload.event, 'SUCCESS');
-  assert.equal(webhookPayload.orderId, payment.order_id);
-  assert.equal(webhookPayload.amountPaise, 25100);
-  assert.equal(webhookPayload.utr, 'UTR123456789');
-});
-
-
-
-test('observer extracts UTR and credit amount from common Android notification field variants', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const deviceId = 'device-test-notification-variants';
-  const signingKey = 'device-test-signing-key';
-  let prepareArgs = null;
-  globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/upi_gateway_devices') && init.method === 'PATCH') return new Response(null, { status: 204 });
-    if (url.pathname.endsWith('/upi_gateway_devices')) return new Response(JSON.stringify([{
-      id: deviceId, merchant_id: defaultEnv.MERCHANT_ID, signing_key: signingKey,
-    }]), { status: 200 });
-    if (url.pathname.endsWith('/rpc/upi_gateway_prepare_observation')) {
-      prepareArgs = JSON.parse(init.body || '{}');
-      return new Response(JSON.stringify({ matched: false, status: 'UNMATCHED', reason: 'NO_MATCHING_SESSION' }), { status: 200 });
-    }
-    throw new Error(`Unexpected test fetch: ${url.pathname}`);
-  };
-  const payload = {
-    deviceId,
-    direction: 'credit',
-    observedAt: new Date().toISOString(),
-    notification: {
-      title: 'Payment received',
-      text: 'UPI/Ref No 630746123456. INR 251.00 credited to your account.',
-    },
-  };
-  const rawBody = JSON.stringify(payload);
-  const timestamp = String(Date.now());
-  const signature = createHmac('sha256', signingKey).update(`${rawBody}:${timestamp}`).digest('hex');
-  const response = await worker.fetch(req('/api/v1/observers/sms', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId, 'X-Timestamp': timestamp, 'X-Signature': signature },
-    body: rawBody,
-  }), defaultEnv, {});
-  const body = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(body.status, 'UNMATCHED');
-  assert.equal(prepareArgs.p_amount_paise, 25100);
-  assert.equal(prepareArgs.p_bank_reference_number, '630746123456');
-});
-
-test('observer rejects debit notifications even if the Android client supplies a reference and amount', async t => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const deviceId = 'device-test-debit-reject';
-  const signingKey = 'device-test-signing-key';
-  let rpcCalled = false;
-  globalThis.fetch = async (input, init = {}) => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/upi_gateway_devices') && init.method === 'PATCH') return new Response(null, { status: 204 });
-    if (url.pathname.endsWith('/upi_gateway_devices')) return new Response(JSON.stringify([{
-      id: deviceId, merchant_id: defaultEnv.MERCHANT_ID, signing_key: signingKey,
-    }]), { status: 200 });
-    if (url.pathname.endsWith('/rpc/upi_gateway_prepare_observation')) {
-      rpcCalled = true;
-      return new Response(JSON.stringify({ matched: true, status: 'PROCESSING' }), { status: 200 });
-    }
-    throw new Error(`Unexpected test fetch: ${url.pathname}`);
-  };
-  const payload = {
-    deviceId, amountPaise: 25100, bankReferenceNumber: 'UTR123456789',
-    rawNotification: { title: 'UPI debit alert', text: 'INR 251.00 debited from your account. UPI Ref No UTR123456789' },
-  };
-  const rawBody = JSON.stringify(payload);
-  const timestamp = String(Date.now());
-  const signature = createHmac('sha256', signingKey).update(`${rawBody}:${timestamp}`).digest('hex');
-  const response = await worker.fetch(req('/api/v1/pollers/android/events', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId, 'X-Timestamp': timestamp, 'X-Signature': signature },
-    body: rawBody,
-  }), defaultEnv, {});
-  const body = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(body.status, 'PROCESSED_NON_BANK');
-  assert.equal(rpcCalled, false, 'a debit should never enter successful-payment matching');
+test('manual-only mode disables Android pairing, notification and heartbeat routes', async () => {
+  const paths = [
+    '/api/v1/pollers/android/pair',
+    '/api/v1/pollers/android/events',
+    '/api/v1/observers/sms',
+    '/api/v1/pollers/android/heartbeat',
+    '/api/v1/pollers/heartbeat',
+    '/api/v1/observers/heartbeat',
+  ];
+  for (const path of paths) {
+    const response = await worker.fetch(req(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: 'old-paired-device' }),
+    }), defaultEnv, {});
+    assert.equal(response.status, 410, path);
+    const body = await response.json();
+    assert.equal(body.code, 'MANUAL_REVIEW_MODE', path);
+    assert.equal(body.manualReviewEnabled, true, path);
+  }
 });
 
 test('checkout exposes manual payment confirmation without cancelling the active session', async t => {
@@ -432,6 +228,8 @@ test('checkout exposes manual payment confirmation without cancelling the active
   assert.match(html, /id="manualConfirm"/);
   assert.match(html, /youpi\.manual_payment_request/);
   assert.match(html, /I paid — enter UTR \/ upload proof/);
+  assert.match(html, /administrator verification against the receiving-bank statement/);
+  assert.doesNotMatch(html, /tell\('youpi\.payment_success'/);
   const manualHandler = html.indexOf("manualConfirm.addEventListener('click'");
   const cancelHandler = html.indexOf("cancel.addEventListener('click'");
   assert.ok(manualHandler >= 0 && cancelHandler >= 0 && manualHandler < cancelHandler,
@@ -446,4 +244,7 @@ test('checkout SDK closes without sending a cancellation request and supports ma
   assert.match(sdkSource, /closeBtn\.onclick = \(\) => this\.close\(\)/);
   assert.match(sdkSource, /youpi\.manual_payment_request/);
   assert.match(sdkSource, /onManualPaymentRequest/);
+  assert.match(sdkSource, /_showManualPaymentForm\(result\)/);
+  assert.match(sdkSource, /Submit for review/);
+  assert.doesNotMatch(sdkSource, /this\.close\(\);\s*}\s*else if \(event === 'youpi\.payment_success'/);
 });
