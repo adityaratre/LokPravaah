@@ -99,8 +99,9 @@ create policy donation_payment_evidence_read_own_admin on storage.objects
   );
 
 create or replace function public.janwatch_submit_manual_donation_claim(
-  p_order_id text, p_screenshot_path text, p_claimed_utr text,
-  p_claimed_amount_paise bigint, p_payment_timestamp timestamptz, p_user_note text
+  p_order_id text, p_screenshot_path text, p_claimed_utr text default null,
+  p_claimed_amount_paise bigint default null, p_payment_timestamp timestamptz default null,
+  p_user_note text default null
 )
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, auth, storage, pg_temp
