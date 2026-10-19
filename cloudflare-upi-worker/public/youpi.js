@@ -198,7 +198,9 @@
 
         const data = await createRes.json();
         if (!createRes.ok || !data.checkoutUrl) {
-          const errMsg = data.error || data.message || `Failed to create payment session (HTTP ${createRes.status})`;
+          const primaryError = data.error || data.message || `Failed to create payment session (HTTP ${createRes.status})`;
+          const detailCode = typeof data.code === 'string' && data.code.trim() ? data.code.trim().slice(0, 120) : '';
+          const errMsg = detailCode && !primaryError.includes(detailCode) ? `${primaryError} (details: ${detailCode})` : primaryError;
           const failResult = {
             status: 'FAILED',
             order_id: orderId,

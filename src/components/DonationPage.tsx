@@ -55,6 +55,7 @@ type DonationSettings = {
   campaign_goal_paise: number
   min_amount_paise: number
   max_amount_paise: number
+  payment_session_minutes: number
   suggested_amounts: number[]
   thank_you_title: string
   thank_you_message: string
@@ -79,6 +80,7 @@ const DEFAULT_SETTINGS: DonationSettings = {
   campaign_goal_paise: 5_000_000,
   min_amount_paise: 100,
   max_amount_paise: 10_000_000,
+  payment_session_minutes: 15,
   suggested_amounts: [51, 101, 251, 501, 1001, 2100],
   thank_you_title: 'Thank you for backing civic action',
   thank_you_message: 'Your support helps us keep improving LokPravaah for the community.',
@@ -216,6 +218,16 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
     setLaunching(true)
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
+      // Detect misrouted/stale gateway configuration before creating a pending intent.
+      // Health is only a configuration check; it is not treated as payment confirmation.
+      const healthResponse = await fetch(`${gatewayApiUrl}/health`, { method: 'GET', cache: 'no-store', headers: { Accept: 'application/json' } })
+      const healthText = await healthResponse.text()
+      let healthPayload: { status?: string; error?: string } = {}
+      try { healthPayload = JSON.parse(healthText) as { status?: string; error?: string } } catch { /* report an actionable endpoint error below */ }
+      if (!healthResponse.ok || healthPayload.status !== 'UP') {
+        const detail = healthPayload.error || (healthText && !healthText.trimStart().startsWith('<') ? healthText.slice(0, 180) : 'The endpoint did not return the gateway health JSON.')
+        throw new Error(`Payment gateway health check failed (HTTP ${healthResponse.status}) at ${gatewayApiUrl}/health. ${detail} Confirm Admin → Donations & UPI uses the active Worker URL and that its /health route returns status UP.`)
+      }
       const { error } = await supabase.from('donation_intents').insert({
         order_id: orderId, donor_user_id: anonymous ? null : userId, amount_paise: parsedAmount, currency: 'INR',
         donor_name: anonymous ? null : (donorName.trim().slice(0, 80) || null), donor_email: anonymous ? null : (donorEmail.trim().slice(0, 254) || null),
@@ -243,7 +255,10 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
         onClose: () => setLaunching(false),
       })
     } catch (error) {
-      setNotice({ tone: 'error', title: 'Could not start UPI checkout', body: error instanceof Error ? error.message : 'Please check the gateway setup and try again.' })
+      const detail = error instanceof Error ? error.message : 'Unknown checkout initialization error.'
+      setNotice(current => current?.title === 'Payment was not confirmed'
+        ? current
+        : { tone: 'error', title: 'Could not start UPI checkout', body: `${detail} Reference: ${orderId}. If this repeats, open Admin → Donations & UPI and use the active HTTPS Worker URL for both checkout portal and payment API. No bank debit should be inferred from this message.` })
       setLaunching(false)
     }
   }
@@ -285,6 +300,7 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
           <label className="donation-field"><span>Message <small>(optional)</small></span><textarea rows={2} maxLength={300} value={message} onChange={e => setMessage(e.target.value)} placeholder="Leave a note of support (max 300 characters)"/></label>
           <label className="donation-anonymous"><input type="checkbox" checked={showMessagePublicly && !anonymous && showOnLeaderboard} disabled={anonymous || !showOnLeaderboard || !message.trim()} onChange={e => setShowMessagePublicly(e.target.checked)}/><span><b>Show my message in public activity</b><small>Your message is private by default. This is separate from showing your name on the leaderboard.</small></span></label>
           <div className="donation-summary"><span>Your one-time contribution</span><strong>{amountValid && parsedAmount !== null ? money(parsedAmount) : '—'}</strong></div>
+          <div className="donation-session-info"><Clock3 size={14}/> Payment session lasts up to {Math.max(5, Math.min(30, Number(settings.payment_session_minutes) || 15))} minutes. The on-screen countdown starts when secure checkout opens.</div>
           <button className="donation-submit" type="submit" disabled={!paymentReady || !amountValid || launching}>{launching ? <><LoaderCircle size={17} className="donation-spin"/> Preparing checkout…</> : <><Heart size={17}/> Donate {amountValid && parsedAmount !== null ? money(parsedAmount) : 'now'} <ArrowRight size={16}/></>}</button>
           {!isSupabaseConfigured && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Supabase is not configured. Donation history and verified totals are unavailable until the database is enabled.</span></div>}
           {gatewayState === 'not-configured' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The donation page is live, but UPI checkout must be connected in hosting settings before payments can be accepted.</span></div>}

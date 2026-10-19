@@ -48,8 +48,10 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = async input => {
-    assert.match(String(input), /\/rest\/v1\/upi_gateway_payments\?select=id&limit=1$/);
-    return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/upi_gateway_payments')) return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ upi_vpa: defaultEnv.UPI_VPA, upi_payee_name: defaultEnv.UPI_PAYEE_NAME, payment_session_minutes: 15, gateway_merchant_key: defaultEnv.MERCHANT_ID }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    throw new Error(`Unexpected health fetch: ${url.pathname}`);
   };
   const response = await worker.fetch(req('/health'), defaultEnv, {});
   assert.equal(response.status, 200);
@@ -90,6 +92,7 @@ test('pairing API verifies the signed-in Supabase user and super_admin role', as
       sawRoleCheck = true;
       return new Response(JSON.stringify([{ role: 'super_admin' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.pathname.endsWith('/rest/v1/donation_settings')) return new Response(JSON.stringify([{ gateway_merchant_key: defaultEnv.MERCHANT_ID, upi_vpa: defaultEnv.UPI_VPA, upi_payee_name: defaultEnv.UPI_PAYEE_NAME, payment_session_minutes: 15 }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname.endsWith('/rest/v1/upi_gateway_pairing_tokens')) {
       sawTokenInsert = true;
       assert.equal(init.method, 'POST');
@@ -130,24 +133,34 @@ test('pairing API denies a signed-in non-super-admin', async t => {
 test('payment creation requires the expected public merchant identifier', async t => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
-  let touchedDb = false;
-  globalThis.fetch = async () => { touchedDb = true; return new Response('[]'); };
+  let attemptedCreate = false;
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ gateway_merchant_key: defaultEnv.MERCHANT_ID }]), { status: 200 });
+    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) attemptedCreate = true;
+    return new Response('[]');
+  };
   const response = await worker.fetch(req('/api/v1/payments', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': 'wrong' },
     body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 251, currency: 'INR' }),
   }), defaultEnv, {});
   assert.equal(response.status, 400);
-  assert.equal(touchedDb, false);
+  assert.equal(attemptedCreate, false);
 });
 
 test('valid creation validates through Supabase RPC and returns checkout URL', async t => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   let sawRpc = false;
-  globalThis.fetch = async input => {
+  globalThis.fetch = async (input, init = {}) => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ upi_vpa: 'verified.test@upi', upi_payee_name: 'Verified Test Account', payment_session_minutes: 11, gateway_merchant_key: defaultEnv.MERCHANT_ID }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
       sawRpc = true;
+      const args = JSON.parse(init?.body || '{}');
+      assert.equal(args.p_receiver_vpa, 'verified.test@upi');
+      assert.equal(args.p_receiver_name, 'Verified Test Account');
+      assert.equal(args.p_session_minutes, 11);
       return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.pathname.endsWith('/upi_gateway_payments')) {

@@ -1,0 +1,17 @@
+LokPravaah UPI + Support Complete Patch
+
+- src/App.tsx
+- src/components/AdminOperations.tsx
+- src/components/DonationPage.tsx
+- src/components/DonationPage.css
+- src/components/DonationAdminPanel.tsx
+- src/components/DonationAdminPanel.css
+- src/components/TicketSupport.tsx
+- src/components/TicketSupport.css
+- cloudflare-upi-worker/src/index.js
+- cloudflare-upi-worker/public/youpi.js
+- cloudflare-upi-worker/wrangler.jsonc
+- cloudflare-upi-worker/tests/gateway.test.js
+- supabase/lokpravaah_upi_tickets_complete_fix.sql
+
+Run supabase/lokpravaah_upi_tickets_complete_fix.sql after the existing donation and Cloudflare gateway schema migrations. See LokPravaah_UPI_Tickets_Complete_Fix_Guide.md.
