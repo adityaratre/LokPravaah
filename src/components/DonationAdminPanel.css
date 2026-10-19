@@ -4,3 +4,32 @@
 
 
 .donation-admin-receiver-current{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 16px}.donation-admin-receiver-current>div{display:grid;gap:6px;min-width:0;padding:13px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.donation-admin-receiver-current span{font-size:9px;color:var(--muted)}.donation-admin-receiver-current b{font-size:12px;overflow-wrap:anywhere}.donation-admin-receiver-notice{display:flex;align-items:flex-start;gap:8px;padding:12px;margin:0 0 12px;border:1px solid #20a67455;border-radius:11px;background:#20a6740d;color:var(--text);font-size:10px;line-height:1.65}.donation-admin-receiver-notice svg{flex:0 0 auto;color:#20a674}.donation-admin-receiver-warning{display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid #e2bd5c55;border-radius:11px;background:#e2bd5c0b;color:var(--muted2);font-size:9px;line-height:1.7}.donation-admin-receiver-warning svg{flex:0 0 auto;color:#c99e2a}.donation-admin-receiver-warning b{color:var(--text)}.donation-admin-receiver-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.donation-admin-receiver-requests{display:grid;gap:12px;margin-top:20px;padding-top:18px;border-top:1px solid var(--border)}.donation-admin-receiver-requests .panel-heading{margin-bottom:0}.donation-admin-receiver-requests .panel-heading h3{font-size:16px}.donation-admin-receiver-requests .panel-heading p{font-size:9px}@media(max-width:700px){.donation-admin-receiver-current{grid-template-columns:1fr}.donation-admin-receiver-actions>.btn{width:100%;justify-content:center}}
+
+
+/* Private manual donation proof review queue */
+.donation-admin-manual-reviews{overflow:hidden}
+.donation-admin-manual-list{display:grid;gap:14px}
+.donation-admin-manual-claim{min-width:0;padding:17px;border:1px solid var(--border);border-radius:14px;background:var(--panel2)}
+.donation-admin-manual-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.donation-admin-manual-head>div{display:grid;gap:5px;min-width:0}
+.donation-admin-manual-head h4{margin:2px 0;color:var(--text);font:800 15px/1.3 Manrope,sans-serif}
+.donation-admin-manual-head small{font-size:9px;color:var(--muted);overflow-wrap:anywhere}
+.donation-admin-manual-head>b{color:var(--mint-strong);font:800 13px Manrope,sans-serif;white-space:nowrap}
+.donation-admin-manual-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}
+.donation-admin-manual-details>div{min-width:0;display:grid;gap:4px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--panel)}
+.donation-admin-manual-details span{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:800}
+.donation-admin-manual-details b,.donation-admin-manual-details code{font-size:10px;color:var(--text);overflow-wrap:anywhere}
+.donation-admin-manual-note{font-size:10px;line-height:1.7;color:var(--muted2);white-space:pre-wrap}
+.donation-admin-manual-evidence{display:grid;gap:8px;margin:12px 0}
+.donation-admin-manual-evidence img{display:block;max-width:min(100%,340px);max-height:360px;object-fit:contain;border:1px solid var(--border);border-radius:10px;background:#fff}
+.donation-admin-manual-evidence>a:not(:has(img)){display:inline-flex;align-items:center;gap:7px;font-size:10px;font-weight:800;color:var(--mint-strong);text-decoration:none}
+.donation-admin-manual-evidence>span{font-size:9px;color:var(--muted)}
+.donation-admin-manual-decision{display:grid;gap:12px;padding-top:14px;margin-top:14px;border-top:1px solid var(--border)}
+.donation-admin-manual-decision label{display:grid;gap:6px;color:var(--text);font-size:10px;font-weight:800}
+.donation-admin-manual-decision label small{font-size:9px;font-weight:500;color:var(--muted)}
+.donation-admin-manual-decision input,.donation-admin-manual-decision textarea{width:100%;min-width:0;border:1px solid var(--border);border-radius:9px;padding:10px;background:var(--field);color:var(--text);font:inherit;font-weight:500}
+.donation-admin-manual-actions{display:flex;gap:8px;flex-wrap:wrap}
+.donation-admin-manual-reviewed{padding-top:12px;margin-top:12px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)}
+.donation-admin-manual-reviewed>b{color:var(--text)}
+.donation-admin-manual-reviewed p{margin:5px 0;line-height:1.6}
+@media(max-width:600px){.donation-admin-manual-claim{padding:12px}.donation-admin-manual-head{flex-direction:column}.donation-admin-manual-details{grid-template-columns:1fr}.donation-admin-manual-actions>*{flex:1 1 100%}}
