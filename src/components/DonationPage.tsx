@@ -222,10 +222,17 @@ export default function DonationPage({ userId = null, userName = '' }: Props) {
       // Health is only a configuration check; it is not treated as payment confirmation.
       const healthResponse = await fetch(`${gatewayApiUrl}/health`, { method: 'GET', cache: 'no-store', headers: { Accept: 'application/json' } })
       const healthText = await healthResponse.text()
-      let healthPayload: { status?: string; error?: string } = {}
-      try { healthPayload = JSON.parse(healthText) as { status?: string; error?: string } } catch { /* report an actionable endpoint error below */ }
+      type HealthPayload = { status?: string; error?: string; diagnostics?: { missing?: string[]; databaseError?: string | null; settingsError?: string | null; note?: string } }
+      let healthPayload: HealthPayload = {}
+      try { healthPayload = JSON.parse(healthText) as HealthPayload } catch { /* report an actionable endpoint error below */ }
       if (!healthResponse.ok || healthPayload.status !== 'UP') {
-        const detail = healthPayload.error || (healthText && !healthText.trimStart().startsWith('<') ? healthText.slice(0, 180) : 'The endpoint did not return the gateway health JSON.')
+        const diagnosticParts = [
+          ...(healthPayload.diagnostics?.missing?.length ? [`Missing Worker settings: ${healthPayload.diagnostics.missing.join('; ')}`] : []),
+          ...(healthPayload.diagnostics?.databaseError ? [`Database: ${healthPayload.diagnostics.databaseError}`] : []),
+          ...(healthPayload.diagnostics?.settingsError ? [`Donation settings: ${healthPayload.diagnostics.settingsError}`] : []),
+          ...(healthPayload.diagnostics?.note ? [healthPayload.diagnostics.note] : []),
+        ]
+        const detail = diagnosticParts.join('. ') || healthPayload.error || (healthText && !healthText.trimStart().startsWith('<') ? healthText.slice(0, 180) : 'The endpoint did not return the gateway health JSON.')
         throw new Error(`Payment gateway health check failed (HTTP ${healthResponse.status}) at ${gatewayApiUrl}/health. ${detail} Confirm Admin → Donations & UPI uses the active Worker URL and that its /health route returns status UP.`)
       }
       const { error } = await supabase.from('donation_intents').insert({

@@ -1,0 +1,13 @@
+LokPravaah UPI 503 + Approval Workflow Refinement
+
+Updated files:
+- cloudflare-upi-worker/src/index.js: safe missing-config/database diagnostics at /health
+- cloudflare-upi-worker/wrangler.jsonc: project Supabase URL and webhook endpoint vars; keep_vars enabled
+- cloudflare-upi-worker/tests/gateway.test.js: health diagnostics assertions
+- src/components/DonationAdminPanel.tsx: live health-check button; current/proposed settings diff; mandatory reviewer note; status history
+- src/components/DonationPage.tsx: shows actionable missing Worker setting names from the health response before checkout launch
+- src/components/DonationAdminPanel.css: responsive health diagnostics and review UI styles
+- supabase/lokpravaah_upi_tickets_complete_fix.sql: approval snapshot + stale request guard + required SQL-level review note
+- LokPravaah_UPI_503_Approval_Refinement_Guide.md: exact deployment and secret checklist
+
+No private keys/tokens are included. Worker and frontend code have not been deployed to the user's live Cloudflare/Supabase accounts by this package.

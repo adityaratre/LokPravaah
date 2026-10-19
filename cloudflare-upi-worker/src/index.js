@@ -361,21 +361,56 @@ async function handler(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) } });
 
   if (request.method === 'GET' && path === '/health') {
+    // Safe, actionable diagnostics: report missing *names*/HTTP codes only, never values or secrets.
+    const supabaseUrl = String(env.SUPABASE_URL || '').trim();
+    const serviceRoleKey = String(env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    const webhookUrl = String(env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim();
+    const webhookSecret = String(env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim();
     const config = {
-      supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-      receivingVpa: false,
-      webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim() && (env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim()),
-      admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+      supabase: Boolean(/^https:\/\//i.test(supabaseUrl) && serviceRoleKey),
+      receivingVpa: null,
+      webhook: Boolean(/^https:\/\//i.test(webhookUrl) && webhookSecret),
+      admin: Boolean(/^https:\/\//i.test(supabaseUrl) && serviceRoleKey),
     };
+    const missingEnvironment = [];
+    if (!supabaseUrl || !/^https:\/\//i.test(supabaseUrl)) missingEnvironment.push('SUPABASE_URL (Worker variable)');
+    if (!serviceRoleKey) missingEnvironment.push('SUPABASE_SERVICE_ROLE_KEY (Worker secret)');
+    if (!webhookUrl || !/^https:\/\//i.test(webhookUrl)) missingEnvironment.push('LOKPRAVAAH_DONATION_WEBHOOK_URL (Worker variable)');
+    if (!webhookSecret) missingEnvironment.push('LOKPRAVAAH_DONATION_WEBHOOK_SECRET (Worker secret; same value as Supabase DONATION_WEBHOOK_SECRET)');
     let database = false;
+    let databaseError = null;
+    let settingsError = null;
     try {
       await sbRequest(env, 'upi_gateway_payments?select=id&limit=1');
       database = true;
-      const settings = await getPaymentSettings(env);
-      config.receivingVpa = Boolean(settings.receiverVpa && /^[^\s@]+@[^\s@]+$/.test(settings.receiverVpa) && settings.receiverName && settings.merchantId);
-    } catch { /* keep health state red when either database/configuration lookup fails */ }
-    const ready = Object.values(config).every(Boolean) && database;
-    return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database } }, ready ? 200 : 503);
+    } catch (error) {
+      const message = String(error?.message || 'DATABASE_CHECK_FAILED');
+      databaseError = message === 'SUPABASE_NOT_CONFIGURED' ? 'SUPABASE_URL_OR_SERVICE_ROLE_KEY_MISSING' : /^SUPABASE_HTTP_\d+$/.test(message) ? message : 'SUPABASE_CONNECTION_FAILED';
+    }
+    if (database) {
+      try {
+        const settings = await getPaymentSettings(env);
+        config.receivingVpa = Boolean(settings.receiverVpa && /^[^\s@]+@[^\s@]+$/.test(settings.receiverVpa) && settings.receiverName && settings.merchantId);
+      } catch (error) {
+        const message = String(error?.message || 'DONATION_SETTINGS_READ_FAILED');
+        settingsError = /^SUPABASE_HTTP_\d+$/.test(message) ? message : 'DONATION_SETTINGS_READ_FAILED';
+      }
+    }
+    if (database && !settingsError && !config.receivingVpa) {
+      missingEnvironment.push('A valid receiving UPI ID + payee name in donation_settings or Worker variables UPI_VPA + UPI_PAYEE_NAME');
+    }
+    const ready = Object.values(config).every(Boolean) && database && !settingsError;
+    return json(request, env, {
+      status: ready ? 'UP' : 'CONFIGURATION_REQUIRED',
+      service: 'lokpravaah-cloudflare-upi-gateway',
+      checks: { ...config, database },
+      diagnostics: {
+        missing: [...new Set(missingEnvironment)],
+        databaseError,
+        settingsError,
+        note: ready ? 'Gateway configuration checks passed; perform an end-to-end signed payment test before accepting real donations.' : 'No payment should be assumed successful from this health response. Add the missing Worker variables/secrets, then retry.',
+      },
+    }, ready ? 200 : 503);
   }
 
   // The standalone pairing page has been removed. Keep this path dark even on workers.dev.

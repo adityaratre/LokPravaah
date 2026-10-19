@@ -42,6 +42,9 @@ test('health is not UP without private configuration', async () => {
   assert.equal(response.status, 503);
   const body = await response.json();
   assert.equal(body.status, 'CONFIGURATION_REQUIRED');
+  assert.ok(Array.isArray(body.diagnostics?.missing), 'health output should list required names without exposing secret values');
+  assert.ok(body.diagnostics.missing.some(item => item.includes('SUPABASE_SERVICE_ROLE_KEY')));
+  assert.equal(body.checks.receivingVpa, null, 'do not claim the receiving UPI is wrong when database settings could not be read');
 });
 
 test('health verifies configuration and Supabase table reachability', async t => {
@@ -58,6 +61,7 @@ test('health verifies configuration and Supabase table reachability', async t =>
   const body = await response.json();
   assert.equal(body.status, 'UP');
   assert.equal(body.checks.database, true);
+  assert.deepEqual(body.diagnostics.missing, []);
 });
 
 test('standalone /admin page is not exposed', async () => {

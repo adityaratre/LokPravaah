@@ -213,7 +213,9 @@ $$;
 revoke all on function public.upi_gateway_tick() from public, anon, authenticated;
 grant execute on function public.upi_gateway_tick() to service_role;
 
--- Remove the previous six-parameter RPC so PostgREST cannot select stale queue logic.
+-- Replace both known signatures on every run so this migration remains re-runnable.
+-- Dropping the 8-argument version first also handles an installation that applied an earlier revision.
+drop function if exists public.upi_gateway_create_payment(uuid,text,bigint,text,text,integer,text,text);
 drop function if exists public.upi_gateway_create_payment(uuid,text,bigint,text,text,integer);
 create function public.upi_gateway_create_payment(
   p_payment_id uuid,
@@ -418,6 +420,11 @@ $$;
 revoke all on function public.janwatch_get_public_donation_data() from public;
 grant execute on function public.janwatch_get_public_donation_data() to anon, authenticated;
 
+-- Approval workflow hardening: capture the original values for stale-request protection.
+-- Existing older requests retain an empty snapshot and remain reviewable with the required reviewer note.
+alter table public.donation_settings_change_requests
+  add column if not exists base_settings jsonb not null default '{}'::jsonb;
+
 -- Admin donation data: return up to 500 records, prioritizing all unverified states before successful history.
 create or replace function public.janwatch_admin_get_donation_data()
 returns jsonb language plpgsql stable security definer set search_path = pg_catalog, public, auth, pg_temp
@@ -434,7 +441,7 @@ begin
     'message', d.message, 'status', d.status, 'utr', d.utr, 'gateway_payment_id', d.gateway_payment_id,
     'created_at', d.created_at, 'verified_at', d.verified_at
   ) order by (d.status = 'succeeded') asc, d.created_at desc), '[]'::jsonb) into v_donations from (select * from public.donation_intents order by (status = 'succeeded') asc, created_at desc limit 500) d;
-  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'requested_by', r.requested_by, 'changes', r.changes, 'status', r.status, 'review_note', r.review_note, 'reviewed_by', r.reviewed_by, 'reviewed_at', r.reviewed_at, 'created_at', r.created_at) order by r.created_at desc), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'requested_by', r.requested_by, 'changes', r.changes, 'base_settings', r.base_settings, 'status', r.status, 'review_note', r.review_note, 'reviewed_by', r.reviewed_by, 'reviewed_at', r.reviewed_at, 'created_at', r.created_at) order by r.created_at desc), '[]'::jsonb)
     into v_requests from (select * from public.donation_settings_change_requests order by created_at desc limit 100) r;
   return jsonb_build_object('role', v_role, 'settings', coalesce(v_settings, '{}'::jsonb), 'donations', v_donations, 'change_requests', v_requests);
 end;
@@ -467,6 +474,7 @@ declare
   v_gateway_portal_url text;
   v_gateway_api_url text;
   v_gateway_merchant_key text;
+  v_base_settings jsonb;
   v_leaderboard_enabled boolean;
   v_show_total boolean;
   v_show_goal boolean;
@@ -549,7 +557,24 @@ begin
       updated_by = auth.uid(), updated_at = now() where id = true;
     return jsonb_build_object('status','saved','message','Donation settings saved.');
   elsif v_major <> '{}'::jsonb then
-    insert into public.donation_settings_change_requests(requested_by, changes) values (auth.uid(), v_major) returning id into v_request_id;
+    -- Capture the values the request was based on. The reviewer RPC rejects stale requests
+    -- instead of silently overwriting settings changed after this request was submitted.
+    v_base_settings := jsonb_build_object(
+      'donations_enabled', v_current.donations_enabled,
+      'payment_gateway_enabled', v_current.payment_gateway_enabled,
+      'gateway_portal_url', v_current.gateway_portal_url,
+      'gateway_api_url', v_current.gateway_api_url,
+      'gateway_merchant_key', v_current.gateway_merchant_key,
+      'min_amount_paise', v_current.min_amount_paise,
+      'max_amount_paise', v_current.max_amount_paise,
+      'campaign_goal_paise', v_current.campaign_goal_paise,
+      'suggested_amounts', v_current.suggested_amounts,
+      'payment_session_minutes', v_current.payment_session_minutes,
+      'upi_vpa', v_current.upi_vpa,
+      'upi_payee_name', v_current.upi_payee_name
+    );
+    insert into public.donation_settings_change_requests(requested_by, changes, base_settings)
+      values (auth.uid(), v_major, v_base_settings) returning id into v_request_id;
     return jsonb_build_object('status','pending_approval','request_id',v_request_id,'message','Presentation settings saved. Major changes are waiting for super-admin approval.');
   end if;
   return jsonb_build_object('status','saved','message','Donation presentation settings saved.');
@@ -561,14 +586,41 @@ grant execute on function public.janwatch_admin_update_donation_settings(jsonb) 
 create or replace function public.janwatch_super_admin_review_donation_settings(p_request_id uuid, p_approve boolean, p_note text default null)
 returns jsonb language plpgsql security definer set search_path = pg_catalog, public, auth, pg_temp
 as $$
-declare v_request public.donation_settings_change_requests%rowtype; v_role text;
+declare
+  v_request public.donation_settings_change_requests%rowtype;
+  v_role text;
+  v_current public.donation_settings%rowtype;
 begin
   select role into v_role from public.user_roles where user_id = auth.uid() limit 1;
   if auth.uid() is null or coalesce(v_role, '') <> 'super_admin' then raise exception 'Super administrator permission required'; end if;
   select * into v_request from public.donation_settings_change_requests where id = p_request_id for update;
   if not found then raise exception 'Change request not found'; end if;
   if v_request.status <> 'pending' then raise exception 'This change request has already been reviewed'; end if;
+  if char_length(btrim(coalesce(p_note, ''))) < 5 then raise exception 'Enter a review note of at least 5 characters before approving or rejecting this request'; end if;
   if p_approve then
+    select * into v_current from public.donation_settings where id = true for update;
+    if not found then raise exception 'Donation settings are not installed'; end if;
+    if v_request.base_settings is not null and v_request.base_settings <> '{}'::jsonb and exists (
+      select 1
+      from jsonb_each(v_request.changes) changed(key, value)
+      where (case changed.key
+        when 'donations_enabled' then to_jsonb(v_current.donations_enabled)
+        when 'payment_gateway_enabled' then to_jsonb(v_current.payment_gateway_enabled)
+        when 'gateway_portal_url' then to_jsonb(v_current.gateway_portal_url)
+        when 'gateway_api_url' then to_jsonb(v_current.gateway_api_url)
+        when 'gateway_merchant_key' then to_jsonb(v_current.gateway_merchant_key)
+        when 'min_amount_paise' then to_jsonb(v_current.min_amount_paise)
+        when 'max_amount_paise' then to_jsonb(v_current.max_amount_paise)
+        when 'campaign_goal_paise' then to_jsonb(v_current.campaign_goal_paise)
+        when 'suggested_amounts' then to_jsonb(v_current.suggested_amounts)
+        when 'payment_session_minutes' then to_jsonb(v_current.payment_session_minutes)
+        when 'upi_vpa' then to_jsonb(v_current.upi_vpa)
+        when 'upi_payee_name' then to_jsonb(v_current.upi_payee_name)
+        else null
+      end) is distinct from (v_request.base_settings -> changed.key)
+    ) then
+      raise exception 'This request is stale because one or more affected settings changed after submission. Refresh settings and submit a new request.';
+    end if;
     update public.donation_settings set
       donations_enabled = coalesce((v_request.changes->>'donations_enabled')::boolean, donations_enabled),
       payment_gateway_enabled = coalesce((v_request.changes->>'payment_gateway_enabled')::boolean, payment_gateway_enabled),

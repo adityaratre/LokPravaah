@@ -27,8 +27,7 @@ create index if not exists upi_gateway_payments_queue_idx
   on public.upi_gateway_payments(merchant_id, status, created_at);
 create index if not exists upi_gateway_payments_status_idx
   on public.upi_gateway_payments(status, expires_at);
-create unique index if not exists upi_gateway_single_active_slot_uq
-  on public.upi_gateway_payments(merchant_id) where status in ('ACTIVE','PROCESSING');
+-- Deliberately no single-active-slot index: checkout sessions are independent across donors.
 
 create table if not exists public.upi_gateway_devices (
   id text primary key,
@@ -80,7 +79,7 @@ grant all on public.upi_gateway_devices to service_role;
 grant all on public.upi_gateway_pairing_tokens to service_role;
 grant all on public.upi_gateway_observations to service_role;
 
--- Serializes slot assignment. Only one ACTIVE/PROCESSING session can exist for this merchant at a time.
+-- The advisory lock is only held for the short database transaction used to match an observer event.
 create or replace function public.upi_gateway_tick()
 returns jsonb
 language plpgsql
