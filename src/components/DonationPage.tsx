@@ -598,7 +598,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         onSuspicious: () => { handlePaymentStatus(orderId, 'SUSPICIOUS'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not retry until it is checked.` }); setLaunching(false) },
         onExpired: () => { handlePaymentStatus(orderId, 'EXPIRED'); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. You can still submit the UTR and payment receipt for review.` }); setLaunching(false) },
         onCancelled: () => { handlePaymentStatus(orderId, 'CANCELLED'); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
-        onManualPaymentRequest: () => { openManualProofForm(); setLaunching(false) },
+        onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
         onClose: () => setLaunching(false),
       })
       const paymentId = String(checkout?.options?.paymentId || '')
