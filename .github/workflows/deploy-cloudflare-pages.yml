@@ -1,0 +1,66 @@
+name: Build and deploy LokPravaah Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/deploy-cloudflare-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build production frontend
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_lcKMw3ukzSeGhUW6THNsLw_JMsATwJX
+          VITE_SITE_URL: https://lokpravaah.online
+          VITE_DONATION_GATEWAY_PORTAL_URL: https://lokpravaah.online
+          VITE_DONATION_GATEWAY_API_URL: https://lokpravaah.online
+          VITE_DONATION_MERCHANT_KEY: '00000000-0000-0000-0000-000000000001'
+      - name: Discover the Pages project attached to the production domain
+        id: pages-project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects")"
+          project="$(printf '%s' "$response" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.success)process.exit(2);const p=j.result||[];const hit=p.find(x=>(x.domains||[]).some(d=>String(d).toLowerCase()==='lokpravaah.online'))||p.find(x=>String(x.name||'').toLowerCase()==='lokpravaah');if(!hit)process.exit(3);process.stdout.write(hit.name)})")"
+          if [ -z "$project" ]; then
+            echo "::error::Could not identify the Cloudflare Pages project for lokpravaah.online."
+            exit 1
+          fi
+          echo "Found production Pages project: $project"
+          echo "name=$project" >> "$GITHUB_OUTPUT"
+      - name: Deploy built website
+        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT_NAME" --branch main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_PROJECT_NAME: ${{ steps.pages-project.outputs.name }}
