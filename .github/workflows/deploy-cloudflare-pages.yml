@@ -97,6 +97,25 @@ jobs:
           fi
           echo "Production homepage and JavaScript bundle are responding."
 
+          sitemap_result="$(curl --silent --show-error --max-time 15 --write-out 'HTTPSTATUS:%{http_code}' https://lokpravaah.online/sitemap.xml || true)"
+          sitemap_code="${sitemap_result##*HTTPSTATUS:}"
+          sitemap_body="${sitemap_result%HTTPSTATUS:*}"
+          if [ "$sitemap_code" != "200" ] || ! printf '%s' "$sitemap_body" | grep -q '<loc>https://lokpravaah.online/report-civic-issue/</loc>' || ! printf '%s' "$sitemap_body" | grep -q '<loc>https://lokpravaah.online/hi/</loc>'; then
+            echo "::error::Production sitemap.xml was not served or does not contain the generated SEO guide URLs (HTTP $sitemap_code)."
+            printf '%s\\n' "$sitemap_body" | head -c 600
+            exit 1
+          fi
+          echo "Production sitemap.xml contains the English and Hindi SEO pages."
+
+          about_result="$(curl --silent --show-error --max-time 15 --write-out 'HTTPSTATUS:%{http_code}' https://lokpravaah.online/about/ || true)"
+          about_code="${about_result##*HTTPSTATUS:}"
+          about_body="${about_result%HTTPSTATUS:*}"
+          if [ "$about_code" != "200" ] || ! printf '%s' "$about_body" | grep -q '<title>About LokPravaah'; then
+            echo "::error::The generated crawlable About page is not available at /about/ (HTTP $about_code)."
+            exit 1
+          fi
+          echo "Production SEO landing page is responding with its unique page title."
+
           health_result="$(curl --silent --show-error --max-time 15 --write-out 'HTTPSTATUS:%{http_code}' https://lokpravaah.online/health || true)"
           health_code="${health_result##*HTTPSTATUS:}"
           health_body="${health_result%HTTPSTATUS:*}"
