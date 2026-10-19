@@ -353,6 +353,13 @@ test('checkout exposes manual payment confirmation without cancelling the active
   assert.match(html, /id="manualConfirm"/);
   assert.match(html, /youpi\.manual_payment_request/);
   assert.match(html, /I paid — enter UTR \/ upload proof/);
+  const manualHandler = html.indexOf("manualConfirm.addEventListener('click'");
+  const cancelHandler = html.indexOf("cancel.addEventListener('click'");
+  assert.ok(manualHandler >= 0 && cancelHandler >= 0 && manualHandler < cancelHandler,
+    'manual confirmation must have its own click listener, registered before the cancellation handler');
+  const cancellationSection = html.slice(cancelHandler, html.indexOf("window.addEventListener('message'", cancelHandler));
+  assert.doesNotMatch(cancellationSection, /manualConfirm\.addEventListener/,
+    'manual confirmation must not be nested inside the cancel button handler');
 });
 
 test('checkout SDK closes without sending a cancellation request and supports manual confirmation', async () => {
