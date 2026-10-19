@@ -275,12 +275,13 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setActiveDonation(current => current?.orderId === activeDonation.orderId
         ? { ...current, claimStatus: claim.status, adminReviewNote: claim.admin_review_note ?? null, ...(claim.status === 'confirmed' ? { status: 'SUCCESS' } : {}) }
         : current)
+      void loadMyDonations()
       if (claim.status === 'rejected') {
         setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'The administrator could not verify this claim. Check the UTR and upload the correct receipt.' })
       }
     })()
     return () => { cancelled = true }
-  }, [activeDonation?.orderId, userId])
+  }, [activeDonation?.orderId, userId, loadMyDonations])
 
   // Automatic gateway status polling is intentionally disabled. Donation status is authoritative only after admin bank-record review.
 
@@ -363,7 +364,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         onSuspicious: () => { handlePaymentStatus(session.orderId, 'SUSPICIOUS'); setLaunching(false) },
         onExpired: () => { handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
         onCancelled: () => { handlePaymentStatus(session.orderId, 'CANCELLED'); setLaunching(false) },
-        onManualPaymentRequest: () => { openManualProofForm(); setLaunching(false) },
+        onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
         onClose: () => setLaunching(false),
       })
     } catch (error) {
@@ -439,10 +440,119 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setProofFile(null)
       setProofNotice({ tone: 'success', title: 'Sent to admin for review', body: 'Your screenshot and claimed UTR were submitted privately. The donation total updates only after an administrator verifies the UTR against the receiving bank statement. Do not pay again while this is being checked.' })
       setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for administrator review.` })
-      void loadPublicData()
+      void loadMyDonations(); void loadPublicData()
     } catch (error) {
       setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: error instanceof Error ? error.message : 'Please check your connection and try again.' })
     } finally { setProofBusy(false) }
+  }
+
+
+  async function submitManualPaymentFromModal(
+    result: CheckoutResult,
+    fallback: { orderId: string; amountPaise: number },
+  ): Promise<{ success: boolean; message: string }> {
+    const orderId = String(result.order_id || fallback.orderId || '').trim()
+    const utr = String(result.utr || '').trim()
+    const amountReceived = Number(result.amount_received)
+    const amountPaise = Math.round(amountReceived * 100)
+    const evidenceFile = result.evidenceFile
+    const note = String(result.user_note || '').trim()
+    if (!supabase || !isSupabaseConfigured) return { success: false, message: 'Payment records are unavailable right now. Please try again shortly.' }
+    if (!userId) return { success: false, message: 'Sign in to LokPravaah to submit proof and track your donation.' }
+    if (orderId.length < 8) return { success: false, message: 'The donation reference is missing. Close this window and reopen the same checkout from My donations.' }
+    if (!/^[A-Za-z0-9_-]{6,80}$/.test(utr)) return { success: false, message: 'Enter the actual UTR / bank reference shown by your UPI app.' }
+    if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 10_000_000) return { success: false, message: 'Enter a valid amount between ₹1 and ₹1,00,000.' }
+    if (!(evidenceFile instanceof File) || !['image/jpeg','image/png','image/webp','application/pdf'].includes(evidenceFile.type) || evidenceFile.size > 10 * 1024 * 1024) {
+      return { success: false, message: 'Attach one JPG, PNG, WebP image or PDF receipt up to 10 MB.' }
+    }
+    if (note.length > 2000) return { success: false, message: 'Keep the reviewer note under 2,000 characters.' }
+
+    setProofBusy(true)
+    setProofNotice({ tone: 'info', title: 'Submitting payment proof', body: 'Uploading the receipt privately. Your donation remains unverified until an administrator checks the bank record.' })
+    let uploadedPath = ''
+    try {
+      uploadedPath = userId + '/' + orderId + '-' + Date.now() + '-' + evidenceFileName(evidenceFile.name)
+      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, evidenceFile, {
+        cacheControl: '3600', contentType: evidenceFile.type, upsert: false,
+      })
+      if (uploadError) throw new Error('Receipt upload failed: ' + uploadError.message)
+      const { data, error: claimError } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
+        p_order_id: orderId,
+        p_screenshot_path: uploadedPath,
+        p_claimed_utr: utr,
+        p_claimed_amount_paise: amountPaise,
+        p_payment_timestamp: result.payment_timestamp ? new Date(result.payment_timestamp).toISOString() : null,
+        p_user_note: note || null,
+      })
+      if (claimError) throw new Error(claimError.message || 'Could not create the manual review request.')
+      const claim = data as { status?: ManualClaimStatus; message?: string } | null
+      setActiveDonation(current => current?.orderId === orderId
+        ? { ...current, status: 'PENDING_REVIEW', claimStatus: claim?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null }
+        : current)
+      setProofOpen(false)
+      setProofUtr(utr)
+      setProofAmountText((amountPaise / 100).toFixed(2))
+      setProofTime(result.payment_timestamp || '')
+      setProofFile(null)
+      setProofNotice({ tone: 'success', title: 'Under review', body: 'Your payment proof was submitted privately. Do not pay again while the bank record is being checked.' })
+      setNotice({ tone: 'info', title: 'Payment proof submitted', body: claim?.message || ('The receipt for ' + orderId + ' is in the administrator review queue.') })
+      await Promise.all([loadMyDonations(), loadPublicData()])
+      return { success: true, message: 'Your UTR and receipt were submitted privately. The donation becomes successful only after admin bank-statement verification.' }
+    } catch (caught) {
+      if (uploadedPath) await supabase.storage.from('donation-payment-evidence').remove([uploadedPath]).catch(() => undefined)
+      const message = caught instanceof Error ? caught.message : 'Payment proof could not be submitted. Please retry.'
+      setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: message })
+      return { success: false, message }
+    } finally {
+      setProofBusy(false)
+    }
+  }
+
+  function donationStatusLabel(item: MyDonationRow): string {
+    if (item.status === 'succeeded' || item.claim_status === 'confirmed') return 'Successful'
+    if (item.claim_status === 'pending_review') return 'Under review'
+    if (item.claim_status === 'rejected') return 'Action needed'
+    if (item.status === 'expired') return 'Expired'
+    if (item.status === 'cancelled') return 'Cancelled'
+    if (item.status === 'failed') return 'Failed'
+    if (item.status === 'suspicious') return 'Needs review'
+    return 'Pending'
+  }
+
+  function donationStatusClass(item: MyDonationRow): string {
+    const label = donationStatusLabel(item)
+    return label === 'Successful' ? 'success' : label === 'Under review' ? 'review' : ['Action needed','Needs review','Failed'].includes(label) ? 'attention' : 'pending'
+  }
+
+  async function createDonationTicket(item: MyDonationRow) {
+    if (!supabase || !userId) {
+      setTicketNotice({ tone: 'error', text: 'Sign in to create a support ticket.' })
+      return
+    }
+    if (ticketSubject.trim().length < 6 || ticketDescription.trim().length < 10) {
+      setTicketNotice({ tone: 'error', text: 'Enter a subject of at least 6 characters and describe the issue in at least 10 characters.' })
+      return
+    }
+    setTicketBusy(true)
+    setTicketNotice(null)
+    try {
+      const { data, error } = await supabase.rpc('janwatch_create_donation_support_ticket', {
+        p_donation_id: item.id,
+        p_subject: ticketSubject.trim(),
+        p_description: ticketDescription.trim(),
+      })
+      if (error) throw error
+      const response = data as { status?: string; ticket_number?: number; message?: string } | null
+      setTicketDraftId(null)
+      setTicketDescription('')
+      setTicketNotice({ tone: 'success', text: response?.message || ('Support ticket' + (response?.ticket_number ? ' #' + response.ticket_number : '') + ' created.') })
+      await loadMyDonations()
+      if (onOpenSupportTickets) onOpenSupportTickets()
+    } catch (caught) {
+      setTicketNotice({ tone: 'error', text: caught instanceof Error ? caught.message : 'Could not create the support ticket. Please retry.' })
+    } finally {
+      setTicketBusy(false)
+    }
   }
 
   async function startDonation(event: FormEvent<HTMLFormElement>) {
@@ -450,6 +560,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!amountValid || parsedAmount === null) {
       setNotice({ tone: 'error', title: 'Check the amount', body: `Enter an amount from ${money(settings.min_amount_paise)} to ${money(settings.max_amount_paise)}, with up to two decimal places.` }); return
     }
+    if (!userId) { setNotice({ tone: 'warning', title: 'Sign in to donate', body: 'Sign in so your private donation history, manual payment review and support tickets stay linked to your account.' }); return }
     if (!settings.donations_enabled) { setNotice({ tone: 'warning', title: 'Donations are temporarily paused', body: 'The LokPravaah team has paused new contributions. Please check back later.' }); return }
     if (!settings.payment_gateway_enabled) { setNotice({ tone: 'warning', title: 'Online payments are temporarily paused', body: 'The payment service is temporarily unavailable. Please try again later.' }); return }
     if (!gatewayConfigured || gatewayState !== 'ready' || !window.Youpi?.pay) {
@@ -462,7 +573,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
-        order_id: orderId, donor_user_id: anonymous ? null : userId, amount_paise: parsedAmount, currency: 'INR',
+        order_id: orderId, donor_user_id: userId, amount_paise: parsedAmount, currency: 'INR',
         donor_name: anonymous ? null : (donorName.trim().slice(0, 80) || null), donor_email: anonymous ? null : (donorEmail.trim().slice(0, 254) || null),
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
@@ -474,14 +585,14 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
-          handlePaymentStatus(orderId, 'SUCCESS')
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Reference ${orderId} was confirmed by the payment gateway. ${settings.thank_you_message}` })
-          setLaunching(false); void loadPublicData()
+          handlePaymentStatus(orderId, 'PENDING_REVIEW')
+          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
+          setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
         onSuccess: () => {
-          handlePaymentStatus(orderId, 'SUCCESS')
-          setNotice({ tone: 'success', title: settings.thank_you_title, body: `Thank you! Reference ${orderId} was confirmed by the payment gateway. ${settings.thank_you_message}` })
-          setLaunching(false); window.setTimeout(() => void loadPublicData(), 3500)
+          handlePaymentStatus(orderId, 'PENDING_REVIEW')
+          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
+          setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
         onFailed: result => { handlePaymentStatus(orderId, 'FAILED'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
         onSuspicious: () => { handlePaymentStatus(orderId, 'SUSPICIOUS'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not retry until it is checked.` }); setLaunching(false) },
@@ -493,6 +604,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const paymentId = String(checkout?.options?.paymentId || '')
       if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
       setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
+      void loadMyDonations()
       setProofOpen(false)
       setProofUtr('')
       setProofAmountText((parsedAmount / 100).toFixed(2))
