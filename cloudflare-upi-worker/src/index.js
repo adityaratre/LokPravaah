@@ -366,7 +366,7 @@ function checkoutHtml(paymentId, env) {
     }catch{notice.textContent='Network issue while cancelling. Check payment status before retrying.'}
     finally{cancel.disabled=false;}
   });
-  window.addEventListener('message',async e=>{if(e.data&&e.data.event==='youpi.request_cancel'){cancel.click();}});poll();
+  window.addEventListener('message',async e=>{if(e.data&&e.data.event==='youpi.request_cancel'){cancel.click();}else if(e.data&&e.data.event==='youpi.reset_manual_payment_request'){manualConfirm.disabled=false;notice.textContent='Your payment session is still open. Scan the same QR or use your UPI app; submit proof here only after your bank confirms the debit.';}});poll();
 </script></body></html>`;
 }
 async function respondAsset(request, env) {
