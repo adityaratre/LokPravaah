@@ -334,13 +334,24 @@ export default function App() {
       }
       try {
         const authFlow = sessionStorage.getItem('janwatch.authFlow')
-        if (sessionUser && authFlow) {
+        if (sessionUser) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          setOnboardingMode(setupComplete ? 'edit' : 'setup')
-          setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
-          sessionStorage.removeItem('janwatch.authFlow')
+          if (authFlow) {
+            setOnboardingMode(setupComplete ? 'edit' : 'setup')
+            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
+            sessionStorage.removeItem('janwatch.authFlow')
+          } else {
+            // Supabase restores the signed-in session on page reload. Keep the
+            // authenticated workspace visible instead of falling back to welcome.
+            setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          }
         }
-      } catch { /* session storage may be unavailable */ }
+      } catch {
+        if (sessionUser) {
+          const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
+          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+        }
+      }
       setAuthLoading(false)
     }).catch((error: unknown) => {
       if (!mounted) return
@@ -370,11 +381,22 @@ export default function App() {
       }
       try {
         const authFlow = sessionStorage.getItem('janwatch.authFlow')
-        if (sessionUser && authFlow) {
-          setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding')
+        if (sessionUser && authFlow && event !== 'PASSWORD_RECOVERY') {
+          const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
+          setOnboardingMode(setupComplete ? 'edit' : 'setup')
+          setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
           sessionStorage.removeItem('janwatch.authFlow')
+        } else if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
+          const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
+          // Rehydrate on initial load/sign-in; token refresh must not interrupt navigation.
+          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
-      } catch { /* session storage may be unavailable */ }
+      } catch {
+        if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
+          const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
+          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+        }
+      }
       if (!session?.user) {
         setEntryScreen('welcome')
         setIssues([])
