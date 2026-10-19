@@ -161,6 +161,10 @@ $function$;
 revoke all on function public.janwatch_admin_create_manual_donation(bigint,text,text,text,timestamptz,text,boolean,boolean,boolean,text) from public, anon;
 grant execute on function public.janwatch_admin_create_manual_donation(bigint,text,text,text,timestamptz,text,boolean,boolean,boolean,text) to authenticated;
 
+-- Remove the legacy 2-argument overload; otherwise PostgREST calls can be ambiguous
+-- because the current audited function also permits a default value for p_note.
+drop function if exists public.janwatch_admin_set_donation_removed(uuid, boolean);
+
 create or replace function public.janwatch_admin_set_donation_removed(
   p_donation_id uuid, p_removed boolean, p_note text default null
 )
