@@ -173,6 +173,44 @@ public class ApiClient {
         return false;
     }
 
+    public boolean sendObservation(long amountPaise, double amountRupees, String bankReferenceNumber, String senderVpa, String title, String text) {
+        if (!isPaired()) return false;
+
+        String deviceId = prefs.getString("device_id", null);
+        String signingKey = prefs.getString("signing_key", null);
+        String baseUrl = getBaseUrl();
+        String endpoint = baseUrl + "/api/v1/pollers/android/events";
+
+        try {
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            JSONObject notification = new JSONObject();
+            notification.put("title", title != null ? title : "");
+            notification.put("text", text != null ? text : "");
+            notification.put("bigText", text != null ? text : "");
+
+            JSONObject body = new JSONObject();
+            body.put("deviceId", deviceId);
+            body.put("timestamp", Long.parseLong(timestamp));
+            body.put("amountPaise", amountPaise);
+            body.put("amount", amountRupees);
+            body.put("bankReferenceNumber", bankReferenceNumber != null ? bankReferenceNumber : "");
+            body.put("senderVpa", senderVpa != null ? senderVpa : "");
+            body.put("direction", "credit");
+            body.put("isCredit", true);
+            body.put("notification", notification);
+            body.put("body", (title != null ? title : "") + " " + (text != null ? text : ""));
+
+            String bodyString = body.toString();
+            String signature = calculateHmacSha256(bodyString + ":" + timestamp, signingKey);
+            String response = postJson(endpoint, bodyString, deviceId, timestamp, signature);
+            Log.i(TAG, "Credit notification dispatched to gateway: " + (response != null ? "OK" : "FAILED"));
+            return response != null;
+        } catch (Exception e) {
+            Log.e(TAG, "sendObservation error: " + e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     public boolean sendHeartbeat() {
         if (!isPaired()) return false;
 
