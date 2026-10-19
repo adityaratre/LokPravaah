@@ -57,7 +57,11 @@
         <service
             android:name="com.youpi.observer.ForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|specialUse" />
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent user-enabled bank credit observer for payment reconciliation" />
+        </service>
 
         <!-- Notification Listener Service for UPI Apps -->
         <service
