@@ -51,7 +51,7 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects")"
-          project="$(printf '%s' "$response" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.success)process.exit(2);const p=j.result||[];const hit=p.find(x=>(x.domains||[]).some(d=>String(d).toLowerCase()==='lokpravaah.online'))||p.find(x=>String(x.name||'').toLowerCase()==='lokpravaah');if(!hit)process.exit(3);process.stdout.write(hit.name)})")"
+          project="$(printf '%s' "$response" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.success)process.exit(2);const p=j.result||[];const hit=p.find(x=>(x.domains||[]).some(d=>String(d).toLowerCase()==='lokpravaah.online'))||p.find(x=>String(x.name||'').toLowerCase().includes('lokpravaah'))||(p.length===1?p[0]:null);if(!hit){console.error('Available Pages projects: '+JSON.stringify(p.map(x=>({name:x.name,domains:x.domains||[],production_branch:x.production_branch}))));process.exit(3)}process.stdout.write(hit.name)})")"
           if [ -z "$project" ]; then
             echo "::error::Could not identify the Cloudflare Pages project for lokpravaah.online."
             exit 1
