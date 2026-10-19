@@ -14,7 +14,7 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
     private ApiClient apiClient;
 
     private static final Pattern AMOUNT_PATTERN = Pattern.compile("(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern UTR_PATTERN = Pattern.compile("(?:UPI\\s*(?:ref|reference|txn|id)?|Ref(?:erence)?\\s*(?:no|number)?|UTR)\\s*[:#-]?\\s*([0-9]{12})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern UTR_PATTERN = Pattern.compile("(?:\\bUPI\\s*(?:ref(?:erence)?|txn(?:\\s*id)?|transaction(?:\\s*(?:id|ref(?:erence)?))?|id)|\\bref(?:erence)?\\s*(?:no\\.?|number)?|\\bUTR|\\bRRN|\\btxn(?:\\s*(?:id|ref))|\\btransaction\\s*(?:id|ref(?:erence)?))\\s*[:#-]?\\s*([A-Za-z0-9_-]{6,35})", Pattern.CASE_INSENSITIVE);
     private static final Pattern VPA_PATTERN = Pattern.compile("([a-zA-Z0-9._-]+@[a-zA-Z0-9]+)");
 
     @Override
@@ -26,6 +26,10 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || !apiClient.isPaired()) return;
+        String sourcePackage = sbn.getPackageName();
+        // Accept credit events only from known banking/UPI packages. A random app must
+        // not be able to spoof a "payment received" notification into a successful donation.
+        if (sourcePackage == null || !NotificationParser.INSTANCE.isRelevantPackage(sourcePackage)) return;
 
         Notification notif = sbn.getNotification();
         if (notif == null) return;
@@ -78,7 +82,7 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
         final String finalTitle = title;
         final String finalTex = text;
 
-        Log.i(TAG, "Captured UPI credit notification: ₹" + amount + " UTR: " + bankRef);
+        Log.i(TAG, "Captured candidate credit from " + sourcePackage + ": ₹" + amount + " reference present: " + (bankRef != null));
 
         new Thread(new Runnable() {
             @Override
