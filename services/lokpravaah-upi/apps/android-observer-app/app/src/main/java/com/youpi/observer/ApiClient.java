@@ -20,13 +20,46 @@ import javax.crypto.spec.SecretKeySpec;
 public class ApiClient {
     private static final String TAG = "YoupiApiClient";
     private static final String PREFS_NAME = "youpi_gateway_prefs";
+    private static final String SECURE_PREFS_NAME = "youpi_observer_secure_prefs";
     private final SharedPreferences prefs;
     private final Context context;
     private volatile String lastPairError = "No pairing attempt has been made.";
 
     public ApiClient(Context context) {
         this.context = context.getApplicationContext();
-        this.prefs = this.context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences selectedPrefs;
+        SharedPreferences legacyPrefs = this.context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        try {
+            String masterKeyAlias = androidx.security.crypto.MasterKeys.getOrCreate(
+                androidx.security.crypto.MasterKeys.AES256_GCM_SPEC
+            );
+            SharedPreferences securePrefs = androidx.security.crypto.EncryptedSharedPreferences.create(
+                SECURE_PREFS_NAME,
+                masterKeyAlias,
+                this.context,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+
+            // Migrate an existing device's pairing credentials once, so installing the
+            // fixed build preserves pairing without continuing to keep the signing key in plaintext.
+            if (!securePrefs.contains("device_id") && legacyPrefs.contains("device_id")) {
+                SharedPreferences.Editor editor = securePrefs.edit();
+                for (String key : new String[]{"base_url", "device_id", "signing_key", "merchant_id"}) {
+                    String value = legacyPrefs.getString(key, null);
+                    if (value != null) editor.putString(key, value);
+                }
+                editor.apply();
+                legacyPrefs.edit().remove("device_id").remove("signing_key").remove("merchant_id").apply();
+            }
+            selectedPrefs = securePrefs;
+        } catch (Exception e) {
+            // Keep the app recoverable if the Android keystore is temporarily unavailable.
+            // The paired-device token is never logged.
+            Log.e(TAG, "Secure preference initialization failed; using the existing preference store for this session.", e);
+            selectedPrefs = legacyPrefs;
+        }
+        this.prefs = selectedPrefs;
     }
 
     public boolean isPaired() {
