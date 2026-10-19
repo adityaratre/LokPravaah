@@ -493,7 +493,7 @@ async function handler(request, env) {
 
     // Manual entry and QR scanning may serialize the same enrollment payload slightly
     // differently. Normalize whitespace and accept known legacy token field aliases.
-    const token = String(body.enrollmentToken || body.enrollment_token || body.enrollmentSecretToken || body.token || '').trim();
+    const token = String(body.enrollmentToken || body.enrollment_token || body.enrollmentSecretToken || body.token || '').replace(/\s+/g, '').trim();
     if (!/^[a-f0-9]{64}$/i.test(token)) {
       return json(request, env, { error: 'Enrollment token must be a 64-character hexadecimal token. Generate a fresh pairing QR if needed.', code: 'INVALID_ENROLLMENT_TOKEN_FORMAT' }, 400);
     }
@@ -510,7 +510,14 @@ async function handler(request, env) {
     const deviceId = crypto.randomUUID();
     const signingKey = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
     try {
-      const merchantId = String(body.merchantId || body.merchant_id || env.MERCHANT_ID || DEFAULT_MERCHANT_ID).trim();
+      // Old observer builds always sent the compile-time default merchant ID even when
+      // a deployment had a different configured merchant. Treat that known placeholder
+      // as omitted; the one-time token's database-bound merchant still decides the result.
+      const requestedMerchantId = String(body.merchantId || body.merchant_id || '').trim();
+      const configuredMerchantId = String(env.MERCHANT_ID || DEFAULT_MERCHANT_ID).trim();
+      const merchantId = !requestedMerchantId || requestedMerchantId === DEFAULT_MERCHANT_ID
+        ? configuredMerchantId
+        : requestedMerchantId;
       const result = await rpc(env, 'upi_gateway_pair_device', {
         p_token_hash: tokenHash,
         p_device_id: deviceId,
