@@ -221,28 +221,64 @@ async function updateDonationWebhook(env, eventPayload) {
 }
 function extractBankPayment(body) {
   let amountPaise = Number.isSafeInteger(Number(body.amountPaise)) ? Number(body.amountPaise) : null;
-  let bankRef = String(body.bankReferenceNumber || body.utr || '').trim();
-  let senderVpa = String(body.senderVpa || '').trim();
-  const observedTime = body.observedAt ?? body.timestamp ?? body.createdAt;
+  let bankRef = String(body.bankReferenceNumber || body.utr || body.transactionReference || body.transactionId || '').trim();
+  let senderVpa = String(body.senderVpa || body.senderVpaAddress || '').trim();
+  const observedTime = body.observedAt ?? body.timestamp ?? body.createdAt ?? body.postedAt;
   const observedAt = observedTime !== undefined && observedTime !== null ? new Date(observedTime) : new Date();
-  const rawText = String(body.body || body.sms || body.rawSms || body.message || body.text || body.rawNotification?.text || '').slice(0, 64 * 1024);
 
-  if ((!amountPaise || !bankRef) && rawText) {
-    const lower = rawText.toLowerCase();
-    const positive = /\b(credited|credit of|received|deposited|has been credited|payment received|upi\/cr)\b/.test(lower);
-    const negative = /\b(debited|debit|sent|paid to|withdrawn|cash withdrawal|purchase)\b/.test(lower);
-    if (positive && !negative) {
-      const amountMatch = rawText.match(/(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:INR|Rs\.?|₹)/i);
-      if (!amountPaise && amountMatch) {
-        const numberText = (amountMatch[1] || amountMatch[2]).replace(/,/g, '');
-        amountPaise = paiseFromAmount(numberText);
+  // Android notification/SMS bridges vary in field names. Combine only text fields, never
+  // persist or log this raw content; it is used in-memory for credit classification.
+  const textCandidates = [
+    body.body, body.sms, body.rawSms, body.message, body.text, body.notificationText,
+    body.notificationBody, body.contentText, body.tickerText,
+    body.rawNotification?.title, body.rawNotification?.text, body.rawNotification?.bigText,
+    body.notification?.title, body.notification?.text, body.notification?.bigText,
+    body.notificationTitle, body.notification?.body,
+  ];
+  const rawText = [...new Set(textCandidates.filter(value => typeof value === 'string').map(value => value.trim()).filter(Boolean))]
+    .join(' ').slice(0, 64 * 1024);
+  const lower = rawText.toLowerCase();
+  const direction = String(body.direction || body.transactionDirection || body.transactionType || body.creditDebit || body.credit_debit || '').toLowerCase();
+  const explicitCredit = body.isCredit === true || body.isIncoming === true
+    || /^(credit|credited|incoming|inbound|received|upi_credit|bank_credit)$/.test(direction);
+  const explicitDebit = body.isDebit === true || body.isOutgoing === true
+    || /^(debit|debited|outgoing|outbound|sent|upi_debit|bank_debit)$/.test(direction);
+  const positive = /\b(credited|credit of|credit to|credit received|received|deposited|has been credited|payment received|money received|upi\/cr|\bcr\b)\b/i.test(rawText);
+  const negative = /\b(debited|debit|sent from|sent to|paid to|withdrawn|cash withdrawal|purchase|deducted|upi\/dr|\bdr\b)\b/i.test(rawText);
+
+  // A clear debit/outgoing notification must never be treated as proof of receiving money,
+  // even when the client supplies amount/reference fields alongside the text.
+  if (explicitDebit || negative || (rawText && !positive && !explicitCredit)) {
+    amountPaise = null;
+    bankRef = '';
+  } else if ((!amountPaise || !bankRef) && rawText) {
+    const amountPatterns = [
+      /(?:credited|received|deposited|credit(?:ed)? of|payment received|money received)[^\d₹]{0,28}(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i,
+      /(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+      /([\d,]+(?:\.\d{1,2})?)\s*(?:INR|Rs\.?|₹)/i,
+    ];
+    if (!amountPaise) {
+      for (const pattern of amountPatterns) {
+        const match = rawText.match(pattern);
+        if (!match) continue;
+        amountPaise = paiseFromAmount(match[1].replace(/,/g, ''));
+        if (amountPaise !== null) break;
       }
-      if (!bankRef) {
-        const refMatch = rawText.match(/(?:UTR|UPI\s*(?:Ref(?:erence)?|Txn)(?:\s*(?:No\.?|ID|Number))?|RRN|Transaction\s*(?:ID|Ref(?:erence)?|No\.?))\s*[:#\-]?\s*([A-Za-z0-9_-]{6,80})/i);
-        if (refMatch) bankRef = refMatch[1];
+    }
+    if (!bankRef) {
+      const referencePatterns = [
+        /\b(?:UTR|RRN)\s*[:#\-]?\s*([A-Za-z0-9_-]{6,80})\b/i,
+        /\bUPI[\s/_-]*(?:REF(?:ERENCE)?|TXN|TRANSACTION)[\s/_-]*(?:NO\.?|ID|NUMBER)?\s*[:#\-]?\s*([A-Za-z0-9_-]{6,80})\b/i,
+        /\b(?:TRANSACTION|TXN)[\s/_-]*(?:ID|REF(?:ERENCE)?|NO\.?)\s*[:#\-]?\s*([A-Za-z0-9_-]{6,80})\b/i,
+        /\bUPI[/#-]([A-Za-z0-9_-]{6,80})\b/i,
+      ];
+      for (const pattern of referencePatterns) {
+        const match = rawText.match(pattern);
+        if (match) { bankRef = match[1]; break; }
       }
     }
   }
+
   if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 10_000_000) amountPaise = null;
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(bankRef)) bankRef = '';
   return { amountPaise, bankRef, senderVpa: senderVpa.slice(0, 200), observedAt: Number.isNaN(observedAt.getTime()) ? new Date() : observedAt, rawText };
