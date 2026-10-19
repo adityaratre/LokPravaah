@@ -59,9 +59,9 @@ jobs:
           body=""
           code="000"
           for attempt in {1..10}; do
-            result="$(curl --silent --show-error --max-time 10 --write-out \\n%{http_code}' https://lokpravaah.online/health || true)"
-            code="${result##*\\n'}"
-            body="${result%\\n'*}"
+            result="$(curl --silent --show-error --max-time 10 --write-out 'HTTPSTATUS:%{http_code}' https://lokpravaah.online/health || true)"
+            code="${result##*HTTPSTATUS:}"
+            body="${result%HTTPSTATUS:*}"
             if [ "$code" = "200" ] && printf '%s' "$body" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const v=JSON.parse(s);process.exit(v.status==='UP'&&v.checks?.database&&v.checks?.receivingVpa?0:1)}catch{process.exit(1)}})"; then
               echo "Gateway health is UP; Supabase storage and receiver configuration are reachable."
               exit 0
@@ -69,5 +69,5 @@ jobs:
             sleep 2
           done
           echo "::error::Production gateway health check failed (HTTP $code). Safe diagnostic response:"
-          printf '%s\\n' "$body"
+          printf '%s\n' "$body"
           exit 1
