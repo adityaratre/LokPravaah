@@ -1035,7 +1035,7 @@ export default function App() {
             {active === 'Rewards' && <RewardsPage userId={user.id} enabled={featureFlags.rewards} notify={notify} />}
             {active === 'Worker Hub' && <WorkerReferralHub userId={user.id} displayName={userName} isAdmin={hasAdminAccess} city={profile?.city} ward={profile?.ward} notify={notify} />}
             {active === 'Refer & Earn' && <ReferralStudio userMetadata={user.user_metadata as Record<string, unknown>} notify={notify} />}
-            {active === 'Donate' && <DonationPage userId={user.id} userName={userName} /> }
+            {active === 'Donate' && <DonationPage userId={user.id} userName={userName} onOpenSupportTickets={() => setActive('Support tickets')} /> }
             {active === 'Support tickets' && <TicketSupport userId={user.id} userName={userName} role={adminRole} notify={notify} />}
             {active === 'Explore map' && <><PageHeader eyebrow="LOCATION EXPLORER" title="Explore your area." subtitle="Map pins are available for reports where a real coordinate was captured. No sample locations are shown." onReport={() => openNewReport()}><button className="btn btn-secondary" onClick={() => void useMapLocation()}><LocateFixed size={15}/> Use my location</button></PageHeader><MapPage issues={filtered} focus={mapFocus} addressQuery={mapAddressQuery} onFocus={setMapFocus} onAddressQuery={setMapAddressQuery} onOpen={openIssue} onReport={() => openNewReport()}/></>}
           </>}
