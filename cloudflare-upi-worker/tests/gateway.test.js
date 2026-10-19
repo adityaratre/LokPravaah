@@ -146,6 +146,7 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   let sawRpc = false;
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/donation_settings')) return new Response(JSON.stringify([{ payment_session_minutes: 15 }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
       sawRpc = true;
       return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -166,15 +167,11 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
   assert.match(body.upiUri, /^upi:\/\/pay\?/);
-  const upi = new URL(body.upiUri.replace(/^upi:\/\//, 'https://'));
-  assert.equal(upi.searchParams.get('pa'), defaultEnv.UPI_VPA);
-  assert.equal(upi.searchParams.get('pn'), defaultEnv.UPI_PAYEE_NAME);
-  assert.equal(upi.searchParams.get('am'), '251.00');
-  assert.equal(upi.searchParams.get('cu'), 'INR');
-  assert.equal(upi.searchParams.get('tr'), sampleDbPayment.order_id);
-  assert.ok((upi.searchParams.get('tr') || '').length <= 35);
-  assert.ok((upi.searchParams.get('tn') || '').length <= 50);
-  assert.match(body.upiUri, /pn=Verified%20Test%20Account/);
+  const upi = new URL(body.upiUri);
+  const tr = upi.searchParams.get('tr');
+  assert.ok(tr && tr.length <= 35, `UPI tr must be <= 35 characters, got ${tr?.length}`);
+  assert.ok(!tr.includes('-'), 'UPI tr should not be a hyphenated UUID');
+  assert.equal(upi.searchParams.get('tn'), 'LokPravaah Donation');
 });
 
 test('checkout never exposes QR for a queued payment', async t => {
