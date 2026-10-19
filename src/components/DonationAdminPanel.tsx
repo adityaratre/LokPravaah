@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlertCircle, CheckCircle2, Eye, EyeOff, HeartHandshake, LoaderCircle, RefreshCw, Save, ShieldCheck, Wallet, XCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Eye, EyeOff, ExternalLink, HeartHandshake, LoaderCircle, RefreshCw, Save, ShieldCheck, Wallet, XCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './DonationAdminPanel.css'
 
@@ -32,7 +32,14 @@ type DonationRow = {
 type ChangeRequest = { id: string; requested_by: string; changes: Record<string, unknown>; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string }
 type ReceiverRequest = { id: string; requested_by: string; receiving_vpa: string; payee_name: string; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string }
 type ActiveReceiver = { receivingVpa?: string | null; payeeName?: string | null; updatedAt?: string | null; updatedBy?: string | null }
-type AdminData = { role: string; settings: Settings; donations: DonationRow[]; change_requests: ChangeRequest[] }
+type ManualReview = {
+  id: string; donation_intent_id: string; order_id: string; donation_amount_paise: number
+  donation_status: string; donor_name: string | null; donor_email: string | null; user_id: string
+  claimed_utr: string | null; claimed_amount_paise: number | null; payment_timestamp: string | null
+  user_note: string | null; screenshot_path: string; status: 'pending_review' | 'confirmed' | 'rejected'
+  admin_review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string
+}
+type AdminData = { role: string; settings: Settings; donations: DonationRow[]; change_requests: ChangeRequest[]; manual_reviews?: ManualReview[] }
 
 const DEFAULT_SETTINGS: Settings = {
   donations_enabled: true, payment_gateway_enabled: true, gateway_portal_url: null, gateway_api_url: null, gateway_merchant_key: null,
@@ -57,6 +64,10 @@ function requestValue(key: string, value: unknown): string {
 export default function DonationAdminPanel({ role, notify }: { role: string; notify: (message: string) => void }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [donations, setDonations] = useState<DonationRow[]>([])
+  const [manualReviews, setManualReviews] = useState<ManualReview[]>([])
+  const [manualScreenshotUrls, setManualScreenshotUrls] = useState<Record<string, string>>({})
+  const [verifiedUtrs, setVerifiedUtrs] = useState<Record<string, string>>({})
+  const [manualReviewNotes, setManualReviewNotes] = useState<Record<string, string>>({})
   const [requests, setRequests] = useState<ChangeRequest[]>([])
   const [presetText, setPresetText] = useState(DEFAULT_SETTINGS.suggested_amounts.join(', '))
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -88,6 +99,13 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       setPresetText(nextSettings.suggested_amounts.join(', '))
       setDonations(Array.isArray(result?.donations) ? result!.donations! : [])
       setRequests(Array.isArray(result?.change_requests) ? result!.change_requests! : [])
+      const claims = Array.isArray(result?.manual_reviews) ? result!.manual_reviews! : []
+      setManualReviews(claims)
+      const signedUrls = await Promise.all(claims.map(async claim => {
+        const { data, error: signedUrlError } = await supabase.storage.from('donation-payment-evidence').createSignedUrl(claim.screenshot_path, 600)
+        return !signedUrlError && data?.signedUrl ? [claim.id, data.signedUrl] as const : null
+      }))
+      setManualScreenshotUrls(Object.fromEntries(signedUrls.filter((entry): entry is readonly [string, string] => Boolean(entry))))
       setLastLoaded(new Date().toISOString())
     }
     if (receiverResult.error) {
@@ -104,6 +122,11 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load() }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [load])
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -194,6 +217,35 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function setDonationHidden(donation: DonationRow) {
+  async function reviewManualDonation(claim: ManualReview, action: 'confirm' | 'reject') {
+    if (!supabase || !['admin', 'super_admin'].includes(role)) return
+    const verifiedUtr = String(verifiedUtrs[claim.id] || '').trim()
+    const note = String(manualReviewNotes[claim.id] || '').trim()
+    if (action === 'confirm' && !/^[A-Za-z0-9_-]{6,80}$/.test(verifiedUtr)) {
+      setError('Enter the actual bank UTR after checking the receiving-bank statement. Do not copy it blindly from the user claim.')
+      return
+    }
+    if (note.length < 5 || note.length > 1000) {
+      setError(action === 'confirm' ? 'Add a bank-statement review note of at least 5 characters.' : 'Add a rejection reason of at least 5 characters.')
+      return
+    }
+    if (!window.confirm(action === 'confirm'
+      ? 'Confirm this donation only after matching the UTR with the receiving-bank statement?'
+      : 'Reject this payment-proof claim?')) return
+    setBusy(claim.id); setError('')
+    const { data, error: reviewError } = await supabase.rpc('janwatch_admin_review_manual_donation', {
+      p_claim_id: claim.id,
+      p_action: action,
+      p_note: note,
+      p_verified_utr: action === 'confirm' ? verifiedUtr : null,
+    })
+    setBusy('')
+    if (reviewError) { setError(`Could not ${action} this donation: ${reviewError.message || 'refresh and try again.'}`); return }
+    const result = data as { message?: string } | null
+    notify(result?.message || (action === 'confirm' ? 'Donation verified after manual review.' : 'Payment claim rejected.'))
+    await load()
+  }
+
     if (!supabase) return
     const nextHidden = !donation.admin_hidden
     if (!window.confirm(`${nextHidden ? 'Hide this verified donation from public activity?' : 'Restore this donation to public activity if the donor opted in?'}`)) return
@@ -274,6 +326,24 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     </section>
 
     {role === 'super_admin' && <section className="panel donation-admin-requests"><div className="panel-heading"><div><div className="section-kicker">GOVERNANCE QUEUE</div><h3>Major change requests</h3><p>Approval applies the queued payment settings. Every request has a permanent status and reviewer record.</p></div><ShieldCheck size={19}/></div>{!pendingRequests.length ? <div className="chat-empty"><CheckCircle2 size={23}/><b>No pending changes</b><span>Major donation changes submitted by administrators will appear here.</span></div> : pendingRequests.map(request => <article className="donation-admin-request" key={request.id}><div className="donation-admin-request-head"><b>Major donation settings request</b><small>{dateText(request.created_at)} · Request ID {request.id.slice(0,8)}</small></div><div className="donation-admin-request-changes">{Object.entries(request.changes).map(([key,value]) => <div key={key}><span>{friendlyKey[key] || key.replace(/_/g,' ')}</span><b>{requestValue(key,value)}</b></div>)}</div><label>Review note (optional)<input value={notes[request.id] ?? ''} maxLength={500} onChange={e => setNotes(v => ({ ...v, [request.id]: e.target.value }))} placeholder="Reason for approval/rejection"/></label><div className="donation-admin-request-actions"><button type="button" className="btn btn-primary" disabled={busy === request.id} onClick={() => void reviewRequest(request,true)}><CheckCircle2 size={15}/> Approve changes</button><button type="button" className="btn btn-secondary" disabled={busy === request.id} onClick={() => void reviewRequest(request,false)}><XCircle size={15}/> Reject</button></div></article>)}</section>}
+
+    <section className="panel donation-admin-manual-reviews">
+      <div className="panel-heading"><div><div className="section-kicker">MANUAL PAYMENT CONFIRMATION</div><h3>UTR & screenshot review queue</h3><p>Claims submitted from the donation page appear here. Compare the receipt against the receiving-bank statement before approval; a screenshot or user-entered UTR alone is not proof.</p></div><ShieldCheck size={19}/></div>
+      {loading ? <div className="ops-loading"><LoaderCircle size={19} className="spin"/> Loading payment proof…</div> : !manualReviews.length ? <div className="chat-empty"><HeartHandshake size={23}/><b>No manual payment claims yet</b><span>When a donor submits a UTR and screenshot because automatic confirmation failed, it will appear here.</span></div> : <div className="donation-admin-manual-list">{manualReviews.map(claim => <article className="donation-admin-manual-claim" key={claim.id}>
+        <div className="donation-admin-manual-head"><div><span className={`donation-admin-status status-${claim.status}`}>{claim.status.replace(/_/g, ' ')}</span><h4>{rupees(claim.donation_amount_paise)} · {claim.donor_name || 'Donor'}</h4><small>{dateText(claim.created_at)} · {claim.order_id}</small></div><b>Reported: {rupees(claim.claimed_amount_paise || 0)}</b></div>
+        <div className="donation-admin-manual-details"><div><span>Claimed UTR</span><code>{claim.claimed_utr || 'Not provided'}</code></div><div><span>Payment time</span><b>{dateText(claim.payment_timestamp)}</b></div><div><span>Donation status</span><b>{claim.donation_status}</b></div><div><span>Donor account</span><code>{claim.user_id}</code></div></div>
+        {claim.user_note && <p className="donation-admin-manual-note">{claim.user_note}</p>}
+        {claim.screenshot_path && <div className="donation-admin-manual-evidence">
+          {manualScreenshotUrls[claim.id] && /\.(jpe?g|png|webp)$/i.test(claim.screenshot_path) && <a href={manualScreenshotUrls[claim.id]} target="_blank" rel="noreferrer"><img src={manualScreenshotUrls[claim.id]} alt={`Private payment proof for ${claim.order_id}`}/></a>}
+          {manualScreenshotUrls[claim.id] ? <a href={manualScreenshotUrls[claim.id]} target="_blank" rel="noreferrer"><ExternalLink size={14}/> Open private receipt</a> : <span>Receipt URL unavailable; refresh the admin panel to generate a secure link.</span>}
+        </div>}
+        {claim.status === 'pending_review' ? <div className="donation-admin-manual-decision">
+          <label>Verified bank UTR <small>(enter after checking the receiving-bank statement)</small><input value={verifiedUtrs[claim.id] ?? ''} onChange={e => setVerifiedUtrs(v => ({ ...v, [claim.id]: e.target.value }))} autoComplete="off" spellCheck={false} maxLength={80} placeholder="Bank-confirmed UTR / RRN"/></label>
+          <label>Review note / rejection reason<textarea rows={2} value={manualReviewNotes[claim.id] ?? ''} onChange={e => setManualReviewNotes(v => ({ ...v, [claim.id]: e.target.value }))} maxLength={1000} placeholder="e.g. matched amount and UTR with receiving bank statement"/></label>
+          <div className="donation-admin-manual-actions"><button type="button" className="btn btn-primary" disabled={busy === claim.id} onClick={() => void reviewManualDonation(claim, 'confirm')}><CheckCircle2 size={15}/> Verify from bank record</button><button type="button" className="btn btn-secondary" disabled={busy === claim.id} onClick={() => void reviewManualDonation(claim, 'reject')}><XCircle size={15}/> Reject claim</button></div>
+        </div> : <div className="donation-admin-manual-reviewed"><b>{claim.status === 'confirmed' ? 'Verified manually' : 'Claim rejected'}</b><p>{claim.admin_review_note || 'No reviewer note recorded.'}</p><small>{claim.reviewed_at ? dateText(claim.reviewed_at) : ''}</small></div>}
+      </article>)}</div>}
+    </section>
 
     <section className="panel donation-admin-transactions"><div className="panel-heading"><div><div className="section-kicker">PAYMENT RECORDS</div><h3>Latest donations</h3><p>Payment references and donor contact details are visible only in this administrator console. Never treat pending records as received funds.</p></div><RefreshCw size={18}/></div>{loading ? <div className="ops-loading"><LoaderCircle size={19} className="spin"/> Loading donation records…</div> : !donations.length ? <div className="chat-empty"><Wallet size={24}/><b>No donation records yet</b><span>Donation attempts will appear here as the public donation page is used.</span></div> : <div className="donation-admin-table-wrap"><table className="donation-admin-table"><thead><tr><th>Amount / status</th><th>Donor details</th><th>Reference</th><th>Created / verified</th><th>Public feed</th></tr></thead><tbody>{donations.map(donation => <tr key={donation.id}><td><b>{rupees(donation.amount_paise)}</b><span className={`donation-admin-status status-${donation.status}`}>{donation.status.replace('_',' ')}</span></td><td><b>{donation.is_anonymous ? 'Anonymous' : donation.donor_name || 'Name not supplied'}</b><small>{donation.is_anonymous ? 'Details hidden from public' : donation.donor_email || donation.donor_user_id || 'No contact details'}</small>{donation.message && <p>{donation.message}</p>}</td><td><code>{donation.order_id}</code>{donation.utr && <small>UTR: {donation.utr}</small>}{donation.gateway_payment_id && <small>Payment: {donation.gateway_payment_id.slice(0,14)}…</small>}</td><td><small>{dateText(donation.created_at)}</small><small>{donation.verified_at ? `Verified ${dateText(donation.verified_at)}` : 'Not verified'}</small></td><td>{donation.status === 'succeeded' ? <button type="button" className="btn btn-secondary donation-admin-visibility" disabled={busy === donation.id} onClick={() => void setDonationHidden(donation)} title="Hide/restore public feed visibility">{donation.admin_hidden ? <Eye size={14}/> : <EyeOff size={14}/>} {donation.admin_hidden ? 'Restore' : 'Hide'}</button> : <span className="donation-admin-muted">—</span>}</td></tr>)}</tbody></table></div>}</section>
     <div className="donation-admin-footnote"><ShieldCheck size={15}/><span>Last refreshed {dateText(lastLoaded)}. Gateway API secrets and webhook signatures must remain server-side; public leaderboard data is aggregate/sanitised by a database function.</span></div>
