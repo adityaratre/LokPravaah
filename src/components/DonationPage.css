@@ -48,3 +48,57 @@
 .donation-proof-notice p{margin:4px 0 0;color:var(--muted2);font-size:10px;line-height:1.7;overflow-wrap:anywhere}
 @media(max-width:520px){.donation-active-payment{padding:14px}.donation-active-actions{grid-template-columns:1fr}.donation-active-payment-head h3{font-size:15px}}
 @media(prefers-reduced-motion:reduce){.donation-active-payment{animation:none!important}.donation-active-primary,.donation-active-secondary{transition:none!important}}
+
+
+/* Private contribution history: responsive and keyboard-accessible */
+.donation-history-panel{display:grid;gap:14px;margin-top:18px;padding:clamp(15px,2.4vw,22px);border:1px solid var(--border);border-radius:18px;background:var(--panel);min-width:0}
+.donation-history-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.donation-history-heading h3{font:850 clamp(18px,2.2vw,23px)/1.2 Manrope,sans-serif;margin:5px 0}
+.donation-history-heading p{font-size:11px;line-height:1.65;color:var(--muted);margin:0;max-width:680px}
+.donation-history-refresh{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--text);padding:9px 11px;font:750 10px/1.2 inherit;cursor:pointer}
+.donation-history-refresh:disabled{opacity:.6;cursor:wait}
+.donation-history-empty,.donation-history-error{display:flex;align-items:center;gap:9px;border:1px dashed var(--border);border-radius:12px;padding:13px;color:var(--muted);font-size:11px;line-height:1.6}
+.donation-history-empty svg{flex:0 0 auto;color:var(--mint-strong)}
+.donation-history-error{border-style:solid;border-color:#e18e8055;background:#e18e800b;color:var(--gold)}
+.donation-history-error span{flex:1;min-width:0}
+.donation-history-error button,.donation-history-ticket button{border:0;background:transparent;color:var(--mint-strong);font:800 10px inherit;cursor:pointer;text-decoration:underline}
+.donation-history-list{display:grid;gap:11px}
+.donation-history-item{display:grid;gap:10px;min-width:0;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--panel2)}
+.donation-history-item-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.donation-history-item-top>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.donation-history-item-top strong{font:850 19px/1.2 Manrope,sans-serif;overflow-wrap:anywhere}
+.donation-history-item-top time{color:var(--muted);font-size:9px;text-align:right;line-height:1.5}
+.donation-history-status{display:inline-flex;align-items:center;gap:5px;width:max-content;max-width:100%;border:1px solid var(--border);border-radius:999px;padding:5px 8px;font-size:9px;font-weight:850;text-transform:capitalize}
+.donation-history-status.status-success{color:#14825f;border-color:#3cc89c55;background:#3cc89c12}
+.donation-history-status.status-review{color:#c08a1a;border-color:#c08a1a55;background:#c08a1a10}
+.donation-history-status.status-attention{color:#ca665a;border-color:#e18e8055;background:#e18e8010}
+.donation-history-status.status-pending{color:var(--muted);background:var(--panel)}
+.donation-history-reference{display:grid;gap:4px;min-width:0}
+.donation-history-reference span,.donation-history-meta>span{font-size:9px;color:var(--muted)}
+.donation-history-reference code,.donation-history-meta code{font:10px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text);overflow-wrap:anywhere;word-break:break-word}
+.donation-history-meta{display:flex;gap:7px 14px;flex-wrap:wrap}
+.donation-history-review-note,.donation-history-action-note,.donation-history-success-note,.donation-history-ticket{display:flex;align-items:flex-start;gap:8px;padding:10px 11px;border-radius:10px;font-size:10px;line-height:1.6}
+.donation-history-review-note{color:#b88520;background:#b8852010;border:1px solid #b8852033}
+.donation-history-action-note{color:#ba5e52;background:#e18e8010;border:1px solid #e18e8033}
+.donation-history-success-note{color:#168061;background:#3cc89c10;border:1px solid #3cc89c33}
+.donation-history-review-note svg,.donation-history-action-note svg,.donation-history-success-note svg,.donation-history-ticket svg{flex:0 0 auto;margin-top:1px}
+.donation-history-review-note span,.donation-history-action-note span{min-width:0;overflow-wrap:anywhere}
+.donation-history-ticket{align-items:center;border:1px solid var(--border);color:var(--muted);background:var(--panel)}
+.donation-history-ticket span{flex:1;min-width:0;text-transform:capitalize}
+.donation-history-actions{display:flex;gap:8px;flex-wrap:wrap}
+.donation-history-primary,.donation-history-secondary{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:10px 12px;min-height:38px;font:800 10px/1.25 inherit;cursor:pointer}
+.donation-history-primary{background:var(--mint-strong);color:#06281f;border:1px solid var(--mint-strong)}
+.donation-history-secondary{background:var(--panel);color:var(--text);border:1px solid var(--border)}
+.donation-history-primary:disabled,.donation-history-secondary:disabled{opacity:.55;cursor:wait}
+.donation-history-ticket-form{display:grid;gap:10px;width:100%;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+.donation-history-ticket-form label{display:grid;gap:5px;font-size:10px;font-weight:750;color:var(--text)}
+.donation-history-ticket-form input,.donation-history-ticket-form textarea{min-width:0;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:9px;padding:10px 11px;background:var(--field);color:var(--text);font:inherit;font-size:11px;line-height:1.5}
+.donation-history-ticket-form input:focus,.donation-history-ticket-form textarea:focus{outline:2px solid color-mix(in srgb,var(--mint-strong) 30%,transparent);border-color:var(--mint-strong)}
+.donation-history-ticket-form>div{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.donation-history-ticket-notice{padding:11px 12px;border:1px solid var(--border);border-radius:10px;font-size:11px;line-height:1.55}
+.donation-history-ticket-notice.success{color:#14825f;border-color:#3cc89c55;background:#3cc89c12}
+.donation-history-ticket-notice.error{color:#c05e53;border-color:#e18e8055;background:#e18e8010}
+.donation-history-foot{display:flex;align-items:flex-start;gap:7px;color:var(--muted);font-size:9px;line-height:1.6;margin:0}
+.donation-history-foot svg{flex:0 0 auto;color:var(--mint-strong);margin-top:1px}
+.donation-history-foot{overflow-wrap:anywhere}
+@media(max-width:520px){.donation-history-heading{flex-direction:column}.donation-history-heading .donation-history-refresh{align-self:flex-start}.donation-history-item{padding:12px}.donation-history-item-top{flex-direction:column;gap:6px}.donation-history-item-top time{text-align:left}.donation-history-actions>*{flex:1 1 auto}.donation-history-ticket-form>div>*{flex:1 1 auto}}
