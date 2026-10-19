@@ -153,18 +153,23 @@ public class ApiClient {
         String endpoint = baseUrl + "/api/v1/observers/sms";
 
         try {
-            String tsStr = String.valueOf(timestamp > 0 ? timestamp : System.currentTimeMillis());
+            // Preserve the original SMS timestamp in the signed body for event matching,
+            // but sign the request with a fresh transport timestamp. The Worker rejects
+            // signatures older than 60 seconds, and Android may deliver a queued SMS late.
+            String observedAt = String.valueOf(timestamp > 0 ? timestamp : System.currentTimeMillis());
+            String signatureTimestamp = String.valueOf(System.currentTimeMillis());
             JSONObject json = new JSONObject();
             json.put("deviceId", deviceId);
             json.put("sender", sender != null ? sender : "UNKNOWN");
             json.put("body", body != null ? body : "");
-            json.put("timestamp", Long.parseLong(tsStr));
+            json.put("timestamp", Long.parseLong(observedAt));
+            json.put("observedAt", Long.parseLong(observedAt));
 
             String bodyString = json.toString();
-            String sigPayload = bodyString + ":" + tsStr;
+            String sigPayload = bodyString + ":" + signatureTimestamp;
             String signature = calculateHmacSha256(sigPayload, signingKey);
 
-            String response = postJson(endpoint, bodyString, deviceId, tsStr, signature);
+            String response = postJson(endpoint, bodyString, deviceId, signatureTimestamp, signature);
             Log.i(TAG, "SMS dispatched to YouPI Gateway: " + (response != null ? "OK" : "FAILED"));
             return response != null;
         } catch (Exception e) {
