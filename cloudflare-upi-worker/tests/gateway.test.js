@@ -339,6 +339,85 @@ test('a valid signed receiving-bank notification updates donation only through t
 });
 
 
+
+test('observer extracts UTR and credit amount from common Android notification field variants', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const deviceId = 'device-test-notification-variants';
+  const signingKey = 'device-test-signing-key';
+  let prepareArgs = null;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/upi_gateway_devices') && init.method === 'PATCH') return new Response(null, { status: 204 });
+    if (url.pathname.endsWith('/upi_gateway_devices')) return new Response(JSON.stringify([{
+      id: deviceId, merchant_id: defaultEnv.MERCHANT_ID, signing_key: signingKey,
+    }]), { status: 200 });
+    if (url.pathname.endsWith('/rpc/upi_gateway_prepare_observation')) {
+      prepareArgs = JSON.parse(init.body || '{}');
+      return new Response(JSON.stringify({ matched: false, status: 'UNMATCHED', reason: 'NO_MATCHING_SESSION' }), { status: 200 });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+  const payload = {
+    deviceId,
+    direction: 'credit',
+    observedAt: new Date().toISOString(),
+    notification: {
+      title: 'Payment received',
+      text: 'UPI/Ref No 630746123456. INR 251.00 credited to your account.',
+    },
+  };
+  const rawBody = JSON.stringify(payload);
+  const timestamp = String(Date.now());
+  const signature = createHmac('sha256', signingKey).update(`${rawBody}:${timestamp}`).digest('hex');
+  const response = await worker.fetch(req('/api/v1/observers/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId, 'X-Timestamp': timestamp, 'X-Signature': signature },
+    body: rawBody,
+  }), defaultEnv, {});
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.status, 'UNMATCHED');
+  assert.equal(prepareArgs.p_amount_paise, 25100);
+  assert.equal(prepareArgs.p_bank_reference_number, '630746123456');
+});
+
+test('observer rejects debit notifications even if the Android client supplies a reference and amount', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const deviceId = 'device-test-debit-reject';
+  const signingKey = 'device-test-signing-key';
+  let rpcCalled = false;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/upi_gateway_devices') && init.method === 'PATCH') return new Response(null, { status: 204 });
+    if (url.pathname.endsWith('/upi_gateway_devices')) return new Response(JSON.stringify([{
+      id: deviceId, merchant_id: defaultEnv.MERCHANT_ID, signing_key: signingKey,
+    }]), { status: 200 });
+    if (url.pathname.endsWith('/rpc/upi_gateway_prepare_observation')) {
+      rpcCalled = true;
+      return new Response(JSON.stringify({ matched: true, status: 'PROCESSING' }), { status: 200 });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+  const payload = {
+    deviceId, amountPaise: 25100, bankReferenceNumber: 'UTR123456789',
+    rawNotification: { title: 'UPI debit alert', text: 'INR 251.00 debited from your account. UPI Ref No UTR123456789' },
+  };
+  const rawBody = JSON.stringify(payload);
+  const timestamp = String(Date.now());
+  const signature = createHmac('sha256', signingKey).update(`${rawBody}:${timestamp}`).digest('hex');
+  const response = await worker.fetch(req('/api/v1/pollers/android/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Device-Id': deviceId, 'X-Timestamp': timestamp, 'X-Signature': signature },
+    body: rawBody,
+  }), defaultEnv, {});
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.status, 'PROCESSED_NON_BANK');
+  assert.equal(rpcCalled, false, 'a debit should never enter successful-payment matching');
+});
+
 test('checkout exposes manual payment confirmation without cancelling the active session', async t => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
