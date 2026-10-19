@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-observer:
@@ -49,6 +49,24 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | grep -E "package: name='com\.youpi\.observer'|sdkVersion"
           echo "APK compiled. This debug-signed artifact is intended for testing, not public store distribution."
+
+
+      - name: Publish updated APK to the public gateway download
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='services/lokpravaah-upi/apps/android-observer-app/app/build/outputs/apk/debug/app-debug.apk'
+          install -D -m 0644 "$APK" cloudflare-upi-worker/public/youpi-sms-gateway.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cloudflare-upi-worker/public/youpi-sms-gateway.apk
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish updated YOUPI observer APK"
+            git push origin HEAD:main
+          else
+            echo "Public APK already matches the source build."
+          fi
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
