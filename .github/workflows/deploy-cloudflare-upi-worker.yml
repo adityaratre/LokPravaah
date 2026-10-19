@@ -30,8 +30,44 @@ jobs:
         run: npm test
       - name: Validate Cloudflare bundle
         run: npm run check
+      - name: Verify server-side Supabase key is configured
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --config wrangler.jsonc > /tmp/worker-secrets.json
+          if node -e "const fs=require('fs'); const a=JSON.parse(fs.readFileSync('/tmp/worker-secrets.json','utf8')); process.exit(Array.isArray(a) && a.some(x=>x.name==='SUPABASE_SERVICE_ROLE_KEY') ? 0 : 1)"; then
+            echo "Cloudflare Worker already has SUPABASE_SERVICE_ROLE_KEY (value remains hidden)."
+          elif [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.jsonc
+            echo "Configured SUPABASE_SERVICE_ROLE_KEY from the GitHub Actions secret."
+          else
+            echo "::error::Gateway storage cannot work without the Cloudflare secret SUPABASE_SERVICE_ROLE_KEY. Add it in Worker secrets or as a GitHub Actions secret named SUPABASE_SERVICE_ROLE_KEY."
+            exit 1
+          fi
       - name: Deploy Worker
         run: npx wrangler deploy --config wrangler.jsonc
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Smoke test production gateway configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          body=""
+          code="000"
+          for attempt in {1..10}; do
+            result="$(curl --silent --show-error --max-time 10 --write-out \\n%{http_code}' https://lokpravaah.online/health || true)"
+            code="${result##*\\n'}"
+            body="${result%\\n'*}"
+            if [ "$code" = "200" ] && printf '%s' "$body" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const v=JSON.parse(s);process.exit(v.status==='UP'&&v.checks?.database&&v.checks?.receivingVpa?0:1)}catch{process.exit(1)}})"; then
+              echo "Gateway health is UP; Supabase storage and receiver configuration are reachable."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Production gateway health check failed (HTTP $code). Safe diagnostic response:"
+          printf '%s\\n' "$body"
+          exit 1
