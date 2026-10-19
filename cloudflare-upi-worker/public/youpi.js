@@ -8,7 +8,7 @@
  *
  * IMPORTANT SECURITY NOTE:
  * Browser events and client-side callbacks are strictly for UI and user experience.
- * Authoritative proof of payment MUST ALWAYS come from server-to-server HMAC-SHA256 signed webhooks.
+ * For LokPravaah manual-only donations, only the administrator's bank-statement/UTR review is authoritative. Browser callbacks, QR state and screenshots alone never verify payment.
  */
 
 (function (globalScope) {
