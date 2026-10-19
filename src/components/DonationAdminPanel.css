@@ -33,3 +33,14 @@
 .donation-admin-manual-reviewed>b{color:var(--text)}
 .donation-admin-manual-reviewed p{margin:5px 0;line-height:1.6}
 @media(max-width:600px){.donation-admin-manual-claim{padding:12px}.donation-admin-manual-head{flex-direction:column}.donation-admin-manual-details{grid-template-columns:1fr}.donation-admin-manual-actions>*{flex:1 1 100%}}
+
+
+/* Offline contribution entry and audited total-management controls */
+.donation-admin-manual-entry{padding:clamp(14px,2vw,22px);animation:lokAdminRise 320ms cubic-bezier(.2,.7,.25,1) both}
+.donation-admin-manual-entry .panel-heading p{max-width:760px}
+.donation-admin-visibility-actions{display:grid;gap:6px;min-width:135px}
+.donation-admin-visibility-actions .btn{justify-content:center;width:100%;font-size:10px;padding:8px 9px;white-space:normal}
+.donation-admin-removed-note{max-width:220px;overflow-wrap:anywhere;line-height:1.5;color:var(--gold)!important}
+.status-removed{border-color:#f8717144!important;background:#f8717115!important;color:#fca5a5!important}
+@media(max-width:700px){.donation-admin-manual-entry{padding:14px}.donation-admin-visibility-actions{min-width:115px}.donation-admin-visibility-actions .btn{font-size:9px;padding:7px 6px}}
+@media(prefers-reduced-motion:reduce){.donation-admin-manual-entry{animation:none}}
