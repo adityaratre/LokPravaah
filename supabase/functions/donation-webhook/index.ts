@@ -48,10 +48,14 @@ Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-gateway-event, x-gateway-signature, x-gateway-delivery-id, x-gateway-timestamp', 'Access-Control-Allow-Methods': 'POST, OPTIONS' } })
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
-  const secret = (Deno.env.get('DONATION_WEBHOOK_SECRET') ?? '').trim()
+  // Prefer a dedicated shared secret. Existing deployments without one can
+  // authenticate with the server-only service-role key as a compatibility fallback.
+  // Neither value is sent to the browser; only an HMAC of the event body is transmitted.
+  const dedicatedSecret = (Deno.env.get('DONATION_WEBHOOK_SECRET') ?? '').trim()
   const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim()
   const serviceRoleKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim()
-  if (!secret || !supabaseUrl || !serviceRoleKey) {
+  const acceptedSecrets = [...new Set([dedicatedSecret, serviceRoleKey].filter(Boolean))]
+  if (!acceptedSecrets.length || !supabaseUrl || !serviceRoleKey) {
     console.error('Donation webhook configuration is incomplete.')
     return json({ error: 'Webhook is not configured' }, 503)
   }
@@ -61,7 +65,11 @@ Deno.serve(async request => {
   const rawBody = new Uint8Array(await request.arrayBuffer())
   if (rawBody.byteLength > MAX_BODY_BYTES) return json({ error: 'Payload too large' }, 413)
   const signature = request.headers.get('x-gateway-signature') ?? ''
-  const validSignature = await verifySignature(rawBody, signature, secret).catch(() => false)
+  let validSignature = false
+  for (const candidateSecret of acceptedSecrets) {
+    validSignature = await verifySignature(rawBody, signature, candidateSecret).catch(() => false)
+    if (validSignature) break
+  }
   if (!validSignature) return json({ error: 'Invalid webhook signature' }, 401)
 
   let payload: GatewayPayload
