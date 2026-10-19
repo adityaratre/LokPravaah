@@ -154,8 +154,16 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   let sawRpc = false;
+  let sawReceiverSettings = false;
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/rpc/upi_gateway_get_receiver_settings')) {
+      sawReceiverSettings = true;
+      return new Response(JSON.stringify({
+        receivingVpa: 'admin.receiver@upi',
+        payeeName: 'Admin Approved Receiver',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
       sawRpc = true;
       return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -172,6 +180,7 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   assert.equal(response.status, 201);
   const body = await response.json();
   assert.equal(sawRpc, true);
+  assert.equal(sawReceiverSettings, true);
   assert.equal(body.paymentId, sampleDbPayment.id);
   assert.equal(body.status, 'ACTIVE');
   assert.equal(body.checkoutUrl, `https://lokpravaah.online/checkout/${sampleDbPayment.id}`);
@@ -179,6 +188,8 @@ test('valid creation validates through Supabase RPC and returns checkout URL', a
   const upi = new URL(body.upiUri);
   assert.equal(upi.searchParams.get('cu'), 'INR');
   assert.equal(upi.searchParams.get('am'), '251.00');
+  assert.equal(upi.searchParams.get('pa'), 'admin.receiver@upi', 'approved Admin receiver must override the Worker environment fallback');
+  assert.equal(upi.searchParams.get('pn'), 'Admin Approved Receiver');
   assert.match(upi.searchParams.get('tn') || '', /^LokPravaah /);
   assert.ok((upi.searchParams.get('tn') || '').length <= 50);
   assert.match(upi.searchParams.get('tr') || '', /^\d{1,35}$/);

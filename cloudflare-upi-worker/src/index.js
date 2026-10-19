@@ -119,9 +119,30 @@ async function getPayment(env, id) {
   const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,created_at&limit=1`);
   return Array.isArray(rows) ? rows[0] || null : null;
 }
-function buildUpiUri(payment, env) {
-  const vpa = (env.UPI_VPA || '').trim();
-  const payee = (env.UPI_PAYEE_NAME || '').trim();
+async function getReceiverSettings(env) {
+  // Prefer approved DB settings so Admin → Donations & UPI cannot silently diverge
+  // from the actual beneficiary encoded into a hosted payment link.
+  try {
+    const saved = await rpc(env, 'upi_gateway_get_receiver_settings', {});
+    const receivingVpa = String(saved?.receivingVpa || saved?.receiving_vpa || '').trim();
+    const payeeName = String(saved?.payeeName || saved?.payee_name || '').trim();
+    if (receivingVpa || payeeName) return { receivingVpa, payeeName, source: 'admin_settings' };
+  } catch { /* Existing installs can still use Worker environment settings as fallback. */ }
+  return {
+    receivingVpa: String(env.UPI_VPA || '').trim(),
+    payeeName: String(env.UPI_PAYEE_NAME || '').trim(),
+    source: 'worker_environment',
+  };
+}
+function isValidReceiver(receiver) {
+  return Boolean(receiver
+    && /^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test(String(receiver.receivingVpa || '').trim())
+    && String(receiver.payeeName || '').trim()
+    && String(receiver.payeeName).trim().length <= 99);
+}
+function buildUpiUri(payment, env, receiver = null) {
+  const vpa = String(receiver?.receivingVpa || env.UPI_VPA || '').trim();
+  const payee = String(receiver?.payeeName || env.UPI_PAYEE_NAME || '').trim();
   // UPI app parsers vary. Reject malformed receiver config before showing a QR.
   if (!/^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test(vpa) || !payee || payee.length > 99) return null;
 
@@ -152,7 +173,7 @@ function buildUpiUri(payment, env) {
   // spaces as %20 for compatibility with UPI intent/QR parsers.
   return `upi://pay?${params.toString().replace(/\+/g, '%20')}`;
 }
-function publicPayment(payment, env) {
+function publicPayment(payment, env, receiver = null) {
   const canPay = payment.status === 'ACTIVE';
   return {
     paymentId: payment.id,
@@ -166,7 +187,7 @@ function publicPayment(payment, env) {
     expiresAt: payment.expires_at,
     completedAt: payment.completed_at,
     checkoutUrl: `${(env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/checkout/${payment.id}`,
-    ...(canPay && buildUpiUri(payment, env) ? { upiUri: buildUpiUri(payment, env) } : {}),
+    ...(canPay && buildUpiUri(payment, env, receiver) ? { upiUri: buildUpiUri(payment, env, receiver) } : {}),
   };
 }
 async function updateDonationWebhook(env, eventPayload) {
@@ -364,10 +385,10 @@ async function handler(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) } });
 
   if (request.method === 'GET' && path === '/health') {
+    const receiverSettings = await getReceiverSettings(env);
     const config = {
       supabase: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-      receivingVpa: /^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test((env.UPI_VPA || '').trim())
-        && Boolean((env.UPI_PAYEE_NAME || '').trim()) && (env.UPI_PAYEE_NAME || '').trim().length <= 99,
+      receivingVpa: isValidReceiver(receiverSettings),
       webhook: Boolean((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || '').trim()
         && /^https:\/\//i.test((env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim())),
       admin: Boolean((env.SUPABASE_URL || '').trim() && (env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
@@ -381,6 +402,15 @@ async function handler(request, env) {
   // The standalone pairing page has been removed. Keep this path dark even on workers.dev.
   if (path.startsWith('/admin')) {
     return json(request, env, { error: 'Not found' }, 404);
+  }
+  if (request.method === 'GET' && path === '/api/v1/merchant/receiver-settings') {
+    const receiver = await getReceiverSettings(env);
+    return json(request, env, {
+      receivingVpa: receiver.receivingVpa,
+      payeeName: receiver.payeeName,
+      source: receiver.source,
+      configured: isValidReceiver(receiver),
+    });
   }
   if (request.method === 'GET' && path === '/youpi.js') return respondAsset(request, env);
   if (path === '/api/v1/admin/sms-gateway/pair-qr') {
@@ -438,7 +468,8 @@ async function handler(request, env) {
       if (!result?.paymentId) return json(request, env, { error: 'Payment session not found or no longer cancellable' }, 409);
       const payment = await getPayment(env, cancelMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      const state = publicPayment(payment, env);
+      const receiver = await getReceiverSettings(env);
+      const state = publicPayment(payment, env, receiver);
       if (result.retainedForVerification) return json(request, env, { ...state, status: 'CANCELLED', retainedForVerification: true });
       return json(request, env, state);
     } catch { return json(request, env, { error: 'Could not cancel payment session' }, 409); }
@@ -456,7 +487,8 @@ async function handler(request, env) {
     if (String(body.currency || 'INR').toUpperCase() !== 'INR') return json(request, env, { error: 'Only INR is supported' }, 400);
     const amountPaise = paiseFromAmount(body.amount);
     if (amountPaise === null) return json(request, env, { error: 'Amount must be from ₹1 to ₹1,00,000 with at most two decimal places' }, 400);
-    if (!buildUpiUri({ id: '123e4567-e89b-12d3-a456-426614174000', order_id: body.orderId, amount_paise: amountPaise }, env)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured' }, 503);
+    const receiver = await getReceiverSettings(env);
+    if (!buildUpiUri({ id: '123e4567-e89b-12d3-a456-426614174000', order_id: body.orderId, amount_paise: amountPaise }, env, receiver)) return json(request, env, { error: 'Real receiving UPI VPA and payee name are not configured' }, 503);
     try {
       const paymentId = crypto.randomUUID();
       const idempotencyKey = (request.headers.get('Idempotency-Key') || body.idempotencyKey || '').slice(0, 150) || null;
@@ -471,7 +503,7 @@ async function handler(request, env) {
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
       if (!payment) return json(request, env, { error: 'Payment session could not be loaded' }, 500);
-      return json(request, env, { ...publicPayment(payment, env), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
+      return json(request, env, { ...publicPayment(payment, env, receiver), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
     } catch (error) {
       console.error('Payment session creation failed:', error.message, error.code || '', error.details || '');
       const diagnostic = String(error.details || error.message || '').toUpperCase();
@@ -495,7 +527,8 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, paymentMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      return json(request, env, publicPayment(payment, env));
+      const receiver = await getReceiverSettings(env);
+      return json(request, env, publicPayment(payment, env, receiver));
     } catch (error) {
       console.error('Payment status lookup failed:', error.message);
       return json(request, env, { error: 'Payment status is temporarily unavailable' }, 503);
@@ -507,7 +540,8 @@ async function handler(request, env) {
       await rpc(env, 'upi_gateway_tick', {});
       const payment = await getPayment(env, stateMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
-      return json(request, env, publicPayment(payment, env));
+      const receiver = await getReceiverSettings(env);
+      return json(request, env, publicPayment(payment, env, receiver));
     } catch { return json(request, env, { error: 'Payment status unavailable' }, 503); }
   }
   const qrMatch = path.match(/^\/checkout\/([a-f0-9-]{36})\/qr\.svg$/i);
@@ -516,7 +550,8 @@ async function handler(request, env) {
       const payment = await getPayment(env, qrMatch[1]);
       if (!payment) return text(request, env, 'Payment session not found', 404);
       if (payment.status !== 'ACTIVE') return text(request, env, 'QR is only available when this payment has the active queue slot.', 409);
-      const uri = buildUpiUri(payment, env);
+      const receiver = await getReceiverSettings(env);
+      const uri = buildUpiUri(payment, env, receiver);
       if (!uri) return text(request, env, 'Receiver UPI details are not configured.', 503);
       return text(request, env, 'QR codes are generated client-side by the hosted checkout. Open /checkout/' + payment.id + ' in a browser.', 410);
     } catch { return text(request, env, 'QR temporarily unavailable', 503); }
