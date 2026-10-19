@@ -477,7 +477,9 @@ async function handler(request, env) {
       automaticObserverEnabled: false,
       receivingVpa: isValidReceiver(receiverSettings),
       receiverSettingsSource: receiverSettings.source,
-      webhook: Boolean(((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || '').trim())
+      // Signed payment webhooks are intentionally not used in manual-only mode.
+      webhook: false,
+      webhookConfigured: Boolean(((env.LOKPRAVAAH_DONATION_WEBHOOK_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || '').trim())
         && /^https:\/\//i.test((env.LOKPRAVAAH_DONATION_WEBHOOK_URL || '').trim())),
       admin: supabase,
     };
@@ -485,7 +487,7 @@ async function handler(request, env) {
     let databaseError = '';
     try { await sbRequest(env, 'upi_gateway_payments?select=id&limit=1'); database = true; }
     catch (error) { databaseError = error?.message === 'SUPABASE_NOT_CONFIGURED' ? 'SUPABASE_NOT_CONFIGURED' : error?.message || 'DATABASE_CHECK_FAILED'; }
-    const ready = supabase && config.receivingVpa && config.webhook && database;
+    const ready = supabase && config.receivingVpa && database;
     return json(request, env, { status: ready ? 'UP' : 'CONFIGURATION_REQUIRED', service: 'lokpravaah-cloudflare-upi-gateway', checks: { ...config, database, ...(databaseError ? { databaseError } : {}) } }, ready ? 200 : 503);
   }
 
