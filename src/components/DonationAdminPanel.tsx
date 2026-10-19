@@ -26,7 +26,9 @@ type Settings = {
 type DonationRow = {
   id: string; order_id: string; amount_paise: number; currency: string; donor_user_id: string | null
   donor_name: string | null; donor_email: string | null; is_anonymous: boolean; show_on_leaderboard: boolean; show_message_publicly: boolean
-  admin_hidden: boolean; message: string | null; status: string; utr: string | null; gateway_payment_id: string | null
+  admin_hidden: boolean; admin_removed?: boolean; admin_removal_note?: string | null
+  record_source?: string; recorded_by?: string | null
+  message: string | null; status: string; utr: string | null; gateway_payment_id: string | null
   created_at: string; verified_at: string | null
 }
 type ChangeRequest = { id: string; requested_by: string; changes: Record<string, unknown>; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string }
@@ -82,6 +84,16 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   const [receiverBusy, setReceiverBusy] = useState('')
   const [receiverError, setReceiverError] = useState('')
   const [receiverNotice, setReceiverNotice] = useState('')
+  const [manualAmount, setManualAmount] = useState('')
+  const [manualDonorName, setManualDonorName] = useState('')
+  const [manualDonorEmail, setManualDonorEmail] = useState('')
+  const [manualMessage, setManualMessage] = useState('')
+  const [manualSource, setManualSource] = useState<'manual_cash' | 'manual_bank' | 'manual_upi' | 'manual_other'>('manual_cash')
+  const [manualReceivedAt, setManualReceivedAt] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16))
+  const [manualAnonymous, setManualAnonymous] = useState(false)
+  const [manualLeaderboard, setManualLeaderboard] = useState(true)
+  const [manualPublicMessage, setManualPublicMessage] = useState(false)
+  const [manualAuditNote, setManualAuditNote] = useState('')
 
   const load = useCallback(async () => {
     if (!supabase) { setError('Supabase is not configured.'); setLoading(false); setReceiverError('Supabase is not configured.'); return }
@@ -247,6 +259,62 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     await load()
   }
 
+  async function addManualDonation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!supabase) return
+    const rawAmount = manualAmount.trim()
+    if (!/^\\d{1,6}(?:\\.\\d{1,2})?$/.test(rawAmount)) { setError('Enter an amount from ₹1 to ₹100,000 with at most 2 decimal places.'); return }
+    const amountPaise = Math.round(Number(rawAmount) * 100)
+    if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 10000000) { setError('Amount must be between ₹1 and ₹100,000.'); return }
+    const receivedDate = new Date(manualReceivedAt)
+    if (Number.isNaN(receivedDate.getTime()) || receivedDate.getTime() > Date.now() + 5 * 60 * 1000) { setError('Choose a valid received date/time that is not in the future.'); return }
+    if (manualAuditNote.trim().length < 3) { setError('Add an audit note explaining when/how the money was received.'); return }
+    if (!window.confirm('Record this as money already received outside online checkout? The public fundraising total and enabled leaderboard will update.')) return
+
+    setBusy('manual-donation'); setError('')
+    const { data, error: createError } = await supabase.rpc('janwatch_admin_create_manual_donation', {
+      p_amount_paise: amountPaise,
+      p_donor_name: manualAnonymous ? null : (manualDonorName.trim() || null),
+      p_donor_email: manualAnonymous ? null : (manualDonorEmail.trim() || null),
+      p_message: manualMessage.trim() || null,
+      p_received_at: receivedDate.toISOString(),
+      p_record_source: manualSource,
+      p_is_anonymous: manualAnonymous,
+      p_show_on_leaderboard: manualLeaderboard,
+      p_show_message_publicly: manualPublicMessage,
+      p_admin_note: manualAuditNote.trim(),
+    })
+    setBusy('')
+    if (createError) { setError(`Offline donation could not be recorded: ${createError.message || 'check the SQL migration and administrator role.'}`); return }
+    const result = data as { order_id?: string; message?: string } | null
+    notify(`${result?.message || 'Offline donation recorded.'}${result?.order_id ? ` Reference: ${result.order_id}` : ''}`)
+    setManualAmount(''); setManualDonorName(''); setManualDonorEmail(''); setManualMessage('')
+    setManualSource('manual_cash')
+    setManualReceivedAt(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16))
+    setManualAnonymous(false); setManualLeaderboard(true); setManualPublicMessage(false); setManualAuditNote('')
+    await load()
+  }
+
+  async function setDonationRemoved(donation: DonationRow) {
+    if (!supabase || donation.status !== 'succeeded') return
+    const nextRemoved = !Boolean(donation.admin_removed)
+    const note = (window.prompt(nextRemoved
+      ? 'Reason for excluding this record from public total and leaderboard (record retained for audit):'
+      : 'Optional note for restoring this donation:', nextRemoved ? 'Incorrect duplicate / entry correction' : '') || '').trim()
+    if (nextRemoved && note.length < 3) { setError('A reason of at least 3 characters is required.'); return }
+    if (!window.confirm(nextRemoved
+      ? 'Exclude this donation from public totals, recent activity and leaderboard? Its record will be retained for audit.'
+      : 'Restore this donation to the public totals and leaderboard where visibility settings allow it?')) return
+    setBusy(donation.id); setError('')
+    const { data, error: removeError } = await supabase.rpc('janwatch_admin_set_donation_removed', {
+      p_donation_id: donation.id, p_removed: nextRemoved, p_note: note || null,
+    })
+    setBusy('')
+    if (removeError) { setError(`Donation ${nextRemoved ? 'removal' : 'restore'} failed: ${removeError.message || 'refresh and try again.'}`); return }
+    notify((data as { message?: string } | null)?.message || (nextRemoved ? 'Donation excluded from public totals.' : 'Donation restored.'))
+    await load()
+  }
+
   async function setDonationHidden(donation: DonationRow) {
     const client = supabase
     if (!client) return
@@ -348,7 +416,29 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       </article>)}</div>}
     </section>
 
-    <section className="panel donation-admin-transactions"><div className="panel-heading"><div><div className="section-kicker">PAYMENT RECORDS</div><h3>Latest donations</h3><p>Payment references and donor contact details are visible only in this administrator console. Never treat pending records as received funds.</p></div><RefreshCw size={18}/></div>{loading ? <div className="ops-loading"><LoaderCircle size={19} className="spin"/> Loading donation records…</div> : !donations.length ? <div className="chat-empty"><Wallet size={24}/><b>No donation records yet</b><span>Donation attempts will appear here as the public donation page is used.</span></div> : <div className="donation-admin-table-wrap"><table className="donation-admin-table"><thead><tr><th>Amount / status</th><th>Donor details</th><th>Reference</th><th>Created / verified</th><th>Public feed</th></tr></thead><tbody>{donations.map(donation => <tr key={donation.id}><td><b>{rupees(donation.amount_paise)}</b><span className={`donation-admin-status status-${donation.status}`}>{donation.status.replace('_',' ')}</span></td><td><b>{donation.is_anonymous ? 'Anonymous' : donation.donor_name || 'Name not supplied'}</b><small>{donation.is_anonymous ? 'Details hidden from public' : donation.donor_email || donation.donor_user_id || 'No contact details'}</small>{donation.message && <p>{donation.message}</p>}</td><td><code>{donation.order_id}</code>{donation.utr && <small>UTR: {donation.utr}</small>}{donation.gateway_payment_id && <small>Payment: {donation.gateway_payment_id.slice(0,14)}…</small>}</td><td><small>{dateText(donation.created_at)}</small><small>{donation.verified_at ? `Verified ${dateText(donation.verified_at)}` : 'Not verified'}</small></td><td>{donation.status === 'succeeded' ? <button type="button" className="btn btn-secondary donation-admin-visibility" disabled={busy === donation.id} onClick={() => void setDonationHidden(donation)} title="Hide/restore public feed visibility">{donation.admin_hidden ? <Eye size={14}/> : <EyeOff size={14}/>} {donation.admin_hidden ? 'Restore' : 'Hide'}</button> : <span className="donation-admin-muted">—</span>}</td></tr>)}</tbody></table></div>}</section>
+    <section className="panel donation-admin-manual-entry">
+      <div className="panel-heading"><div><div className="section-kicker">OFFLINE / DIRECT CONTRIBUTIONS</div><h3>Add donation received outside checkout</h3><p>Record cash, bank transfer, or direct UPI donations that you have actually received. This adds an audited record and does not pretend to be a gateway transaction.</p></div><HeartHandshake size={19}/></div>
+      <form className="donation-admin-form" onSubmit={addManualDonation}>
+        <div className="donation-admin-config-grid">
+          <label>Amount received (₹)<input type="number" inputMode="decimal" min="1" max="100000" step="0.01" value={manualAmount} onChange={e => setManualAmount(e.target.value)} required placeholder="e.g. 251"/></label>
+          <label>Contribution type<select value={manualSource} onChange={e => setManualSource(e.target.value as typeof manualSource)}><option value="manual_cash">Cash / offline event</option><option value="manual_bank">Bank transfer</option><option value="manual_upi">Direct UPI received</option><option value="manual_other">Other direct contribution</option></select></label>
+          <label>Donor name<input maxLength={80} value={manualDonorName} onChange={e => setManualDonorName(e.target.value)} disabled={manualAnonymous} placeholder="Name (optional)"/></label>
+          <label>Donor email (optional)<input type="email" maxLength={254} value={manualDonorEmail} onChange={e => setManualDonorEmail(e.target.value)} disabled={manualAnonymous} placeholder="name@example.com"/></label>
+          <label>Received date and time<input type="datetime-local" value={manualReceivedAt} onChange={e => setManualReceivedAt(e.target.value)} required/></label>
+          <label>Donor message (optional)<textarea rows={2} maxLength={300} value={manualMessage} onChange={e => setManualMessage(e.target.value)} placeholder="Thank-you note (optional)"/></label>
+          <label>Internal audit note (required)<textarea rows={2} minLength={3} maxLength={500} value={manualAuditNote} onChange={e => setManualAuditNote(e.target.value)} required placeholder="e.g. cash received in person at community meetup"/></label>
+        </div>
+        <div className="donation-admin-toggles">
+          <label className="ops-config-toggle"><input type="checkbox" checked={manualAnonymous} onChange={e => { setManualAnonymous(e.target.checked); if (e.target.checked) { setManualDonorName(''); setManualDonorEmail(''); setManualLeaderboard(false); setManualPublicMessage(false) } }}/><span><b>Anonymous supporter</b><small>Anonymous records do not store the donor name/email.</small></span></label>
+          <label className="ops-config-toggle"><input type="checkbox" checked={manualLeaderboard} disabled={manualAnonymous} onChange={e => setManualLeaderboard(e.target.checked)}/><span><b>Include in leaderboard</b><small>Only enable if the donor opted in.</small></span></label>
+          <label className="ops-config-toggle"><input type="checkbox" checked={manualPublicMessage} disabled={manualAnonymous || !manualMessage.trim()} onChange={e => setManualPublicMessage(e.target.checked)}/><span><b>Show message publicly</b><small>Requires a non-empty message and donor opt-in.</small></span></label>
+        </div>
+        <div className="donation-admin-receiver-warning"><ShieldCheck size={16}/><span><b>Accounting rule:</b> only enter money actually received. Public total and leaderboard recalculate through the donation database function; gateway payment references remain unchanged.</span></div>
+        <button type="submit" className="btn btn-primary" disabled={busy === 'manual-donation' || loading}>{busy === 'manual-donation' ? <LoaderCircle size={15} className="spin"/> : <Save size={15}/>} Add received donation</button>
+      </form>
+    </section>
+
+    <section className="panel donation-admin-transactions"><div className="panel-heading"><div><div className="section-kicker">PAYMENT RECORDS</div><h3>Latest donations</h3><p>Payment references and donor contact details are visible only in this administrator console. Never treat pending records as received funds.</p></div><RefreshCw size={18}/></div>{loading ? <div className="ops-loading"><LoaderCircle size={19} className="spin"/> Loading donation records…</div> : !donations.length ? <div className="chat-empty"><Wallet size={24}/><b>No donation records yet</b><span>Donation attempts will appear here as the public donation page is used.</span></div> : <div className="donation-admin-table-wrap"><table className="donation-admin-table"><thead><tr><th>Amount / status</th><th>Donor details</th><th>Reference</th><th>Created / verified</th><th>Public visibility & totals</th></tr></thead><tbody>{donations.map(donation => <tr key={donation.id}><td><b>{rupees(donation.amount_paise)}</b><span className={`donation-admin-status status-${donation.status}`}>{donation.status.replace('_',' ')}</span>{donation.admin_removed && <span className="donation-admin-status status-removed">removed from totals</span>}</td><td><b>{donation.is_anonymous ? 'Anonymous' : donation.donor_name || 'Name not supplied'}</b><small>{donation.is_anonymous ? 'Details hidden from public' : donation.donor_email || donation.donor_user_id || 'No contact details'}</small>{donation.message && <p>{donation.message}</p>}</td><td><code>{donation.order_id}</code>{donation.utr && <small>UTR: {donation.utr}</small>}{donation.gateway_payment_id && <small>Payment: {donation.gateway_payment_id.slice(0,14)}…</small>}</td><td><small>{dateText(donation.created_at)}</small><small>{donation.verified_at ? `Verified ${dateText(donation.verified_at)}` : 'Not verified'}</small><small>{({gateway:'Online gateway',manual_cash:'Offline cash',manual_bank:'Offline bank',manual_upi:'Offline UPI',manual_other:'Offline / other'} as Record<string,string>)[donation.record_source || 'gateway'] || 'Online gateway'}</small></td><td>{donation.status === 'succeeded' ? <div className="donation-admin-visibility-actions"><button type="button" className="btn btn-secondary donation-admin-visibility" disabled={busy === donation.id} onClick={() => void setDonationHidden(donation)} title="Hide/restore public feed visibility">{donation.admin_hidden ? <Eye size={14}/> : <EyeOff size={14}/>} {donation.admin_hidden ? 'Show feed' : 'Hide feed'}</button><button type="button" className={`btn ${donation.admin_removed ? 'btn-primary' : 'btn-danger'} donation-admin-visibility`} disabled={busy === donation.id} onClick={() => void setDonationRemoved(donation)} title="Exclude/restore from public totals and leaderboard">{donation.admin_removed ? 'Restore totals' : 'Remove from totals'}</button>{donation.admin_removed && <small className="donation-admin-removed-note">Excluded from total{donation.admin_removal_note ? `: ${donation.admin_removal_note}` : ''}</small>}</div> : <span className="donation-admin-muted">—</span>}</td></tr>)}</tbody></table></div>}</section>
     <div className="donation-admin-footnote"><ShieldCheck size={15}/><span>Last refreshed {dateText(lastLoaded)}. Gateway API secrets and webhook signatures must remain server-side; public leaderboard data is aggregate/sanitised by a database function.</span></div>
   </div>
 }
