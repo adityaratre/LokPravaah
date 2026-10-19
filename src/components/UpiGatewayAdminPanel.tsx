@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle2, Download, LoaderCircle, QrCode, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
+import { AlertCircle, CheckCircle2, LoaderCircle, QrCode, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 type PairQrResponse = { expiresAt: number; pairingPayload: string; error?: string }
@@ -13,6 +13,9 @@ type GatewayHealth = {
     receivingVpa?: boolean
     receiverSettingsSource?: string
     webhook?: boolean
+    webhookConfigured?: boolean
+    manualReviewOnly?: boolean
+    automaticObserverEnabled?: boolean
     database?: boolean
     databaseError?: string
   }
@@ -57,6 +60,9 @@ export default function UpiGatewayAdminPanel({ notify }: { notify: (message: str
   }, [qrUrl])
 
   async function generatePairingQr() {
+    setError('Automatic pairing is disabled in manual-review mode. Use the donation checkout for QR payments and submit the UTR/receipt for administrator review.')
+    setStatus('Manual bank-record review mode is active; automatic payment detection is turned off.')
+    return
     if (!supabase) { setError('Supabase login is not configured on this website.'); return }
     setBusy(true); setError(''); setStatus('Checking your signed-in administrator session…')
     if (qrUrl.startsWith('blob:')) URL.revokeObjectURL(qrUrl)
@@ -116,7 +122,8 @@ export default function UpiGatewayAdminPanel({ notify }: { notify: (message: str
           ['Server-side service-role key', health.checks.serviceRoleKeyConfigured],
           ['Supabase database access', health.checks.database],
           ['Admin receiver VPA and payee', health.checks.receivingVpa],
-          ['Signed donation webhook', health.checks.webhook],
+          ['Manual bank-record review mode', health.checks.manualReviewOnly],
+          ['Automatic payment detection disabled', health.checks.automaticObserverEnabled === false],
         ] as const).map(([label, ok]) => <div key={label} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: 11, border: '1px solid var(--line, #dbe3ed)', borderRadius: 12 }}>
           {ok === true ? <CheckCircle2 size={16} color="#20a674"/> : <AlertCircle size={16} color="#d18b24"/>}
           <div style={{ display: 'grid', gap: 3 }}><b style={{ fontSize: 12 }}>{label}</b><small className="ops-help">{ok === true ? 'Configured' : ok === false ? 'Missing or not reachable' : 'Worker has not returned this check yet'}</small></div>
@@ -128,14 +135,13 @@ export default function UpiGatewayAdminPanel({ notify }: { notify: (message: str
       {health?.checks?.database === false && health?.checks?.serviceRoleKeyConfigured !== false && <div className="ops-error" role="alert" style={{ marginTop: 12 }}><AlertCircle size={16}/><span>Supabase storage could not be reached{health.checks.databaseError ? ` (${health.checks.databaseError})` : ''}. Check the Worker secret, table migration and project's network/API status.</span></div>}
     </section>
 
-    <div className="ops-help" style={{ marginBottom: 16 }}>No public pairing page or admin token is used. The Worker verifies your signed-in Supabase session and checks your role server-side before issuing a single-use QR.</div>
+    <div className="ops-help" style={{ marginBottom: 16 }}>Manual-only donation mode is active. Custom-amount UPI QR checkout remains available. Users submit UTR and receipt inside the checkout; an administrator then checks the actual bank credit. No Android pairing, notification-based confirmation or automatic payment webhook is used.</div>
     {error && <div className="ops-error"><AlertCircle size={17}/><span>{error}</span></div>}
     {status && !error && <div className="ops-help" role="status" style={{ marginBottom: 12 }}><CheckCircle2 size={16} style={{ verticalAlign: '-3px', marginRight: 6 }}/>{status}</div>}
     <div className="ops-inline-actions" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-      <button className="btn btn-primary" type="button" onClick={() => void generatePairingQr()} disabled={busy}>
-        {busy ? <LoaderCircle size={15} className="spin"/> : <QrCode size={15}/>} {busy ? 'Generating secure QR…' : qrUrl ? 'Generate fresh pairing QR' : 'Generate pairing QR'}
+      <button className="btn btn-secondary" type="button" onClick={() => void generatePairingQr()} disabled aria-disabled="true" title="Automatic pairing is disabled in manual-review mode">
+        <QrCode size={15}/> Automatic pairing disabled
       </button>
-      <a className="btn btn-secondary" href={`${apiBase}/youpi-sms-gateway.apk`} download="youpi-sms-gateway.apk" target="_blank" rel="noopener noreferrer"><Download size={15}/> Download Android app</a>
     </div>
     {qrUrl && <div className="ops-upi-pair-qr" style={{ marginTop: 20, padding: 18, border: '1px solid var(--line, #dbe3ed)', borderRadius: 18, background: '#fff', color: '#142238', maxWidth: 390, textAlign: 'center' }}>
       <img src={qrUrl} alt="One-time Android observer pairing QR" style={{ width: 'min(100%, 320px)', height: 'auto', display: 'block', margin: '0 auto' }}/>
@@ -143,6 +149,6 @@ export default function UpiGatewayAdminPanel({ notify }: { notify: (message: str
       <p style={{ margin: '5px 0 0', color: '#5b6678', fontSize: 13 }}>Expires {expiresAt ? new Date(expiresAt).toLocaleString() : 'in 10 minutes'}. Generate a fresh QR if it expires or pairing fails.</p>
       <p style={{ margin: '8px 0 0', color: '#5b6678', fontSize: 13 }}>Open the YOUPI observer app on the receiving-account phone and choose “Scan Pairing QR”.</p>
     </div>}
-    <div className="ops-help" style={{ marginTop: 15 }}>For auto-verification, keep this phone online, enable the app's required notification access, and allow background operation. The QR is only for device pairing; a donation is marked successful only after a signed bank notification is verified.</div>
+    <div className="ops-help" style={{ marginTop: 15 }}>Do not use the legacy Android observer for donations. A contribution stays pending until the administrator checks the actual bank credit and approves the submitted UTR.</div>
   </section>
 }
