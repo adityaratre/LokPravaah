@@ -102,3 +102,11 @@
 .donation-history-foot svg{flex:0 0 auto;color:var(--mint-strong);margin-top:1px}
 .donation-history-foot{overflow-wrap:anywhere}
 @media(max-width:520px){.donation-history-heading{flex-direction:column}.donation-history-heading .donation-history-refresh{align-self:flex-start}.donation-history-item{padding:12px}.donation-history-item-top{flex-direction:column;gap:6px}.donation-history-item-top time{text-align:left}.donation-history-actions>*{flex:1 1 auto}.donation-history-ticket-form>div>*{flex:1 1 auto}}
+
+.donation-history-filters{display:flex;flex-wrap:wrap;gap:7px;padding:4px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}
+.donation-history-filter{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 11px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted);font:inherit;font-size:10px;font-weight:800;cursor:pointer;transition:background .18s ease,border-color .18s ease,color .18s ease}
+.donation-history-filter span{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--panel);color:var(--muted);font-size:9px}
+.donation-history-filter.active{background:var(--panel);border-color:var(--border);color:var(--text);box-shadow:0 2px 5px #00000008}
+.donation-history-filter.active span{background:color-mix(in srgb,var(--mint-strong) 16%,var(--panel));color:var(--mint-strong)}
+.donation-history-filter:focus-visible{outline:2px solid var(--mint-strong);outline-offset:2px}
+@media(max-width:520px){.donation-history-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.donation-history-filter{padding:8px 5px;gap:4px;font-size:9px;min-width:0}.donation-history-filter span{min-width:18px;height:18px;padding:0 4px}}
