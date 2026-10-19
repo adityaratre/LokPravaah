@@ -85,9 +85,6 @@ create table if not exists public.donation_settings (
   gateway_portal_url text check (gateway_portal_url is null or gateway_portal_url ~* '^https://'),
   gateway_api_url text check (gateway_api_url is null or gateway_api_url ~* '^https://'),
   gateway_merchant_key text check (gateway_merchant_key is null or char_length(gateway_merchant_key) <= 200),
-  upi_vpa text check (upi_vpa is null or upi_vpa ~ '^[^[:space:]@]+@[^[:space:]@]+$'),
-  upi_payee_name text check (upi_payee_name is null or char_length(btrim(upi_payee_name)) between 1 and 80),
-  payment_session_minutes integer not null default 15 check (payment_session_minutes between 5 and 30),
   leaderboard_enabled boolean not null default true,
   show_public_total boolean not null default true,
   show_goal_progress boolean not null default true,
@@ -109,9 +106,6 @@ insert into public.donation_settings(id) values (true) on conflict (id) do nothi
 alter table public.donation_settings add column if not exists gateway_portal_url text;
 alter table public.donation_settings add column if not exists gateway_api_url text;
 alter table public.donation_settings add column if not exists gateway_merchant_key text;
-alter table public.donation_settings add column if not exists upi_vpa text;
-alter table public.donation_settings add column if not exists upi_payee_name text;
-alter table public.donation_settings add column if not exists payment_session_minutes integer not null default 15 check (payment_session_minutes between 5 and 30);
 alter table public.donation_settings enable row level security;
 revoke all on public.donation_settings from anon, authenticated;
 grant all on public.donation_settings to service_role;
@@ -145,7 +139,7 @@ declare
 begin
   select * into v_settings from public.donation_settings where id = true;
   if not found then
-    return jsonb_build_object('settings', jsonb_build_object('donations_enabled', true, 'payment_gateway_enabled', true, 'gateway_portal_url', null, 'gateway_api_url', null, 'gateway_merchant_key', null, 'leaderboard_enabled', true, 'show_public_total', true, 'show_goal_progress', true, 'show_recent_donations', true, 'show_donor_messages', true, 'campaign_title', 'Build a stronger civic community', 'campaign_description', 'Your contribution helps keep LokPravaah available, accessible and improving.', 'campaign_goal_paise', 5000000, 'min_amount_paise', 100, 'max_amount_paise', 10000000, 'payment_session_minutes', 15, 'suggested_amounts', '[51,101,251,501,1001,2100]'::jsonb, 'thank_you_title', 'Thank you for backing civic action', 'thank_you_message', 'Your support helps us keep improving LokPravaah for the community.'), 'total_raised_paise', 0, 'successful_donations', 0, 'top_donors', '[]'::jsonb, 'recent_donations', '[]'::jsonb);
+    return jsonb_build_object('settings', jsonb_build_object('donations_enabled', true, 'payment_gateway_enabled', true, 'gateway_portal_url', null, 'gateway_api_url', null, 'gateway_merchant_key', null, 'leaderboard_enabled', true, 'show_public_total', true, 'show_goal_progress', true, 'show_recent_donations', true, 'show_donor_messages', true, 'campaign_title', 'Build a stronger civic community', 'campaign_description', 'Your contribution helps keep LokPravaah available, accessible and improving.', 'campaign_goal_paise', 5000000, 'min_amount_paise', 100, 'max_amount_paise', 10000000, 'suggested_amounts', '[51,101,251,501,1001,2100]'::jsonb, 'thank_you_title', 'Thank you for backing civic action', 'thank_you_message', 'Your support helps us keep improving LokPravaah for the community.'), 'total_raised_paise', 0, 'successful_donations', 0, 'top_donors', '[]'::jsonb, 'recent_donations', '[]'::jsonb);
   end if;
 
   select coalesce(sum(amount_paise), 0), count(*) into v_total, v_count
@@ -188,7 +182,6 @@ begin
       'gateway_portal_url', v_settings.gateway_portal_url,
       'gateway_api_url', v_settings.gateway_api_url,
       'gateway_merchant_key', v_settings.gateway_merchant_key,
-      'payment_session_minutes', v_settings.payment_session_minutes,
       'leaderboard_enabled', v_settings.leaderboard_enabled,
       'show_public_total', v_settings.show_public_total,
       'show_goal_progress', v_settings.show_goal_progress,
@@ -251,9 +244,6 @@ declare
   v_min bigint;
   v_max bigint;
   v_goal bigint;
-  v_session_minutes integer;
-  v_upi_vpa text;
-  v_upi_payee_name text;
   v_title text;
   v_description text;
   v_thanks_title text;
@@ -277,9 +267,6 @@ begin
   v_min := coalesce(nullif(p_settings->>'min_amount_paise','')::bigint, v_current.min_amount_paise);
   v_max := coalesce(nullif(p_settings->>'max_amount_paise','')::bigint, v_current.max_amount_paise);
   v_goal := coalesce(nullif(p_settings->>'campaign_goal_paise','')::bigint, v_current.campaign_goal_paise);
-  v_session_minutes := coalesce(nullif(p_settings->>'payment_session_minutes','')::integer, v_current.payment_session_minutes, 15);
-  v_upi_vpa := case when p_settings ? 'upi_vpa' then nullif(btrim(p_settings->>'upi_vpa'), '') else v_current.upi_vpa end;
-  v_upi_payee_name := case when p_settings ? 'upi_payee_name' then nullif(btrim(p_settings->>'upi_payee_name'), '') else v_current.upi_payee_name end;
   v_suggested := coalesce(p_settings->'suggested_amounts', v_current.suggested_amounts);
   v_title := coalesce(nullif(btrim(p_settings->>'campaign_title'), ''), v_current.campaign_title);
   v_description := coalesce(nullif(btrim(p_settings->>'campaign_description'), ''), v_current.campaign_description);
@@ -298,10 +285,6 @@ begin
 
   if v_min < 100 or v_min > 10000000 or v_max < v_min or v_max > 10000000 then raise exception 'Donation minimum/maximum amounts are invalid'; end if;
   if v_goal < 10000 or v_goal > 100000000000 then raise exception 'Campaign goal is outside the permitted range'; end if;
-  if v_session_minutes < 5 or v_session_minutes > 30 then raise exception 'UPI checkout timer must be between 5 and 30 minutes'; end if;
-  if v_upi_vpa is not null and v_upi_vpa !~ '^[^[:space:]@]+@[^[:space:]@]+$' then raise exception 'Receiving UPI ID is invalid'; end if;
-  if v_upi_payee_name is not null and length(v_upi_payee_name) > 80 then raise exception 'UPI payee name is too long'; end if;
-  if (v_upi_vpa is null) <> (v_upi_payee_name is null) then raise exception 'Set both receiving UPI ID and payee name, or leave both blank to use server environment settings'; end if;
   if v_gateway_portal_url is not null and v_gateway_portal_url !~* '^https://[^/[:space:]]+' then raise exception 'Checkout portal URL must be a valid HTTPS URL'; end if;
   if v_gateway_api_url is not null and v_gateway_api_url !~* '^https://[^/[:space:]]+' then raise exception 'Payment API URL must be a valid HTTPS URL'; end if;
   if length(coalesce(v_gateway_merchant_key,'')) > 200 then raise exception 'Public merchant key is too long'; end if;
@@ -318,9 +301,6 @@ begin
   if v_min is distinct from v_current.min_amount_paise then v_major := v_major || jsonb_build_object('min_amount_paise', v_min); end if;
   if v_max is distinct from v_current.max_amount_paise then v_major := v_major || jsonb_build_object('max_amount_paise', v_max); end if;
   if v_goal is distinct from v_current.campaign_goal_paise then v_major := v_major || jsonb_build_object('campaign_goal_paise', v_goal); end if;
-  if v_session_minutes is distinct from v_current.payment_session_minutes then v_major := v_major || jsonb_build_object('payment_session_minutes', v_session_minutes); end if;
-  if v_upi_vpa is distinct from v_current.upi_vpa then v_major := v_major || jsonb_build_object('upi_vpa', v_upi_vpa); end if;
-  if v_upi_payee_name is distinct from v_current.upi_payee_name then v_major := v_major || jsonb_build_object('upi_payee_name', v_upi_payee_name); end if;
   if v_suggested is distinct from v_current.suggested_amounts then v_major := v_major || jsonb_build_object('suggested_amounts', v_suggested); end if;
 
   -- Apply safe presentation settings in either role; queue major settings for a super admin if requested by a normal admin.
@@ -341,7 +321,6 @@ begin
     update public.donation_settings set donations_enabled = v_donations_enabled, payment_gateway_enabled = v_gateway_enabled,
       gateway_portal_url = v_gateway_portal_url, gateway_api_url = v_gateway_api_url, gateway_merchant_key = v_gateway_merchant_key,
       min_amount_paise = v_min, max_amount_paise = v_max, campaign_goal_paise = v_goal, suggested_amounts = v_suggested,
-      payment_session_minutes = v_session_minutes, upi_vpa = v_upi_vpa, upi_payee_name = v_upi_payee_name,
       updated_by = auth.uid(), updated_at = now() where id = true;
     return jsonb_build_object('status','saved','message','Donation settings saved.');
   elsif v_major <> '{}'::jsonb then
@@ -375,9 +354,6 @@ begin
       max_amount_paise = coalesce((v_request.changes->>'max_amount_paise')::bigint, max_amount_paise),
       campaign_goal_paise = coalesce((v_request.changes->>'campaign_goal_paise')::bigint, campaign_goal_paise),
       suggested_amounts = coalesce(v_request.changes->'suggested_amounts', suggested_amounts),
-      payment_session_minutes = coalesce((v_request.changes->>'payment_session_minutes')::integer, payment_session_minutes),
-      upi_vpa = case when v_request.changes ? 'upi_vpa' then nullif(v_request.changes->>'upi_vpa','') else upi_vpa end,
-      upi_payee_name = case when v_request.changes ? 'upi_payee_name' then nullif(v_request.changes->>'upi_payee_name','') else upi_payee_name end,
       updated_by = auth.uid(), updated_at = now()
     where id = true;
     update public.donation_settings_change_requests set status = 'approved', review_note = left(nullif(btrim(p_note),''),500), reviewed_by = auth.uid(), reviewed_at = now() where id = p_request_id;

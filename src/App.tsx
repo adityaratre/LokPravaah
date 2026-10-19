@@ -195,8 +195,7 @@ function mapIssue(row: any): Issue {
 
 export default function App() {
   const client = supabase
-  // Start on the public page while Supabase restores the persisted session. The auth bootstrap
-  // below routes returning sessions to the workspace instead of making refresh look like logout.
+  // The public welcome page is intentional: even a returning authenticated user lands here first.
   const [entryScreen, setEntryScreen] = useState<EntryScreen>('welcome')
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authEmail, setAuthEmail] = useState('')
@@ -226,7 +225,6 @@ export default function App() {
   const [adminRole, setAdminRole] = useState('')
   const [toast, setToast] = useState('')
   const [authLoading, setAuthLoading] = useState(true)
-  const authEventSeenRef = useRef(false)
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [user, setUser] = useState<User | null>(null)
@@ -320,12 +318,8 @@ export default function App() {
       return
     }
     let mounted = true
-    authEventSeenRef.current = false
     void client.auth.getSession().then(({ data, error }) => {
       if (!mounted) return
-      // The auth listener is authoritative once it has emitted a session event. This prevents
-      // a slower/stale getSession promise from overwriting a freshly restored session with null.
-      if (authEventSeenRef.current) { setAuthLoading(false); return }
       if (error) setAuthError('We could not restore your session. Please refresh and try again.')
       const sessionUser = data.session?.user ?? null
       setUser(sessionUser)
@@ -342,18 +336,17 @@ export default function App() {
         const authFlow = sessionStorage.getItem('janwatch.authFlow')
         if (sessionUser) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          // A just-created/new login flow may need first-time setup; an existing restored session
-          // must go straight back to the workspace even if legacy metadata is incomplete.
-          const needsSetup = Boolean(authFlow) && !setupComplete
-          setOnboardingMode(setupComplete ? 'edit' : 'setup')
-          setEntryScreen(needsSetup ? 'onboarding' : 'workspace')
-          if (authFlow) sessionStorage.removeItem('janwatch.authFlow')
-        } else {
-          setEntryScreen('welcome')
+          // Restore the signed-in view after a full page refresh; previously the auth session
+          // was restored but entryScreen stayed at 'welcome', which looked like a logout.
+          if (authFlow) {
+            setOnboardingMode(setupComplete ? 'edit' : 'setup')
+            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
+            sessionStorage.removeItem('janwatch.authFlow')
+          } else {
+            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
+          }
         }
-      } catch {
-        if (sessionUser) setEntryScreen('workspace')
-      }
+      } catch { if (sessionUser) setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding') }
       setAuthLoading(false)
     }).catch((error: unknown) => {
       if (!mounted) return
@@ -361,7 +354,6 @@ export default function App() {
       setAuthLoading(false)
     })
     const { data: listener } = client.auth.onAuthStateChange((event, session) => {
-      authEventSeenRef.current = true
       const sessionUser = session?.user ?? null
       setUser(sessionUser)
       if (sessionUser) {
@@ -374,7 +366,6 @@ export default function App() {
         setPreferredService(String(meta.preferred_service || CATEGORIES[0]))
       }
       setAuthError('')
-      // A session event wins over a potentially stale getSession response; always finish hydration.
       setAuthLoading(false)
       if (event === 'PASSWORD_RECOVERY') {
         setAuthMode('reset')
@@ -385,23 +376,14 @@ export default function App() {
       }
       try {
         const authFlow = sessionStorage.getItem('janwatch.authFlow')
-        if (sessionUser) {
-          const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          if (authFlow) {
-            setOnboardingMode(setupComplete ? 'edit' : 'setup')
-            setEntryScreen(setupComplete ? 'workspace' : 'onboarding')
-            sessionStorage.removeItem('janwatch.authFlow')
-          } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
-            // A restored/refreshing session is still signed in; do not route it to welcome.
-            setEntryScreen(current => current === 'auth' || current === 'onboarding'
-              ? (setupComplete ? 'workspace' : current)
-              : 'workspace')
-          }
+        if (sessionUser && authFlow) {
+          setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding')
+          sessionStorage.removeItem('janwatch.authFlow')
+        } else if (sessionUser && event === 'INITIAL_SESSION') {
+          setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding')
         }
-      } catch { if (sessionUser) setEntryScreen('workspace') }
-      // Only a definitive SIGNED_OUT event should clear app state. An empty INITIAL_SESSION
-      // callback can occur before local session restoration finishes on slow devices.
-      if (event === 'SIGNED_OUT') {
+      } catch { if (sessionUser && event === 'INITIAL_SESSION') setEntryScreen(sessionUser.user_metadata?.janwatch_onboarding_complete === true ? 'workspace' : 'onboarding') }
+      if (!session?.user) {
         setEntryScreen('welcome')
         setIssues([])
         setStats(EMPTY_STATS)
