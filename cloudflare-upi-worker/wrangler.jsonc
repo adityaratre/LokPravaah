@@ -51,10 +51,15 @@
     ]
   },
 
-  "vars": {
-    "LOKPRAVAAH_FRONTEND_ORIGIN": "https://lokpravaah.online",
-    "MERCHANT_ID": "00000000-0000-0000-0000-000000000001",
-    "PUBLIC_BASE_URL": "https://lokpravaah.online",
-    "PAYMENT_SESSION_MINUTES": "15"
+ "vars": {
+  "LOKPRAVAAH_FRONTEND_ORIGIN": "https://lokpravaah.online",
+  "MERCHANT_ID": "00000000-0000-0000-0000-000000000001",
+  "PUBLIC_BASE_URL": "https://lokpravaah.online",
+  "PAYMENT_SESSION_MINUTES": "15",
+
+  "UPI_VPA": "nexagrind@okaxis",
+  "UPI_PAYEE_NAME": "JanPravaah Donations",
+  "SUPABASE_URL": "https://zfcvfkchttpisuizndur.supabase.co",
+  "LOKPRAVAAH_DONATION_WEBHOOK_URL": "https://zfcvfkchttpisuizndur.supabase.co/functions/v1/donation-webhook"
   }
 }
