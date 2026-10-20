@@ -60,3 +60,7 @@
 .downloads-admin .downloads-icon-button.danger{color:#ffaaa1!important}
 .downloads-admin :is(button,input,textarea,a):focus-visible{outline:3px solid var(--mint-strong,#55d8a1)!important;outline-offset:3px}
 @media(max-width:700px){.downloads-admin .downloads-upload-form{padding:15px}.downloads-admin .downloads-admin-heading{align-items:stretch}.downloads-admin .downloads-admin-heading>button{align-self:flex-start}}
+
+/* Use the same typography as the rest of the app (the older 'font: 700 12px inherit' is invalid CSS). */
+.downloads-primary,.downloads-secondary,.downloads-icon-button{font:700 12px 'DM Sans',sans-serif}
+.downloads-thankyou-back,.mobile-app-never{font:600 12px 'DM Sans',sans-serif}
