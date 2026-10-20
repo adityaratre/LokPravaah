@@ -352,7 +352,7 @@ private fun NativePasswordRecoveryScreen(onComplete: () -> Unit) {
 
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
-            .background(Brush.verticalGradient(listOf(Color(0xFF071321), AuthNavy, Color(0xFF09192A))),
+            .background(Brush.verticalGradient(listOf(Color(0xFF071321), AuthNavy, Color(0xFF09192A)))),
         contentAlignment = Alignment.Center
     ) {
         Column(
