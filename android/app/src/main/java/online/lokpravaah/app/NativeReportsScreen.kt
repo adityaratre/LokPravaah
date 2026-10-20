@@ -137,13 +137,7 @@ fun NativeReportsScreen(
             onDismissToast = { toast = "" },
             onRefresh = { refreshing++ },
             onCreate = { formMessage = ""; errorMessage = ""; page = NativeReportsPage.CREATE },
-            onOpen = { report -> selectedReport = report; reportEvents = emptyList(); errorMessage = ""; page = NativeReportsPage.DETAIL },
-            onSignOut = {
-                scope.launch {
-                    try { client.auth.signOut() }
-                    catch (error: Exception) { toast = error.message ?: "Sign-out failed. Try again." }
-                }
-            }
+            onOpen = { report -> selectedReport = report; reportEvents = emptyList(); errorMessage = ""; page = NativeReportsPage.DETAIL }
         )
         NativeReportsPage.CREATE -> ReportCreatePage(
             saving = saving,
@@ -213,18 +207,10 @@ private fun ReportListPage(
     onDismissToast: () -> Unit,
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
-    onOpen: (NativeReport) -> Unit,
-    onSignOut: () -> Unit
+    onOpen: (NativeReport) -> Unit
 ) {
     Column(Modifier.fillMaxSize().background(ReportsNavy).padding(horizontal = 18.dp, vertical = 14.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text("LokPravaah", color = ReportsMint, fontWeight = FontWeight.Bold, fontSize = 27.sp)
-                Text("Civic reports · shared account", color = ReportsMuted, fontSize = 12.sp)
-            }
-            TextButton(onClick = onSignOut) { Text("Sign out", color = ReportsMuted) }
-        }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
                 Text("My reports", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
