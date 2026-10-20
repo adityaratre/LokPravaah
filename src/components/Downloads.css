@@ -12,3 +12,16 @@
 @keyframes app-popup-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(min-width:768px){.mobile-app-fab,.mobile-app-backdrop{display:none!important}}
 @media(prefers-reduced-motion:reduce){.mobile-app-popup{animation:none}}
+
+/* Stable contrast: admin console intentionally uses a light upload surface inside the dark app shell. */
+.downloads-admin{--downloads-ink:#17212b;--downloads-muted:#526171;--downloads-border:#d5dde5;--downloads-panel:#f7fafc;background:#fff!important;color:var(--downloads-ink)!important;border-color:var(--downloads-border)!important}
+.downloads-admin .downloads-admin-heading h2,.downloads-admin .downloads-list-heading h3,.downloads-admin .download-file-info>b,.downloads-admin .downloads-form-title b,.downloads-admin .downloads-upload-form label,.downloads-admin .downloads-empty b{color:var(--downloads-ink)!important}
+.downloads-admin .downloads-admin-heading p,.downloads-admin .downloads-form-title span,.downloads-admin .downloads-upload-form small,.downloads-admin .downloads-admin-row .download-file-info>span,.downloads-admin .downloads-empty{color:var(--downloads-muted)!important}
+.downloads-admin .downloads-upload-form,.downloads-admin .downloads-admin-row{background:var(--downloads-panel)!important;border-color:var(--downloads-border)!important;color:var(--downloads-ink)!important}
+.downloads-admin .downloads-upload-form input:not([type=checkbox]),.downloads-admin .downloads-upload-form textarea,.downloads-admin .downloads-upload-form input[type=file]{background:#fff!important;color:var(--downloads-ink)!important;border-color:#aebbc8!important;accent-color:#168b72}
+.downloads-admin .downloads-upload-form input::placeholder,.downloads-admin .downloads-upload-form textarea::placeholder{color:#657486!important;opacity:1}
+.downloads-admin .downloads-secondary,.downloads-admin .downloads-icon-button{color:var(--downloads-ink)!important;border-color:var(--downloads-border)!important}
+.downloads-admin .downloads-list-heading h3 span{background:#eaf0f4!important;color:#344455!important}
+.downloads-admin .downloads-message.ok{color:#166534!important}.downloads-admin .downloads-message.error{color:#b91c1c!important}
+.downloads-admin :is(button,input,textarea,a):focus-visible{outline:3px solid #2fbf9b!important;outline-offset:3px}
+@media(max-width:700px){.downloads-admin .downloads-upload-form{padding:15px}.downloads-admin .downloads-admin-heading{align-items:stretch}.downloads-admin .downloads-admin-heading>button{align-self:flex-start}}
