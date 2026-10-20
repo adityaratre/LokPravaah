@@ -1,3 +1,6 @@
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -15,6 +18,15 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "1.1.0"
+
+        // Only the public Supabase publishable/anon key may be bundled in a client app.
+        // The service-role key and provider secrets must stay on trusted servers.
+        val supabaseUrl = providers.gradleProperty("SUPABASE_URL")
+            .orElse(providers.environmentVariable("SUPABASE_URL")).getOrElse("")
+        val supabaseAnonKey = providers.gradleProperty("SUPABASE_ANON_KEY")
+            .orElse(providers.environmentVariable("SUPABASE_ANON_KEY")).getOrElse("")
+        buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl.trimEnd('/')))
+        buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(supabaseAnonKey))
     }
 
     buildTypes {
@@ -32,7 +44,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 dependencies {
