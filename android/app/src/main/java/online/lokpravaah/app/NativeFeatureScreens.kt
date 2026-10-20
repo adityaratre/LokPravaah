@@ -117,14 +117,6 @@ fun NativeMoreScreen(onSelect: (CitizenTab) -> Unit) {
                     }
                 }
             }
-            item {
-                Surface(color = FxSurface, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Outlined.Security, contentDescription = null, tint = FxMint)
-                        Text("Your account uses the existing Supabase identity and access rules. Admin-only settings and payment verification remain server-controlled.", color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
-                    }
-                }
-            }
         }
     }
 }
@@ -693,7 +685,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
             count = obj["successful_donations"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
             suggested = settings?.get("suggested_amounts")?.jsonArray?.mapNotNull { it.jsonPrimitive.content.toIntOrNull() } ?: suggested
             amount = suggested.firstOrNull() ?: 251
-        } catch (_: Exception) { error = "Campaign data couldn't load. You can open the secure donation portal for the latest details." }
+        } catch (_: Exception) { error = "Campaign information is temporarily unavailable. Check your connection and try again." }
         finally { loading = false }
     }
     val raised = total / 100.0
@@ -731,21 +723,15 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                     }
                                 }
                             }
-                            Text(if (!enabled) "Donations are currently paused by the administrator." else if (!gatewayEnabled) "Online gateway is currently disabled. The official portal will show only payment methods that are actually configured." else "Payments are processed by the existing secure donation gateway.", color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
-                            Surface(
-                                color = FxCard,
-                                shape = RoundedCornerShape(13.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.Top) {
-                                    Icon(Icons.Outlined.Security, contentDescription = null, tint = FxMint, modifier = Modifier.size(19.dp))
-                                    Text(
-                                        "This native screen never redirects to the website or pretends a payment succeeded. Secure in-app UPI checkout is being connected to the existing donation service; campaign totals update only after server/admin verification.",
-                                        color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp
-                                    )
+                            Text(if (!enabled) "Contributions are temporarily paused. Please try again later." else if (!gatewayEnabled) "Online contributions are temporarily unavailable. Please try again later." else "Your contribution will be recorded only after the payment is verified.", color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
+                            if (!enabled || !gatewayEnabled) {
+                                Surface(color = FxCard, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Outlined.Info, contentDescription = null, tint = FxAmber, modifier = Modifier.size(19.dp))
+                                        Text("No payment will be started while contributions are unavailable.", color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                                    }
                                 }
-                            }
-                        }
+                            }                        }
                     }
                 }
                 item { Text("Payment is not confirmed by the app UI. Only the existing server/webhook or authorised admin review can confirm a donation.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp) }
