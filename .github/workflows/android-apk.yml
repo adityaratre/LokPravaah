@@ -34,14 +34,20 @@ jobs:
       - name: Prepare stable signing key (if configured)
         env:
           APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
         run: |
-          if [ -n "$APK_KEYSTORE_BASE64" ]; then
+          if [ -n "$APK_KEYSTORE_BASE64" ] && [ -n "$APK_KEYSTORE_PASSWORD" ] && [ -n "$APK_KEY_ALIAS" ] && [ -n "$APK_KEY_PASSWORD" ]; then
             echo "$APK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lokpravaah-release.jks"
             echo "APK_KEYSTORE_PATH=$RUNNER_TEMP/lokpravaah-release.jks" >> "$GITHUB_ENV"
             echo "HAS_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
-          else
+          elif [ -z "$APK_KEYSTORE_BASE64" ] && [ -z "$APK_KEYSTORE_PASSWORD" ] && [ -z "$APK_KEY_ALIAS" ] && [ -z "$APK_KEY_PASSWORD" ]; then
             echo "HAS_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
             echo "Release signing secrets not configured; producing a debug APK for testing."
+          else
+            echo "ERROR: Configure all four APK signing secrets together, or leave all four empty." >&2
+            exit 1
           fi
       - name: Build signed release APK
         if: env.HAS_RELEASE_SIGNING == 'true'
