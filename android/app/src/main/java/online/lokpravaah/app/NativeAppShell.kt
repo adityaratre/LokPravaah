@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.outlined.SouthEast
 import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -81,7 +83,7 @@ private val ShellBlue = Color(0xFF7CB9FF)
 private val ShellAmber = Color(0xFFF8D58B)
 private val ShellRose = Color(0xFFFFA9B2)
 
-private enum class CitizenTab(val label: String) {
+enum class CitizenTab(val label: String) {
     HOME("Home"), REPORTS("Reports"), AI("AI"), COMMUNITY("Community"), MORE("More"),
     REWARDS("Rewards"), CIVIC_TOOLKIT("Civic toolkit"), EXPLORE_MAP("Explore map"),
     WORKER_HUB("Worker hub"), REFERRALS("Refer & Earn"), DONATE("Donate"),
