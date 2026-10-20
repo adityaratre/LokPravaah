@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
@@ -161,6 +162,9 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(7, 17, 31))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // Preserve session cookies during Supabase authentication redirects.
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             settings.databaseEnabled = true
             settings.loadsImagesAutomatically = true
             settings.javaScriptCanOpenWindowsAutomatically = false
@@ -229,7 +233,13 @@ class MainActivity : ComponentActivity() {
                     fileChooserCallback = filePathCallback
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
+                        val acceptedTypes = fileChooserParams.acceptTypes
+                            .flatMap { it.split(",") }
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() && it.contains("/") }
+                            .distinct()
+                        type = if (acceptedTypes.size == 1) acceptedTypes.first() else "*/*"
+                        if (acceptedTypes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, acceptedTypes.toTypedArray())
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
                     }
                     return try {
