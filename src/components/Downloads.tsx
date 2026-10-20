@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle, Smartphone, X } from 'lucide-react'
+import { ArrowRight, Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle, Smartphone, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './Downloads.css'
 
