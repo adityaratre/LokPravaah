@@ -541,13 +541,14 @@ private fun IntroScreen(soundEnabled: Boolean, onToggleSound: () -> Unit) {
 
 @Composable
 private fun AppWebScreen(
+    modifier: Modifier = Modifier,
     activity: MainActivity,
     onWebView: (WebView) -> Unit,
     loading: Boolean,
     error: Boolean,
     onRetry: () -> Unit
 ) {
-    Box(Modifier.fillMaxSize().background(Navy)) {
+    Box(modifier.fillMaxSize().background(Navy)) {
         AndroidView(
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
             factory = { context ->
