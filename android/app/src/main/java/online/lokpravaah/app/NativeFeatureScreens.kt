@@ -1,7 +1,12 @@
 package online.lokpravaah.app
 
 import android.content.Intent
+import android.content.ContentValues
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,11 +34,16 @@ import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.storage.storage
+import io.ktor.http.ContentType
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -42,6 +52,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
+import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -657,49 +673,124 @@ fun NativeReferralScreen(client: SupabaseClient, userId: String) {
 
 @Composable
 fun NativeDonateScreen(client: SupabaseClient, userId: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
+    var paymentBusy by remember { mutableStateOf(false) }
+    var proofBusy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
-    var enabled by remember { mutableStateOf(true) }
+    var paymentMessage by remember { mutableStateOf("") }
+    var proofMessage by remember { mutableStateOf("") }
+    var enabled by remember { mutableStateOf(false) }
     var gatewayEnabled by remember { mutableStateOf(false) }
+    var portalUrl by remember { mutableStateOf("") }
+    var apiUrl by remember { mutableStateOf("") }
+    var merchantKey by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("Build a stronger civic community") }
     var description by remember { mutableStateOf("Your contribution helps keep LokPravaah available, accessible and improving.") }
     var goal by remember { mutableStateOf(0L) }
     var total by remember { mutableStateOf(0L) }
-    var count by remember { mutableStateOf(0) }
-    var suggested by remember { mutableStateOf(listOf(51, 101, 251, 501, 1001)) }
+    var count by remember { mutableIntStateOf(0) }
+    var minimumPaise by remember { mutableStateOf(100L) }
+    var maximumPaise by remember { mutableStateOf(10_000_000L) }
+    var suggested by remember { mutableStateOf(listOf(51, 101, 251, 501, 1001, 2100)) }
+    var amountText by remember { mutableStateOf("251") }
+    var donorName by remember { mutableStateOf(client.auth.currentUserOrNull()?.email?.substringBefore("@").orEmpty()) }
+    var donorEmail by remember { mutableStateOf(client.auth.currentUserOrNull()?.email.orEmpty()) }
+    var anonymous by remember { mutableStateOf(false) }
+    var showOnLeaderboard by remember { mutableStateOf(false) }
+    var showMessagePublicly by remember { mutableStateOf(false) }
+    var donorMessage by remember { mutableStateOf("") }
+    var activeOrderId by remember { mutableStateOf("") }
+    var activeAmountPaise by remember { mutableStateOf(0L) }
+    var claimedUtr by remember { mutableStateOf("") }
+    var claimedAmountText by remember { mutableStateOf("") }
+    var proofNote by remember { mutableStateOf("I completed the UPI transfer. Please check the transaction reference.") }
+    var proofUri by remember { mutableStateOf<Uri?>(null) }
+    var history by remember { mutableStateOf<List<NativeDonationHistoryRow>>(emptyList()) }
     var refresh by remember { mutableIntStateOf(0) }
-    var amount by remember { mutableIntStateOf(251) }
+
+    val proofPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        proofUri = uri
+        proofMessage = ""
+    }
+
     LaunchedEffect(userId, refresh) {
-        loading = true; error = ""
+        loading = true
+        error = ""
         try {
             check(client.auth.currentUserOrNull()?.id == userId) { "Please sign in again." }
             val result = client.postgrest.rpc("janwatch_get_public_donation_data")
             val obj = Json.parseToJsonElement(result.data).jsonObject
             val settings = obj["settings"]?.jsonObject
-            enabled = settings?.get("donations_enabled")?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
+            enabled = settings?.get("donations_enabled")?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
             gatewayEnabled = settings?.get("payment_gateway_enabled")?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
             title = settings?.get("campaign_title")?.jsonPrimitive?.content ?: title
             description = settings?.get("campaign_description")?.jsonPrimitive?.content ?: description
             goal = settings?.get("campaign_goal_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             total = obj["total_raised_paise"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             count = obj["successful_donations"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-            suggested = settings?.get("suggested_amounts")?.jsonArray?.mapNotNull { it.jsonPrimitive.content.toIntOrNull() } ?: suggested
-            amount = suggested.firstOrNull() ?: 251
-        } catch (_: Exception) { error = "Campaign information is temporarily unavailable. Check your connection and try again." }
-        finally { loading = false }
+            minimumPaise = settings?.get("min_amount_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 100L
+            maximumPaise = settings?.get("max_amount_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 10_000_000L
+            val currentSuggested = settings?.get("suggested_amounts")?.jsonArray?.mapNotNull {
+                it.jsonPrimitive.content.toIntOrNull()
+            }?.filter { it > 0 } ?: suggested
+            suggested = currentSuggested
+            if (refresh == 0 || amountText == "251") amountText = currentSuggested.firstOrNull()?.toString() ?: "251"
+            portalUrl = settings?.get("gateway_portal_url")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
+            apiUrl = settings?.get("gateway_api_url")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
+            merchantKey = settings?.get("gateway_merchant_key")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
+        } catch (_: Exception) {
+            error = "Campaign information is temporarily unavailable. Check your connection and try again."
+        } finally {
+            loading = false
+        }
+
+        try {
+            val response = client.postgrest.rpc("janwatch_get_my_donations")
+            val parsed = Json.decodeFromString<NativeDonationHistoryEnvelope>(response.data)
+            history = parsed.donations
+        } catch (_: Exception) {
+            history = emptyList()
+        }
     }
+
     val raised = total / 100.0
     val goalInRupees = goal / 100.0
     val progress = if (goal > 0L) (total.toDouble() / goal.toDouble()).coerceIn(0.0, 1.0).toFloat() else 0f
+    val amountRupees = amountText.trim().toDoubleOrNull()
+    val amountPaise = amountRupees?.let { (it * 100.0).toLong() }
+    val gatewayReady = portalUrl.startsWith("https://") && apiUrl.startsWith("https://") && merchantKey.isNotBlank()
+    val donorEmailValid = donorEmail.isBlank() || Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(donorEmail.trim())
+    val mayCheckout = !loading && !paymentBusy && enabled && gatewayEnabled && gatewayReady &&
+        amountPaise != null && amountPaise in minimumPaise..maximumPaise && donorEmailValid &&
+        client.auth.currentUserOrNull()?.id == userId
+
     Column(Modifier.fillMaxSize().background(FxNavy)) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { FxHeader("Support LokPravaah", "Transparent campaign data from the existing backend", Icons.Outlined.Favorite, onRefresh = { refresh++ }, loading = loading) }
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(17.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                FxHeader(
+                    "Support LokPravaah",
+                    "Campaign totals and your contributions",
+                    Icons.Outlined.Favorite,
+                    onRefresh = { refresh++ },
+                    loading = loading
+                )
+            }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
             if (error.isNotBlank()) item { FxErrorCard(error) { refresh++ } }
-            if (!loading) {
+
+            if (!loading && error.isBlank()) {
                 item {
                     Surface(color = FxMint, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFFD7FFEA), FxMint, Color(0xFF8FE5BF)))).padding(19.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            Modifier.background(Brush.linearGradient(listOf(Color(0xFFD7FFEA), FxMint, Color(0xFF8FE5BF)))).padding(19.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Text("COMMUNITY CAMPAIGN", color = Color(0xFF245546), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Text(title, color = Color(0xFF08251D), fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.ExtraBold)
                             Text(description, color = Color(0xFF245546), fontSize = 12.sp, lineHeight = 18.sp)
@@ -713,32 +804,470 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                 }
                 item {
                     Surface(color = FxSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("Suggested contribution", color = FxText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Selected: ₹$amount", color = FxMint, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Make a contribution", color = FxText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text("Select an amount or enter a custom contribution.", color = FxMuted, fontSize = 12.sp)
+                            Text("₹" + amountText.ifBlank { "0" }, color = FxMint, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 suggested.take(4).forEach { rupees ->
-                                    Surface(color = if (amount == rupees) FxMint else FxCard, shape = RoundedCornerShape(11.dp), modifier = Modifier.weight(1f).clickable { amount = rupees }) {
-                                        Text("₹$rupees", color = if (amount == rupees) FxNavy else FxText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                    Surface(
+                                        color = if (amountText == rupees.toString()) FxMint else FxCard,
+                                        shape = RoundedCornerShape(11.dp),
+                                        modifier = Modifier.weight(1f).clickable { amountText = rupees.toString(); paymentMessage = "" }
+                                    ) {
+                                        Text(
+                                            "₹" + rupees,
+                                            color = if (amountText == rupees.toString()) FxNavy else FxText,
+                                            fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(vertical = 11.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
                                     }
                                 }
                             }
-                            Text(if (!enabled) "Contributions are temporarily paused. Please try again later." else if (!gatewayEnabled) "Online contributions are temporarily unavailable. Please try again later." else "Your contribution will be recorded only after the payment is verified.", color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
-                            if (!enabled || !gatewayEnabled) {
-                                Surface(color = FxCard, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
-                                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Outlined.Info, contentDescription = null, tint = FxAmber, modifier = Modifier.size(19.dp))
-                                        Text("No payment will be started while contributions are unavailable.", color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp)
-                                    }
+                            FxTextField(
+                                value = amountText,
+                                onValueChange = { amountText = it.filter { ch -> ch.isDigit() || ch == '.' }.take(9); paymentMessage = "" },
+                                label = "Custom amount (₹1–₹100,000)",
+                                numeric = true
+                            )
+                            if (!anonymous) {
+                                FxTextField(donorName, { donorName = it.take(80) }, "Your name (optional)")
+                                FxTextField(donorEmail, { donorEmail = it.take(254) }, "Email (optional)")
+                                if (!donorEmailValid) Text("Enter a valid email or leave it blank.", color = FxRose, fontSize = 11.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Checkbox(checked = anonymous, onCheckedChange = {
+                                    anonymous = it
+                                    if (it) { showOnLeaderboard = false; showMessagePublicly = false }
+                                }, colors = CheckboxDefaults.colors(checkedColor = FxMint, checkmarkColor = FxNavy))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Keep my contribution anonymous", color = FxText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                    Text("Your name will not be shown in public supporter lists.", color = FxMuted, fontSize = 10.sp, lineHeight = 14.sp)
                                 }
-                            }                        }
+                            }
+                            if (!anonymous) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Checkbox(checked = showOnLeaderboard, onCheckedChange = {
+                                        showOnLeaderboard = it
+                                        if (!it) showMessagePublicly = false
+                                    }, colors = CheckboxDefaults.colors(checkedColor = FxMint, checkmarkColor = FxNavy))
+                                    Text("Include me on the supporter list", color = FxText, fontSize = 12.sp)
+                                }
+                                FxTextField(donorMessage, { donorMessage = it.take(300) }, "Optional message (max 300 characters)", minLines = 2)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Checkbox(
+                                        checked = showMessagePublicly,
+                                        onCheckedChange = { showMessagePublicly = it },
+                                        enabled = showOnLeaderboard && donorMessage.isNotBlank(),
+                                        colors = CheckboxDefaults.colors(checkedColor = FxMint, checkmarkColor = FxNavy)
+                                    )
+                                    Text("Show my message publicly", color = FxText, fontSize = 12.sp)
+                                }
+                            }
+                            Text(
+                                if (!enabled) "Contributions are temporarily paused. Please check back later."
+                                else if (!gatewayEnabled || !gatewayReady) "Secure checkout is temporarily unavailable. No payment will be started until it is ready."
+                                else "Your payment opens in a secure browser tab. A checkout response alone does not verify a contribution.",
+                                color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp
+                            )
+                            Button(
+                                onClick = {
+                                    val value = amountPaise
+                                    if (value == null || value < minimumPaise || value > maximumPaise) {
+                                        paymentMessage = "Enter an amount between ₹" + String.format(Locale.ROOT, "%.2f", minimumPaise / 100.0) +
+                                            " and ₹" + String.format(Locale.ROOT, "%.2f", maximumPaise / 100.0) + "."
+                                        return@Button
+                                    }
+                                    if (!donorEmailValid) {
+                                        paymentMessage = "Enter a valid email address or leave it blank."
+                                        return@Button
+                                    }
+                                    if (!enabled || !gatewayEnabled || !gatewayReady) {
+                                        paymentMessage = "Secure checkout is temporarily unavailable. Please try again later."
+                                        return@Button
+                                    }
+                                    if (client.auth.currentUserOrNull()?.id != userId) {
+                                        paymentMessage = "Your session has expired. Sign in again before contributing."
+                                        return@Button
+                                    }
+
+                                    paymentBusy = true
+                                    paymentMessage = ""
+                                    val orderId = nativeDonationOrderId()
+                                    scope.launch {
+                                        try {
+                                            client.from("donation_intents").insert(
+                                                NativeDonationIntentInsert(
+                                                    orderId = orderId,
+                                                    donorUserId = userId,
+                                                    amountPaise = value,
+                                                    donorName = if (anonymous) null else donorName.trim().takeIf { it.isNotBlank() },
+                                                    donorEmail = if (anonymous) null else donorEmail.trim().takeIf { it.isNotBlank() },
+                                                    isAnonymous = anonymous,
+                                                    showOnLeaderboard = !anonymous && showOnLeaderboard,
+                                                    showMessagePublicly = !anonymous && showOnLeaderboard && showMessagePublicly && donorMessage.isNotBlank(),
+                                                    message = donorMessage.trim().takeIf { !anonymous && showOnLeaderboard && showMessagePublicly && it.isNotBlank() }
+                                                )
+                                            )
+                                            val checkout = createNativeDonationCheckout(
+                                                apiUrl = apiUrl,
+                                                portalUrl = portalUrl,
+                                                merchantKey = merchantKey,
+                                                orderId = orderId,
+                                                amountRupees = value / 100.0,
+                                                donorName = donorName.trim().ifBlank { "Community supporter" },
+                                                donorEmail = donorEmail.trim().takeIf { it.isNotBlank() },
+                                                anonymous = anonymous,
+                                                donorMessage = donorMessage.trim().takeIf { !anonymous && it.isNotBlank() },
+                                                amountPaise = value
+                                            )
+                                            activeOrderId = orderId
+                                            activeAmountPaise = value
+                                            claimedAmountText = String.format(Locale.ROOT, "%.2f", value / 100.0)
+                                            claimedUtr = ""
+                                            proofUri = null
+                                            paymentMessage = "Secure checkout opened. If your bank confirms a debit, return here to submit the UTR and receipt. Reference: " + orderId
+                                            try {
+                                                val checkoutUri = Uri.parse(checkout.checkoutUrl)
+                                                CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, checkoutUri)
+                                            } catch (_: Exception) {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkout.checkoutUrl)))
+                                            }
+                                            refresh++
+                                        } catch (exception: Exception) {
+                                            paymentMessage = exception.message?.take(220)
+                                                ?: "Checkout couldn't be started. No payment page was opened; please try again."
+                                        } finally {
+                                            paymentBusy = false
+                                        }
+                                    }
+                                },
+                                enabled = mayCheckout,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = FxMint, contentColor = FxNavy)
+                            ) {
+                                if (paymentBusy) CircularProgressIndicator(Modifier.size(18.dp), color = FxNavy)
+                                else {
+                                    Icon(Icons.Outlined.Lock, contentDescription = null)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text("Start secure UPI checkout", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (paymentMessage.isNotBlank()) {
+                                Surface(
+                                    color = if (paymentMessage.contains("opened", true)) Color(0xFF16382E) else FxCard,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(paymentMessage, Modifier.padding(12.dp), color = if (paymentMessage.contains("opened", true)) FxMint else FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
+                                }
+                            }
+                        }
                     }
                 }
-                item { Text("Your contribution will appear in the totals after the payment has been verified. Keep your UPI reference until the status is confirmed.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp) }
+
+                if (activeOrderId.isNotBlank()) {
+                    item {
+                        Surface(color = FxSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Text("Submit payment proof", color = FxText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Reference: " + activeOrderId, color = FxMint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Only submit this after your UPI app or bank confirms the transfer. A screenshot or UTR alone does not mark a contribution verified.",
+                                    color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp
+                                )
+                                FxTextField(claimedUtr, { claimedUtr = it.trimStart().take(80); proofMessage = "" }, "UPI transaction ID / UTR (6–80 characters)")
+                                FxTextField(claimedAmountText, { claimedAmountText = it.filter { ch -> ch.isDigit() || ch == '.' }.take(12); proofMessage = "" }, "Amount actually paid (₹)", numeric = true)
+                                FxTextField(proofNote, { proofNote = it.take(2000) }, "Additional details (optional)", minLines = 2)
+                                OutlinedButton(
+                                    onClick = { proofPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf")) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FxText)
+                                ) {
+                                    Icon(Icons.Outlined.AttachFile, contentDescription = null)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(proofUri?.lastPathSegment?.substringAfterLast('/') ?: "Choose receipt screenshot or PDF")
+                                }
+                                Button(
+                                    onClick = {
+                                        val uri = proofUri
+                                        val utr = claimedUtr.trim()
+                                        val actualAmount = claimedAmountText.trim().toDoubleOrNull()
+                                        when {
+                                            !Regex("^[A-Za-z0-9_-]{6,80}$").matches(utr) -> proofMessage = "Enter the actual 6–80 character UPI transaction reference."
+                                            actualAmount == null || actualAmount < 1.0 || actualAmount > 100000.0 -> proofMessage = "Enter the amount shown in your bank/UPI app."
+                                            uri == null -> proofMessage = "Attach the payment screenshot or PDF receipt."
+                                            else -> {
+                                                proofBusy = true
+                                                proofMessage = ""
+                                                scope.launch {
+                                                    var uploadedPath: String? = null
+                                                    try {
+                                                        check(client.auth.currentUserOrNull()?.id == userId) { "Your session has expired. Sign in again." }
+                                                        val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                                                        check(mimeType in setOf("image/jpeg", "image/png", "image/webp", "application/pdf")) {
+                                                            "Use a JPG, PNG, WebP image or PDF receipt."
+                                                        }
+                                                        val fileName = queryDonationProofName(uri, context)
+                                                        val safeName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(100).ifBlank { "payment-proof" }
+                                                        val bytes = readNativeDonationProof(uri, context)
+                                                        val filePath = userId + "/" + activeOrderId + "-" + UUID.randomUUID() + "-" + safeName
+                                                        client.storage.from("donation-payment-evidence").upload(filePath, bytes) {
+                                                            contentType = ContentType.parse(mimeType)
+                                                            upsert = false
+                                                        }
+                                                        uploadedPath = filePath
+                                                        val result = client.postgrest.rpc(
+                                                            function = "janwatch_submit_manual_donation_claim",
+                                                            parameters = buildJsonObject {
+                                                                put("p_order_id", activeOrderId)
+                                                                put("p_screenshot_path", filePath)
+                                                                put("p_claimed_utr", utr)
+                                                                put("p_claimed_amount_paise", (actualAmount * 100.0).toLong())
+                                                                put("p_user_note", proofNote.trim())
+                                                            }
+                                                        )
+                                                        val returned = Json.parseToJsonElement(result.data).jsonObject
+                                                        proofMessage = returned["message"]?.jsonPrimitive?.content
+                                                            ?: "Receipt submitted for payment review. This does not mean payment has been verified."
+                                                        activeOrderId = ""
+                                                        proofUri = null
+                                                        claimedUtr = ""
+                                                        refresh++
+                                                    } catch (exception: Exception) {
+                                                        proofMessage = exception.message?.take(220)
+                                                            ?: "Receipt couldn't be submitted. Check your connection and try again."
+                                                    } finally {
+                                                        proofBusy = false
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !proofBusy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = FxMint, contentColor = FxNavy)
+                                ) {
+                                    if (proofBusy) CircularProgressIndicator(Modifier.size(18.dp), color = FxNavy)
+                                    else Text("Submit UTR and receipt", fontWeight = FontWeight.Bold)
+                                }
+                                if (proofMessage.isNotBlank()) Text(proofMessage, color = FxMint, fontSize = 11.sp, lineHeight = 16.sp)
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Your contributions", color = FxText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                if (history.isEmpty()) {
+                    item {
+                        FxEmptyCard(
+                            "No contributions yet",
+                            "Start a contribution above. Saved references and payment-review statuses will appear here."
+                        )
+                    }
+                } else {
+                    items(history.take(20), key = { it.id }) { donation ->
+                        Surface(color = FxSurface, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("₹" + String.format(Locale.ROOT, "%.2f", donation.amountPaise / 100.0), color = FxText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                        Text("Ref: " + donation.orderId, color = FxMuted, fontSize = 10.sp)
+                                    }
+                                    FxStatusPill(
+                                        if (donation.status.equals("succeeded", true) || donation.claimStatus == "confirmed") "verified"
+                                        else donation.claimStatus ?: donation.status
+                                    )
+                                }
+                                Text(fxDate(donation.createdAt), color = FxMuted, fontSize = 10.sp)
+                                when (donation.claimStatus) {
+                                    "pending_review" -> Text("Receipt received and awaiting bank-record verification. Please do not pay again.", color = FxAmber, fontSize = 11.sp, lineHeight = 16.sp)
+                                    "rejected" -> Text(
+                                        "More information is needed: " + (donation.adminReviewNote ?: "Check the transaction reference and receipt."),
+                                        color = FxRose, fontSize = 11.sp, lineHeight = 16.sp
+                                    )
+                                    "confirmed" -> Text("Payment verified. Thank you for supporting LokPravaah.", color = FxMint, fontSize = 11.sp)
+                                }
+                                if (!donation.status.equals("succeeded", true) &&
+                                    donation.claimStatus != "confirmed" && donation.claimStatus != "pending_review"
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            activeOrderId = donation.orderId
+                                            activeAmountPaise = donation.amountPaise
+                                            claimedUtr = donation.claimedUtr.orEmpty()
+                                            claimedAmountText = String.format(Locale.ROOT, "%.2f", (donation.claimedAmountPaise ?: donation.amountPaise) / 100.0)
+                                            proofUri = null
+                                            proofMessage = ""
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("Submit payment proof", color = FxMint, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = { refresh++ }, enabled = !loading && !paymentBusy && !proofBusy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Refresh campaign and payment status", color = FxText)
+                    }
+                }
             }
         }
     }
 }
+
+private suspend fun createNativeDonationCheckout(
+    apiUrl: String,
+    portalUrl: String,
+    merchantKey: String,
+    orderId: String,
+    amountRupees: Double,
+    donorName: String,
+    donorEmail: String?,
+    anonymous: Boolean,
+    donorMessage: String?,
+    amountPaise: Long
+): NativeGatewayCheckout = withContext(Dispatchers.IO) {
+    val apiUri = Uri.parse(apiUrl)
+    val portalUri = Uri.parse(portalUrl)
+    check(apiUri.scheme == "https" && !apiUri.host.isNullOrBlank()) { "The secure payment service is unavailable." }
+    check(portalUri.scheme == "https" && !portalUri.host.isNullOrBlank()) { "The secure payment portal is unavailable." }
+    check(merchantKey.isNotBlank()) { "The secure payment service is not configured." }
+
+    val body = JSONObject()
+        .put("amount", amountRupees)
+        .put("orderId", orderId)
+        .put("currency", "INR")
+        .put("description", "Voluntary contribution to support LokPravaah")
+        .put(
+            "metadata",
+            JSONObject()
+                .put("purpose", "lokpravaah_donation")
+                .put("order_id", orderId)
+                .put("amount_paise", amountPaise)
+        )
+    if (!anonymous) {
+        val customer = JSONObject()
+        if (donorName.isNotBlank()) customer.put("fullName", donorName.take(80))
+        if (!donorEmail.isNullOrBlank()) customer.put("email", donorEmail.take(254))
+        if (customer.length() > 0) body.put("customer", customer)
+        if (!donorMessage.isNullOrBlank()) body.put("note", donorMessage.take(300))
+    }
+
+    val connection = (URL(apiUrl.trimEnd('/') + "/api/v1/payments").openConnection() as HttpURLConnection)
+    try {
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 20_000
+        connection.instanceFollowRedirects = false
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("X-Merchant-Id", merchantKey)
+        connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val responseCode = connection.responseCode
+        val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+        val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = try { JSONObject(responseText) } catch (_: Exception) { JSONObject() }
+        if (responseCode !in 200..299) {
+            throw IOException("Secure checkout couldn't create a payment session. No payment was opened; please retry later.")
+        }
+        val paymentId = response.optString("paymentId")
+        val checkoutUrl = response.optString("checkoutUrl")
+        val checkoutUri = Uri.parse(checkoutUrl)
+        check(paymentId.isNotBlank() && checkoutUrl.isNotBlank()) { "The payment service returned an incomplete checkout response." }
+        check(checkoutUri.scheme == "https" && checkoutUri.host == portalUri.host) {
+            "The payment service returned an untrusted checkout link. No payment was opened."
+        }
+        NativeGatewayCheckout(paymentId, checkoutUrl)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun nativeDonationOrderId(): String {
+    val timestamp = java.lang.Long.toString(System.currentTimeMillis(), 36).uppercase(Locale.ROOT)
+    val random = UUID.randomUUID().toString().replace("-", "").take(16).uppercase(Locale.ROOT)
+    return "LPDON-" + timestamp + "-" + random
+}
+
+private fun queryDonationProofName(uri: Uri, context: android.content.Context): String {
+    var name = uri.lastPathSegment?.substringAfterLast('/') ?: "payment-proof"
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0) name = cursor.getString(index) ?: name
+        }
+    }
+    return name
+}
+
+private suspend fun readNativeDonationProof(uri: Uri, context: android.content.Context): ByteArray = withContext(Dispatchers.IO) {
+    val stream = context.contentResolver.openInputStream(uri) ?: throw IOException("The receipt file couldn't be opened.")
+    stream.use { input ->
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > 10 * 1024 * 1024) throw IOException("Receipt must be 10 MB or smaller.")
+            output.write(buffer, 0, count)
+        }
+        if (total == 0) throw IOException("The receipt file is empty.")
+        output.toByteArray()
+    }
+}
+
+@Serializable
+private data class NativeDonationIntentInsert(
+    @SerialName("order_id") val orderId: String,
+    @SerialName("donor_user_id") val donorUserId: String,
+    @SerialName("amount_paise") val amountPaise: Long,
+    val currency: String = "INR",
+    @SerialName("donor_name") val donorName: String? = null,
+    @SerialName("donor_email") val donorEmail: String? = null,
+    @SerialName("is_anonymous") val isAnonymous: Boolean = false,
+    @SerialName("show_on_leaderboard") val showOnLeaderboard: Boolean = false,
+    @SerialName("show_message_publicly") val showMessagePublicly: Boolean = false,
+    val message: String? = null,
+    val status: String = "pending"
+)
+
+@Serializable
+private data class NativeGatewayCheckout(val paymentId: String, val checkoutUrl: String)
+
+@Serializable
+private data class NativeDonationHistoryEnvelope(val donations: List<NativeDonationHistoryRow> = emptyList())
+
+@Serializable
+private data class NativeDonationHistoryRow(
+    val id: String,
+    @SerialName("order_id") val orderId: String,
+    @SerialName("amount_paise") val amountPaise: Long,
+    val currency: String = "INR",
+    val status: String,
+    @SerialName("is_anonymous") val isAnonymous: Boolean = false,
+    @SerialName("donor_name") val donorName: String? = null,
+    @SerialName("record_source") val recordSource: String? = null,
+    val utr: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("verified_at") val verifiedAt: String? = null,
+    @SerialName("claim_status") val claimStatus: String? = null,
+    @SerialName("claimed_utr") val claimedUtr: String? = null,
+    @SerialName("claimed_amount_paise") val claimedAmountPaise: Long? = null,
+    @SerialName("admin_review_note") val adminReviewNote: String? = null,
+    @SerialName("reviewed_at") val reviewedAt: String? = null,
+    @SerialName("ticket_number") val ticketNumber: Long? = null,
+    @SerialName("ticket_status") val ticketStatus: String? = null
+)
 
 @Composable
 fun NativeSupportTicketsScreen(client: SupabaseClient, userId: String) {
