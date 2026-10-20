@@ -14,8 +14,9 @@ android {
         applicationId = "online.lokpravaah.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Increment for each distributed build so Android recognises it as a newer version.
+        versionCode = 2
+        versionName = "1.0.1"
 
         // Only the Supabase project URL and public anon/publishable key belong here.
         // Never put service-role keys or AI provider secrets in an Android app.

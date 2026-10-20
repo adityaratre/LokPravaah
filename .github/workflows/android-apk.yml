@@ -31,10 +31,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
         run: gradle --no-daemon -p android :app:assembleDebug
+      - name: Rename APK for easy installation
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/LokPravaah.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lokpravaah-android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: LokPravaah-Android
+          path: android/app/build/outputs/apk/debug/LokPravaah.apk
           if-no-files-found: error
           retention-days: 14
