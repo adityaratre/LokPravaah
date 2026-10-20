@@ -1,6 +1,7 @@
 package online.lokpravaah.app
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.content.ContentValues
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -8,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +65,10 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
 private data class NativeMoreItem(
     val title: String,
@@ -683,9 +690,10 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var proofMessage by remember { mutableStateOf("") }
     var enabled by remember { mutableStateOf(false) }
     var gatewayEnabled by remember { mutableStateOf(false) }
-    var portalUrl by remember { mutableStateOf("") }
-    var apiUrl by remember { mutableStateOf("") }
-    var merchantKey by remember { mutableStateOf("") }
+    var upiVpa by remember { mutableStateOf("") }
+    var upiPayeeName by remember { mutableStateOf("LokPravaah") }
+    var activeUpiUri by remember { mutableStateOf("") }
+    var showProofForm by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf("Build a stronger civic community") }
     var description by remember { mutableStateOf("Your contribution helps keep LokPravaah available, accessible and improving.") }
     var goal by remember { mutableStateOf(0L) }
@@ -737,9 +745,18 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
             }?.filter { it > 0 } ?: suggested
             suggested = currentSuggested
             if (refresh == 0 || amountText == "251") amountText = currentSuggested.firstOrNull()?.toString() ?: "251"
-            portalUrl = settings?.get("gateway_portal_url")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
-            apiUrl = settings?.get("gateway_api_url")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
-            merchantKey = settings?.get("gateway_merchant_key")?.let { if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else "" } ?: ""
+            try {
+                val configResponse = client.postgrest.rpc("janwatch_get_public_donation_checkout_config")
+                val config = Json.parseToJsonElement(configResponse.data).jsonObject
+                upiVpa = config["upi_vpa"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                upiPayeeName = config["upi_payee_name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "LokPravaah" }
+                val configMin = config["min_amount_paise"]?.jsonPrimitive?.content?.toLongOrNull()
+                val configMax = config["max_amount_paise"]?.jsonPrimitive?.content?.toLongOrNull()
+                if (configMin != null) minimumPaise = configMin
+                if (configMax != null) maximumPaise = configMax
+            } catch (_: Exception) {
+                upiVpa = ""
+            }
         } catch (_: Exception) {
             error = "Campaign information is temporarily unavailable. Check your connection and try again."
         } finally {
@@ -761,11 +778,9 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     val amountTextValid = Regex("^\\d+(?:\\.\\d{0,2})?$").matches(amountText.trim())
     val amountRupees = amountText.trim().toDoubleOrNull()
     val amountPaise = if (amountTextValid) amountRupees?.let { Math.round(it * 100.0) } else null
-    val gatewayReady = portalUrl.startsWith("https://") && apiUrl.startsWith("https://") &&
-        Uri.parse(portalUrl).host?.equals(Uri.parse(apiUrl).host, ignoreCase = true) == true &&
-        merchantKey.isNotBlank()
+    val upiConfigured = Regex("^[A-Za-z0-9._-]{2,}@[A-Za-z0-9._-]{2,}$").matches(upiVpa)
     val donorEmailValid = donorEmail.isBlank() || Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(donorEmail.trim())
-    val mayCheckout = !loading && !paymentBusy && enabled && gatewayEnabled && gatewayReady &&
+    val mayCheckout = !loading && !paymentBusy && enabled && gatewayEnabled && upiConfigured &&
         amountPaise != null && amountPaise in minimumPaise..maximumPaise && donorEmailValid &&
         client.auth.currentUserOrNull()?.id == userId
 
@@ -870,8 +885,8 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                             }
                             Text(
                                 if (!enabled) "Contributions are temporarily paused. Please check back later."
-                                else if (!gatewayEnabled || !gatewayReady) "Secure checkout is temporarily unavailable. No payment will be started until it is ready."
-                                else "Your payment opens in a secure browser tab. A checkout response alone does not verify a contribution.",
+                                else if (!gatewayEnabled || !upiConfigured) "UPI payments are temporarily unavailable. No payment has been started."
+                                else "A UPI app can open for payment. Your contribution appears in campaign totals only after verification.",
                                 color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp
                             )
                             Button(
@@ -886,8 +901,8 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                         paymentMessage = "Enter a valid email address or leave it blank."
                                         return@Button
                                     }
-                                    if (!enabled || !gatewayEnabled || !gatewayReady) {
-                                        paymentMessage = "Secure checkout is temporarily unavailable. Please try again later."
+                                    if (!enabled || !gatewayEnabled || !upiConfigured) {
+                                        paymentMessage = "The receiving UPI details are temporarily unavailable. No payment was started."
                                         return@Button
                                     }
                                     if (client.auth.currentUserOrNull()?.id != userId) {
@@ -913,31 +928,27 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                                     message = donorMessage.trim().takeIf { !anonymous && showOnLeaderboard && showMessagePublicly && it.isNotBlank() }
                                                 )
                                             )
-                                            val checkout = createNativeDonationCheckout(
-                                                apiUrl = apiUrl,
-                                                portalUrl = portalUrl,
-                                                merchantKey = merchantKey,
-                                                orderId = orderId,
-                                                amountRupees = value / 100.0,
-                                                donorName = donorName.trim().ifBlank { "Community supporter" },
-                                                donorEmail = donorEmail.trim().takeIf { it.isNotBlank() },
-                                                anonymous = anonymous,
-                                                donorMessage = donorMessage.trim().takeIf { !anonymous && it.isNotBlank() },
-                                                amountPaise = value
+                                            val upiUri = buildNativeUpiUri(
+                                                vpa = upiVpa,
+                                                payeeName = upiPayeeName,
+                                                amountPaise = value,
+                                                orderId = orderId
                                             )
                                             activeOrderId = orderId
                                             activeAmountPaise = value
+                                            activeUpiUri = upiUri
+                                            showProofForm = false
                                             claimedAmountText = String.format(Locale.ROOT, "%.2f", value / 100.0)
                                             claimedUtr = ""
                                             proofUri = null
-                                            paymentMessage = "Secure checkout opened. If your bank confirms a debit, return here to submit the UTR and receipt. Reference: " + orderId
-                                            try {
-                                                val checkoutUri = Uri.parse(checkout.checkoutUrl)
-                                                CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, checkoutUri)
-                                            } catch (_: Exception) {
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkout.checkoutUrl)))
-                                            }
+                                            paymentMessage = "Your UPI QR is ready. Check the payee and amount in your UPI app. After payment, tap I paid to submit your UTR and receipt. Reference: " + orderId
                                             refresh++
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(upiUri))
+                                                context.startActivity(Intent.createChooser(intent, "Pay with UPI"))
+                                            } catch (_: Exception) {
+                                                paymentMessage = "Your UPI QR is ready below. Scan it with a UPI app, then tap I paid after the transfer."
+                                            }
                                         } catch (exception: Exception) {
                                             paymentMessage = exception.message?.take(220)
                                                 ?: "Checkout couldn't be started. No payment page was opened; please try again."
@@ -954,7 +965,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                 else {
                                     Icon(Icons.Outlined.Lock, contentDescription = null)
                                     Spacer(Modifier.width(7.dp))
-                                    Text("Start secure UPI checkout", fontWeight = FontWeight.Bold)
+                                    Text("Generate UPI QR and pay", fontWeight = FontWeight.Bold)
                                 }
                             }
                             if (paymentMessage.isNotBlank()) {
