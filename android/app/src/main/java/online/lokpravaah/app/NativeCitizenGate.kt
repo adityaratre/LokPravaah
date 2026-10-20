@@ -50,7 +50,6 @@ private val AuthWhite = Color(0xFFF5F9FF)
 
 @Composable
 fun NativeCitizenGate(
-    onOpenWebsite: () -> Unit,
     passwordRecoveryPending: Boolean = false,
     onPasswordRecoveryComplete: () -> Unit = {}
 ) {
@@ -70,7 +69,7 @@ fun NativeCitizenGate(
     LaunchedEffect(client) {
         if (client == null) {
             checking = false
-            message = "Secure sign-in is not configured in this build. You can continue on the website."
+            message = "Secure sign-in is not configured in this build. Rebuild the app with the Supabase URL and public key configured."
             isError = true
         } else {
             client.auth.sessionStatus.collect { status ->
@@ -110,7 +109,7 @@ fun NativeCitizenGate(
                         Text("Session could not be restored. Please sign in again.", color = AuthWhite)
                     }
                 } else {
-                    NativeAppShell(client = client, userId = currentUserId, onOpenWebsite = onOpenWebsite)
+                    NativeAppShell(client = client, userId = currentUserId)
                 }
             }
             else -> {
@@ -323,9 +322,6 @@ fun NativeCitizenGate(
                             TextButton(onClick = { resetMode = false; message = ""; isError = false }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                                 Text("Back to sign in", color = AuthMuted, fontSize = 12.sp)
                             }
-                        }
-                        TextButton(onClick = onOpenWebsite, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                            Text("Continue on website", color = AuthMuted, fontSize = 11.sp)
                         }
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
