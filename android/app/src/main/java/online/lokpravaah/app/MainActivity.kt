@@ -71,7 +71,6 @@ private val AppMuted = Color(0xFF9BB1C8)
 
 class MainActivity : ComponentActivity() {
     private var showIntro by mutableStateOf(true)
-    private var splashSoundEnabled by mutableStateOf(true)
     private var passwordRecoveryPending by mutableStateOf(false)
     private var startupAudioTrack: AudioTrack? = null
 
@@ -96,16 +95,13 @@ class MainActivity : ComponentActivity() {
             ) {
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(180)
-                    if (splashSoundEnabled) playStartupChime()
+                    playStartupChime()
                     kotlinx.coroutines.delay(1540)
                     showIntro = false
                 }
                 Surface(Modifier.fillMaxSize(), color = AppNavy) {
                     if (showIntro) {
-                        IntroScreen(
-                            soundEnabled = splashSoundEnabled,
-                            onToggleSound = { splashSoundEnabled = !splashSoundEnabled }
-                        )
+                        IntroScreen()
                     } else {
                         NativeCitizenGate(
                             passwordRecoveryPending = passwordRecoveryPending,
@@ -202,7 +198,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun IntroScreen(soundEnabled: Boolean, onToggleSound: () -> Unit) {
+private fun IntroScreen() {
     val progress = androidx.compose.runtime.remember { Animatable(0f) }
     val transition = rememberInfiniteTransition(label = "nativeBrandMotion")
     val pulse by transition.animateFloat(
@@ -346,14 +342,6 @@ private fun IntroScreen(soundEnabled: Boolean, onToggleSound: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Text("CITIZEN POWERED CHANGE", color = Color(0xFF7893AC), fontSize = 9.sp, letterSpacing = 2.3.sp, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = onToggleSound) {
-                Text(
-                    if (soundEnabled) "♫  SOUND ON · TAP TO MUTE" else "♫  SOUND OFF · TAP TO ENABLE",
-                    color = Color(0xFF9BB6D3),
-                    fontSize = 9.sp,
-                    letterSpacing = 0.7.sp
-                )
-            }
         }
     }
 }
