@@ -30,6 +30,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
+        env:
+          SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
+          # Publishable/anon client key only. Never provide a service-role key to this workflow.
+          SUPABASE_ANON_KEY: sb_publishable_lcKMw3ukzSeGhUW6THNsLw_JMsATwJX
         run: gradle --no-daemon -p android :app:assembleDebug
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
