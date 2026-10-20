@@ -35,8 +35,20 @@ class NativeAuthRepository(
         // The repository does not assume that registration automatically authenticates the user.
     }
 
+    suspend fun requestPasswordReset(email: String) {
+        requireValidEmail(email)
+        supabase.auth.resetPasswordForEmail(email.trim())
+    }
+
+    suspend fun updatePassword(password: String) {
+        require(password.length >= 8) { "Use a password with at least 8 characters." }
+        supabase.auth.updateUser {
+            this.password = password
+        }
+    }
+
     suspend fun signInWithGoogle() {
-        supabase.auth.signInWith(Google)
+        supabase.auth.signInWith(Google, redirectUrl = "lokpravaah://auth")
     }
 
     suspend fun signOut() {
@@ -48,9 +60,13 @@ class NativeAuthRepository(
     }
 
     private fun requireValidCredentials(email: String, password: String) {
+        requireValidEmail(email)
+        require(password.isNotEmpty()) { "Enter your password." }
+    }
+
+    private fun requireValidEmail(email: String) {
         require(email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))) {
             "Enter a valid email address."
         }
-        require(password.isNotEmpty()) { "Enter your password." }
     }
 }
