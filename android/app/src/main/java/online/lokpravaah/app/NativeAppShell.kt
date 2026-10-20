@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Shield
@@ -95,6 +96,27 @@ enum class CitizenTab(val label: String) {
 fun NativeAppShell(client: SupabaseClient, userId: String) {
     var selectedTab by remember { mutableStateOf(CitizenTab.HOME) }
     var showBottomNav by remember { mutableStateOf(true) }
+    var accountMenuExpanded by remember { mutableStateOf(false) }
+    var signingOut by remember { mutableStateOf(false) }
+    var accountError by remember { mutableStateOf("") }
+    var accountName by remember {
+        mutableStateOf(client.auth.currentUserOrNull()?.email?.substringBefore("@")?.replaceFirstChar { it.uppercase() } ?: "Citizen")
+    }
+    val accountEmail = client.auth.currentUserOrNull()?.email.orEmpty()
+    val accountScope = rememberCoroutineScope()
+
+    LaunchedEffect(userId) {
+        try {
+            val profile = client.from("profiles").select(columns = Columns.raw("display_name")) {
+                filter { eq("id", userId) }
+                limit(1)
+            }.decodeList<NativeProfileSummary>().firstOrNull()
+            accountName = profile?.displayName?.takeIf { it.isNotBlank() }
+                ?: accountEmail.substringBefore("@").replaceFirstChar { it.uppercase() }.ifBlank { "Citizen" }
+        } catch (_: Exception) {
+            // Account shortcut remains available when the optional profile query fails.
+        }
+    }
     BackHandler(enabled = selectedTab != CitizenTab.HOME) { selectedTab = CitizenTab.HOME; showBottomNav = true }
 
     Surface(
@@ -102,6 +124,62 @@ fun NativeAppShell(client: SupabaseClient, userId: String) {
         color = ShellNavy
     ) {
         Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().background(Color(0xFF081726)).padding(horizontal = 18.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("LokPravaah", color = ShellMint, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.4).sp)
+                    Text("CITIZEN WORKSPACE", color = ShellMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                }
+                Box {
+                    Surface(
+                        color = ShellCard,
+                        shape = CircleShape,
+                        modifier = Modifier.size(43.dp).clickable { accountMenuExpanded = true }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(accountName.take(1).uppercase(), color = ShellMint, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = accountMenuExpanded,
+                        onDismissRequest = { accountMenuExpanded = false }
+                    ) {
+                        Column(Modifier.width(230.dp).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            Text(accountName, color = ShellText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            if (accountEmail.isNotBlank()) Text(accountEmail, color = ShellMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                        }
+                        HorizontalDivider(color = ShellLine)
+                        DropdownMenuItem(
+                            text = { Text("My profile") },
+                            leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                            onClick = { accountMenuExpanded = false; selectedTab = CitizenTab.PROFILE; showBottomNav = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (signingOut) "Signing out..." else "Log out") },
+                            leadingIcon = { Icon(Icons.Outlined.Logout, contentDescription = null) },
+                            enabled = !signingOut,
+                            onClick = {
+                                accountMenuExpanded = false
+                                accountError = ""
+                                signingOut = true
+                                accountScope.launch {
+                                    try {
+                                        client.auth.signOut()
+                                        selectedTab = CitizenTab.HOME
+                                    } catch (_: Exception) {
+                                        accountError = "Sign out failed. Check your connection and try again."
+                                    } finally { signingOut = false }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            if (accountError.isNotBlank()) {
+                Text(accountError, color = ShellRose, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().background(ShellNavy).padding(horizontal = 18.dp, vertical = 5.dp))
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (selectedTab) {
                     CitizenTab.HOME -> NativeHomeScreen(
@@ -221,19 +299,6 @@ private fun NativeHomeScreen(
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("LokPravaah", color = ShellMint, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
-                        Text("CITIZEN IMPACT PLATFORM", color = ShellMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    }
-                    Surface(color = ShellCard, shape = CircleShape, modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(name.take(1).uppercase(), color = ShellMint, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        }
-                    }
-                }
-            }
             item {
                 AnimatedVisibility(visible = true, enter = fadeIn(tween(500)) + slideInVertically(initialOffsetY = { it / 8 }, animationSpec = tween(420, easing = FastOutSlowInEasing))) {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
