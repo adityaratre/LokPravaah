@@ -52,6 +52,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -460,6 +462,7 @@ private fun NativeRecentReport(report: NativeReport, onClick: () -> Unit) {
 @Composable
 private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
     val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var settings by remember { mutableStateOf<NativeRewardSettings?>(null) }
     var balance by remember { mutableStateOf<NativeRewardBalance?>(null) }
     var ledger by remember { mutableStateOf<List<NativeRewardLedger>>(emptyList()) }
@@ -508,7 +511,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                 order("created_at", Order.DESCENDING)
                 limit(30)
             }.decodeList<NativeRewardLedger>()
-            withdrawals = client.from("reward_withdrawals").select(columns = Columns.raw("id,points_requested,payout_method,status,admin_note,created_at,processed_at")) {
+            withdrawals = client.from("reward_withdrawals").select(columns = Columns.raw("id,points_requested,amount_inr,payout_method,status,admin_note,created_at,processed_at,gift_card_brand,gift_card_code")) {
                 filter { eq("user_id", userId) }
                 order("created_at", Order.DESCENDING)
                 limit(20)
@@ -769,7 +772,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Withdrawal requests", color = ShellText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                         if (withdrawals.isEmpty()) NativeEmptyCard("No withdrawal requests", "When withdrawals are enabled, your submitted requests and statuses will appear here.")
-                        else withdrawals.forEach { row -> NativeWithdrawalRow(row) }
+                        else withdrawals.forEach { row -> NativeWithdrawalRow(row) { code -> clipboardManager.setText(AnnotatedString(code)); message = "Gift card code copied." } }
                     }
                 }
             }
@@ -1016,7 +1019,7 @@ private fun NativeLedgerRow(row: NativeRewardLedger) {
 }
 
 @Composable
-private fun NativeWithdrawalRow(row: NativeRewardWithdrawal) {
+private fun NativeWithdrawalRow(row: NativeRewardWithdrawal, onCopyGiftCard: (String) -> Unit) {
     val statusColor = when (row.status.lowercase()) {
         "paid" -> ShellMint
         "approved" -> ShellBlue
@@ -1024,16 +1027,35 @@ private fun NativeWithdrawalRow(row: NativeRewardWithdrawal) {
         else -> ShellAmber
     }
     Surface(color = ShellSurface, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(13.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(row.pointsRequested.toString() + " points · " + row.payoutMethod, color = ShellText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                Text(shortShellDate(row.createdAt), color = ShellMuted, fontSize = 10.sp)
-                if (!row.adminNote.isNullOrBlank()) Text(row.adminNote, color = ShellMuted, fontSize = 11.sp)
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(row.pointsRequested.toString() + " points · " + row.payoutMethod, color = ShellText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    if (row.amountInr > 0.0) Text("Estimated value ₹" + String.format(Locale.ROOT, "%.2f", row.amountInr), color = ShellMuted, fontSize = 10.sp)
+                    if (!row.giftCardBrand.isNullOrBlank()) Text(row.giftCardBrand, color = ShellMuted, fontSize = 10.sp)
+                    Text(shortShellDate(row.createdAt), color = ShellMuted, fontSize = 10.sp)
+                }
+                Surface(color = statusColor.copy(alpha = 0.12f), shape = RoundedCornerShape(100.dp)) {
+                    Text(row.status.replaceFirstChar { it.uppercase() }, color = statusColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                }
             }
-            Surface(color = statusColor.copy(alpha = 0.12f), shape = RoundedCornerShape(100.dp)) {
-                Text(row.status.replaceFirstChar { it.uppercase() }, color = statusColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+            if (row.status.equals("paid", ignoreCase = true) && !row.giftCardCode.isNullOrBlank()) {
+                Surface(color = ShellCard, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Your gift card code", color = ShellMint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            androidx.compose.foundation.text.selection.SelectionContainer {
+                                Text(row.giftCardCode, color = ShellText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        IconButton(onClick = { onCopyGiftCard(row.giftCardCode) }) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy gift card code", tint = ShellMint)
+                        }
+                    }
+                }
             }
+            if (!row.adminNote.isNullOrBlank()) Text(row.adminNote, color = ShellMuted, fontSize = 11.sp, lineHeight = 16.sp)
         }
     }
 }
@@ -1135,6 +1157,7 @@ private data class NativeRewardSettings(
     @SerialName("cash_redemption_enabled") val cashRedemptionEnabled: Boolean = false,
     @SerialName("points_per_rupee") val pointsPerRupee: Double = 100.0,
     @SerialName("min_withdrawal_points") val minWithdrawalPoints: Int = 10000,
+    @SerialName("max_withdrawal_points") val maxWithdrawalPoints: Int = 1000000,
     @SerialName("enabled_payout_methods") val enabledPayoutMethods: List<String> = listOf("UPI")
 )
 
@@ -1155,11 +1178,22 @@ private data class NativeRewardLedger(
 )
 
 @Serializable
+private data class NativeGiftCardOption(
+    val brand: String,
+    @SerialName("min_amount_inr") val minAmountInr: Double,
+    @SerialName("max_amount_inr") val maxAmountInr: Double,
+    val active: Boolean = true
+)
+
+@Serializable
 private data class NativeRewardWithdrawal(
     val id: String,
     @SerialName("points_requested") val pointsRequested: Int,
+    @SerialName("amount_inr") val amountInr: Double = 0.0,
     @SerialName("payout_method") val payoutMethod: String,
     val status: String,
+    @SerialName("gift_card_brand") val giftCardBrand: String? = null,
+    @SerialName("gift_card_code") val giftCardCode: String? = null,
     @SerialName("admin_note") val adminNote: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("processed_at") val processedAt: String? = null
