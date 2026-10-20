@@ -64,3 +64,28 @@
 /* Use the same typography as the rest of the app (the older 'font: 700 12px inherit' is invalid CSS). */
 .downloads-primary,.downloads-secondary,.downloads-icon-button{font:700 12px 'DM Sans',sans-serif}
 .downloads-thankyou-back,.mobile-app-never{font:600 12px 'DM Sans',sans-serif}
+
+/* Dark LokPravaah styling for the mobile prompt and dedicated download page. */
+.mobile-app-popup{border-color:#29434a;background:radial-gradient(ellipse at 50% 0%,#54d8a11a,transparent 58%),#101d25;color:#edf4f5;box-shadow:0 28px 90px #0008}
+.mobile-app-popup-close{border-color:#29434a;color:#c4d4d5;background:#111f27}
+.mobile-app-popup-icon{background:#55d8a11c;color:#8be8c4;border:1px solid #55d8a13d}
+.mobile-app-popup h2{color:#f4fbf8}
+.mobile-app-popup p{color:#a9b8bd}
+.mobile-app-never{color:#9aadb4}
+.public-download-cta{width:min(1160px,calc(100% - 36px));margin:8px auto 46px;padding:clamp(22px,3vw,32px);display:flex;align-items:center;justify-content:space-between;gap:22px;border:1px solid #29434a;border-radius:22px;background:radial-gradient(ellipse at 0% 0%,#55d8a112,transparent 52%),#101d25;color:#edf4f5}
+.public-download-cta h2{margin:8px 0;font:800 clamp(21px,3vw,29px)/1.2 Manrope,sans-serif;letter-spacing:-.7px}
+.public-download-cta p{margin:0;color:#a9b8bd;font-size:12px;line-height:1.7}
+.public-download-cta>.btn{flex:0 0 auto}
+.public-download-page{padding-bottom:28px}
+.public-download-page .public-subpage-hero{margin-bottom:10px}
+.public-downloads-dedicated{width:100%;margin:0;padding:clamp(18px,3vw,30px);border-color:#29434a;background:radial-gradient(ellipse at 90% 0%,#55d8a110,transparent 40%),#101d25;color:#edf4f5;box-shadow:0 18px 55px #0003}
+.public-downloads-dedicated .public-downloads-heading p{color:#a9b8bd}
+.public-downloads-dedicated .downloads-badge{background:#55d8a114;color:#8be8c4;border-color:#55d8a13a}
+.public-downloads-dedicated .public-download-card{border-color:#29434a;background:#0d1820}
+.public-downloads-dedicated .download-file-icon{background:#55d8a11a;color:#8be8c4}
+.public-downloads-dedicated .download-file-title{color:#edf4f5}
+.public-downloads-dedicated .download-file-info p,.public-downloads-dedicated .download-file-meta{color:#9aadb4}
+.public-downloads-dedicated .downloads-empty{border-color:#29434a;background:#0d1820;color:#a9b8bd}
+.downloads-back-arrow{transform:rotate(180deg)}
+@media(max-width:640px){.public-download-cta{align-items:stretch;flex-direction:column}.public-download-cta>.btn{width:100%;justify-content:center}.public-download-page{padding-bottom:18px}.public-downloads-dedicated{padding:18px}.public-downloads-dedicated .public-downloads-heading{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.mobile-app-popup{animation:none}}
