@@ -87,11 +87,12 @@ enum class CitizenTab(val label: String) {
     HOME("Home"), REPORTS("Reports"), AI("AI"), COMMUNITY("Community"), MORE("More"),
     REWARDS("Rewards"), CIVIC_TOOLKIT("Civic toolkit"), EXPLORE_MAP("Explore map"),
     WORKER_HUB("Worker hub"), REFERRALS("Refer & Earn"), DONATE("Donate"),
-    SUPPORT("Support"), PROFILE("Profile")
+    SUPPORT("Support"), PROFILE("Profile"), HOW_IT_WORKS("How it works"),
+    BLOG("Blog & updates"), DOWNLOADS("Downloads")
 }
 
 @Composable
-fun NativeAppShell(client: SupabaseClient, userId: String, onOpenWebsite: () -> Unit) {
+fun NativeAppShell(client: SupabaseClient, userId: String) {
     var selectedTab by remember { mutableStateOf(CitizenTab.HOME) }
     var showBottomNav by remember { mutableStateOf(true) }
     BackHandler(enabled = selectedTab != CitizenTab.HOME) { selectedTab = CitizenTab.HOME; showBottomNav = true }
@@ -107,30 +108,32 @@ fun NativeAppShell(client: SupabaseClient, userId: String, onOpenWebsite: () -> 
                         client = client, userId = userId,
                         onOpenReports = { selectedTab = CitizenTab.REPORTS },
                         onOpenRewards = { selectedTab = CitizenTab.REWARDS },
-                        onOpenCommunity = { selectedTab = CitizenTab.COMMUNITY },
-                        onOpenWebsite = onOpenWebsite
+                        onOpenCommunity = { selectedTab = CitizenTab.COMMUNITY }
                     )
                     CitizenTab.REPORTS -> NativeReportsScreen(
-                        client = client, userId = userId, onOpenWebsite = onOpenWebsite,
+                        client = client, userId = userId,
                         onContentDepthChanged = { showBottomNav = !it }
                     )
                     CitizenTab.AI -> NativeAiScreen(client = client, userId = userId)
                     CitizenTab.COMMUNITY -> NativeCommunityScreen(client, userId)
-                    CitizenTab.MORE -> NativeMoreScreen(
-                        onSelect = { selectedTab = it },
-                        onOpenWebsite = onOpenWebsite
-                    )
+                    CitizenTab.MORE -> NativeMoreScreen(onSelect = { selectedTab = it })
                     CitizenTab.REWARDS -> NativeRewardsScreen(client, userId)
                     CitizenTab.CIVIC_TOOLKIT -> NativeCivicToolkitScreen()
                     CitizenTab.EXPLORE_MAP -> NativeExploreScreen(client, userId)
                     CitizenTab.WORKER_HUB -> NativeWorkerScreen(client, userId)
                     CitizenTab.REFERRALS -> NativeReferralScreen(client, userId)
-                    CitizenTab.DONATE -> NativeDonateScreen(client, userId, onOpenWebsite)
+                    CitizenTab.DONATE -> NativeDonateScreen(client, userId)
                     CitizenTab.SUPPORT -> NativeSupportTicketsScreen(client, userId)
                     CitizenTab.PROFILE -> NativeProfileScreen(
-                        client, userId, onOpenWebsite = onOpenWebsite,
+                        client, userId,
                         onSignedOut = { selectedTab = CitizenTab.HOME }
                     )
+                    CitizenTab.HOW_IT_WORKS -> NativeHowItWorksScreen(
+                        onOpenReports = { selectedTab = CitizenTab.REPORTS },
+                        onOpenAi = { selectedTab = CitizenTab.AI }
+                    )
+                    CitizenTab.BLOG -> NativeBlogScreen(client)
+                    CitizenTab.DOWNLOADS -> NativeDownloadsScreen(client)
                 }
             }
             if (showBottomNav) {
@@ -184,8 +187,7 @@ private fun NativeHomeScreen(
     userId: String,
     onOpenReports: () -> Unit,
     onOpenRewards: () -> Unit,
-    onOpenCommunity: () -> Unit,
-    onOpenWebsite: () -> Unit
+    onOpenCommunity: () -> Unit
 ) {
     val context = LocalContext.current
     var name by remember { mutableStateOf("Citizen") }
@@ -336,13 +338,6 @@ private fun NativeHomeScreen(
             } else if (!loading) {
                 items(reports.take(3), key = { it.id }) { report ->
                     NativeRecentReport(report = report, onClick = onOpenReports)
-                }
-            }
-            item {
-                TextButton(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth()) {
-                    Text("Open full LokPravaah website", color = ShellMuted, fontSize = 12.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.ArrowForward, contentDescription = null, tint = ShellMuted, modifier = Modifier.size(14.dp))
                 }
             }
         }
@@ -675,7 +670,7 @@ private fun NativeCommunityScreen(client: SupabaseClient, userId: String) {
 }
 
 @Composable
-private fun NativeProfileScreen(client: SupabaseClient, userId: String, onOpenWebsite: () -> Unit, onSignedOut: () -> Unit) {
+private fun NativeProfileScreen(client: SupabaseClient, userId: String, onSignedOut: () -> Unit) {
     var profile by remember { mutableStateOf<NativeProfileSummary?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
@@ -730,10 +725,6 @@ private fun NativeProfileScreen(client: SupabaseClient, userId: String, onOpenWe
             }
             if (error.isNotBlank()) item { NativeErrorCard(error, onRetry = { refresh++ }) }
             item {
-                OutlinedButton(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
-                    Text("Open full LokPravaah website", color = ShellText)
-                }
-                Spacer(Modifier.height(3.dp))
                 Button(
                     onClick = {
                         signoutLoading = true
