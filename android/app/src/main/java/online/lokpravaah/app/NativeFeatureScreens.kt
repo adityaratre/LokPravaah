@@ -1061,7 +1061,12 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                     }
                 }
 
-                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && activeClaimStatusIsOpen(history, activeOrderId)) {
+                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && history.none { row ->
+                    row.orderId == activeOrderId && (
+                        row.status.equals("succeeded", ignoreCase = true) ||
+                            row.claimStatus in listOf("pending_review", "confirmed", "rejected")
+                    )
+                }) {
                     item {
                         Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(
