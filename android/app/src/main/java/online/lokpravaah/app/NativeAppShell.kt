@@ -532,7 +532,13 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
         "Bank transfer" -> bankName.trim().length in 2..50 &&
             bankAccountNumber.matches(Regex("^[0-9]{8,18}$")) &&
             Regex("^[A-Z]{4}0[A-Z0-9]{6}$").matches(bankIfsc.trim().uppercase())
-        "Gift card" -> giftCardOptions.any { it.brand == giftCardBrand }
+        "Gift card" -> {
+            val rate = currentSettings?.pointsPerRupee ?: 0.0
+            val option = giftCardOptions.firstOrNull { it.brand == giftCardBrand }
+            val valueInRupees = if (requestedPoints != null && rate > 0.0)
+                Math.round(requestedPoints / rate * 100.0) / 100.0 else 0.0
+            option != null && valueInRupees >= option.minAmountInr && valueInRupees <= option.maxAmountInr
+        }
         else -> false
     }
     val canRequest = redemptionEnabled && !sending &&
@@ -708,7 +714,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                                             !destinationValid -> message = when (payoutMethod) {
                                                 "UPI" -> "Enter a valid UPI ID, such as name@bank."
                                                 "Bank transfer" -> "Check the account holder name, 8–18 digit account number and IFSC code."
-                                                "Gift card" -> "Choose an available gift card brand."
+                                                "Gift card" -> "Choose a gift card and keep the redemption value within its available range."
                                                 else -> "Choose an available payout method."
                                             }
                                             else -> {
