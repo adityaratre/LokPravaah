@@ -342,13 +342,15 @@ private fun NativeWaveBrandMark(size: androidx.compose.ui.unit.Dp) {
         shadowElevation = 12.dp
     ) {
         Canvas(Modifier.fillMaxSize().padding(size * 0.18f)) {
+            val canvasWidth = this.size.width
+            val canvasHeight = this.size.height
             val stroke = Stroke(width = size.toPx() * 0.06f)
             for (index in 0..2) {
-                val y = this.size.height * (0.22f + index * 0.25f)
+                val y = canvasHeight * (0.22f + index * 0.25f)
                 val wave = Path().apply {
-                    moveTo(this@Canvas.size.width * 0.04f, y)
-                    cubicTo(this@Canvas.size.width * 0.18f, y - this@Canvas.size.height * 0.14f, this@Canvas.size.width * 0.32f, y - this@Canvas.size.height * 0.14f, this@Canvas.size.width * 0.46f, y)
-                    cubicTo(this@Canvas.size.width * 0.61f, y + this@Canvas.size.height * 0.14f, this@Canvas.size.width * 0.76f, y + this@Canvas.size.height * 0.14f, this@Canvas.size.width * 0.96f, y)
+                    moveTo(canvasWidth * 0.04f, y)
+                    cubicTo(canvasWidth * 0.18f, y - canvasHeight * 0.14f, canvasWidth * 0.32f, y - canvasHeight * 0.14f, canvasWidth * 0.46f, y)
+                    cubicTo(canvasWidth * 0.61f, y + canvasHeight * 0.14f, canvasWidth * 0.76f, y + canvasHeight * 0.14f, canvasWidth * 0.96f, y)
                 }
                 drawPath(wave, Color(0xFF0B3B30), style = stroke)
             }
