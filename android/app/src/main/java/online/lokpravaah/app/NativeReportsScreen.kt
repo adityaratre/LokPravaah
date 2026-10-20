@@ -1,6 +1,10 @@
 package online.lokpravaah.app
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -294,6 +299,29 @@ private fun ReportCreatePage(
     var longitude by remember { mutableStateOf("") }
     var evidence by remember { mutableStateOf<NativePickedEvidence?>(null) }
     var pickerMessage by remember { mutableStateOf("") }
+    fun fillCurrentLocation() {
+        try {
+            val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            val location = providers.asSequence().mapNotNull { provider ->
+                try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null } catch (_: IllegalArgumentException) { null }
+            }.maxByOrNull { it.time }
+            if (location != null) {
+                latitude = location.latitude.toString()
+                longitude = location.longitude.toString()
+                pickerMessage = "Location filled. Check the pin before submitting."
+            } else pickerMessage = "No recent location fix. Turn on device location and retry, or enter coordinates manually."
+        } catch (_: Exception) {
+            pickerMessage = "Could not read your location. You can still enter coordinates manually."
+        }
+    }
+    val requestLocationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) fillCurrentLocation()
+        else pickerMessage = "Location permission was denied. Enter coordinates manually or enable it in App settings."
+    }
     val pickEvidence = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
@@ -348,6 +376,17 @@ private fun ReportCreatePage(
                 OutlinedTextField(value = latitude, onValueChange = { latitude = it.take(15) }, label = { Text("Latitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
                 OutlinedTextField(value = longitude, onValueChange = { longitude = it.take(15) }, label = { Text("Longitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    if (fine || coarse) fillCurrentLocation()
+                    else requestLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            ) { Text("Use my current location", color = ReportsMint) }
             Spacer(Modifier.height(12.dp))
             Surface(color = ReportsPanel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
