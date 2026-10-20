@@ -322,7 +322,7 @@ private fun IntroScreen() {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(
                 modifier = Modifier.size(124.dp).scale(pulse).background(
-                    Brush.linearGradient(listOf(Blue, Teal)), RoundedCornerShape(34.dp)
+                    Color(0xFFB6F4D7), RoundedCornerShape(34.dp)
                 ),
                 contentAlignment = Alignment.Center
             ) {
