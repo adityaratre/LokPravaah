@@ -89,3 +89,16 @@
 .downloads-back-arrow{transform:rotate(180deg)}
 @media(max-width:640px){.public-download-cta{align-items:stretch;flex-direction:column}.public-download-cta>.btn{width:100%;justify-content:center}.public-download-page{padding-bottom:18px}.public-downloads-dedicated{padding:18px}.public-downloads-dedicated .public-downloads-heading{flex-direction:column}}
 @media(prefers-reduced-motion:reduce){.mobile-app-popup{animation:none}}
+
+
+/* Mobile app prompt: make the pop-up feel native to the LokPravaah dark civic dashboard. */
+.mobile-app-popup{font-family:'DM Sans',Inter,system-ui,sans-serif;text-align:left;background:var(--panel,#101b23);color:var(--text,#edf4f5);border-color:var(--border,#29404a);box-shadow:0 32px 100px #0008}
+.mobile-app-popup-icon{margin:0 0 18px;width:58px;height:58px;background:linear-gradient(145deg,#d7ffe9,#78dfb5);color:#10392b;box-shadow:0 12px 32px #55d8a122}
+.mobile-app-popup .downloads-kicker{display:block;margin-bottom:8px}
+.mobile-app-popup h2{font:800 clamp(25px,6vw,30px)/1.12 Manrope,sans-serif;letter-spacing:-.7px;margin:8px 0 10px;color:var(--text,#edf4f5)}
+.mobile-app-popup p{margin:0 0 20px;max-width:none;color:var(--muted2,#a9b8bd);font-size:13px;line-height:1.75}
+.mobile-app-popup .downloads-primary{width:100%;min-height:46px;justify-content:center;margin:0;border-radius:12px}
+.mobile-app-popup-close{background:#16242c;color:var(--text,#edf4f5);border-color:var(--border,#29404a)}
+.mobile-app-never{display:block;width:100%;margin:12px auto 0;padding:10px;border:1px solid var(--border,#29404a);border-radius:10px;background:transparent;color:var(--muted2,#a9b8bd);font:600 12px 'DM Sans',sans-serif;cursor:pointer}
+.theme-dark .mobile-app-popup{--surface:#101b23;--panel:#101b23;--text:#edf4f5;--muted:#a9b8bd;--muted2:#a9b8bd;--border:#29404a;--mint:#55d8a1;--mint-strong:#8be8c4}
+.theme-light .mobile-app-popup{--surface:#fff;--panel:#fff;--text:#17212b;--muted:#5e6b79;--muted2:#5e6b79;--border:#d5dde5;--mint:#168b72;--mint-strong:#168b72}
