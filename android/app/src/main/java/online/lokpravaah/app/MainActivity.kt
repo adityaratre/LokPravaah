@@ -73,7 +73,7 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import java.net.URISyntaxException
 
-private const val HOME_URL = "https://lokpravaah.online/"
+private const val HOME_URL = "https://lokpravaah.online/?mobileApp=1"
 private const val APP_HOST = "lokpravaah.online"
 private val Navy = Color(0xFF07111F)
 private val Blue = Color(0xFF3B82F6)
