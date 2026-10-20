@@ -44,6 +44,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -310,7 +313,7 @@ private fun IntroScreen() {
                 ),
                 contentAlignment = Alignment.Center
             ) {
-                Text("L", color = White, fontSize = 68.sp, fontWeight = FontWeight.Black)
+                Text("≋", color = Color(0xFF12372A), fontSize = 76.sp, fontWeight = FontWeight.Black)
             }
             Spacer(Modifier.height(28.dp))
             Text("LokPravaah", color = White, fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
@@ -346,7 +349,7 @@ private fun AppWebScreen(
 ) {
     Box(Modifier.fillMaxSize().background(Navy)) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
             factory = { context ->
                 activity.createConfiguredWebView().also {
                     onWebView(it)
