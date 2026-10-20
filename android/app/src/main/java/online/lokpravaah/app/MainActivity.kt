@@ -78,6 +78,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import online.lokpravaah.app.data.NativeSupabaseConfig
+import online.lokpravaah.app.data.NativeSupabaseClientProvider
+import io.github.jan.supabase.auth.handleDeeplinks
 import java.net.URISyntaxException
 
 private const val HOME_URL = "https://lokpravaah.online/?mobileApp=1"
@@ -128,6 +131,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNativeAuthCallback(intent)
         window.statusBarColor = android.graphics.Color.rgb(7, 17, 31)
         window.navigationBarColor = android.graphics.Color.rgb(7, 17, 31)
         setContent {
@@ -287,6 +291,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNativeAuthCallback(intent)
+    }
+
+    private fun handleNativeAuthCallback(intent: Intent?) {
+        val callbackUri = intent?.data ?: return
+        if (!NativeSupabaseConfig.isConfigured || callbackUri.scheme != "lokpravaah" || callbackUri.host != "auth") return
+        // The SDK validates and exchanges the PKCE callback; do not log the callback URL or tokens.
+        NativeSupabaseClientProvider.client?.handleDeeplinks(intent)
     }
 
     override fun onDestroy() {
