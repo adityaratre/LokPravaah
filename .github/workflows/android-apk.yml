@@ -31,14 +31,46 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Prepare stable signing key (if configured)
+        env:
+          APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$APK_KEYSTORE_BASE64" ]; then
+            echo "$APK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lokpravaah-release.jks"
+            echo "APK_KEYSTORE_PATH=$RUNNER_TEMP/lokpravaah-release.jks" >> "$GITHUB_ENV"
+            echo "HAS_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+            echo "Release signing secrets not configured; producing a debug APK for testing."
+          fi
+      - name: Build signed release APK
+        if: env.HAS_RELEASE_SIGNING == 'true'
+        env:
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: gradle --no-daemon -p android :app:assembleRelease
+      - name: Build debug APK (signing not configured)
+        if: env.HAS_RELEASE_SIGNING != 'true'
         run: gradle --no-daemon -p android :app:assembleDebug
-      - name: Rename APK for easy installation
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/LokPravaah.apk
+      - name: Stage APK with a consistent filename
+        run: |
+          mkdir -p dist
+          if [ "$HAS_RELEASE_SIGNING" = "true" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk dist/LokPravaah.apk
+            echo "APK_VARIANT=release-signed" >> "$GITHUB_ENV"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk dist/LokPravaah.apk
+            echo "APK_VARIANT=debug-test-only" >> "$GITHUB_ENV"
+          fi
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: LokPravaah-Android
-          path: android/app/build/outputs/apk/debug/LokPravaah.apk
+          path: dist/LokPravaah.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Explain artifact signing
+        run: echo "APK variant: $APK_VARIANT"

@@ -7,6 +7,27 @@ plugins {
 fun buildConfigString(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
+    // Release signing is enabled only when all signing secrets are supplied by CI.
+    val releaseKeystore = System.getenv("APK_KEYSTORE_PATH")
+    val releaseStorePassword = System.getenv("APK_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("APK_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("APK_KEY_PASSWORD")
+
+    signingConfigs {
+        if (!releaseKeystore.isNullOrBlank() &&
+            !releaseStorePassword.isNullOrBlank() &&
+            !releaseKeyAlias.isNullOrBlank() &&
+            !releaseKeyPassword.isNullOrBlank()
+        ) {
+            create("stableRelease") {
+                storeFile = file(releaseKeystore)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     namespace = "online.lokpravaah.app"
     compileSdk = 35
 
@@ -15,8 +36,8 @@ android {
         minSdk = 24
         targetSdk = 35
         // Increment for each distributed build so Android recognises it as a newer version.
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         // Only the Supabase project URL and public anon/publishable key belong here.
         // Never put service-role keys or AI provider secrets in an Android app.
@@ -28,6 +49,9 @@ android {
 
     buildTypes {
         release {
+            if (signingConfigs.findByName("stableRelease") != null) {
+                signingConfig = signingConfigs.getByName("stableRelease")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
