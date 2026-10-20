@@ -84,6 +84,7 @@ fun NativeReportsScreen(
                 errorMessage = "Your session has expired. Please sign in again."
             }
         } catch (error: Exception) {
+            clearSessionIfExpired(client, error)
             reports = emptyList()
             errorMessage = nativeReportError(error)
         } finally {
@@ -108,6 +109,7 @@ fun NativeReportsScreen(
                 errorMessage = "Your session has expired. Please sign in again."
             }
         } catch (error: Exception) {
+            clearSessionIfExpired(client, error)
             errorMessage = nativeReportError(error)
         } finally {
             detailLoading = false
@@ -154,6 +156,7 @@ fun NativeReportsScreen(
                             toast = "Report submitted. Reference: " + created.publicCode
                         }
                     } catch (error: Exception) {
+                        clearSessionIfExpired(client, error)
                         formMessage = nativeReportError(error)
                     } finally {
                         saving = false
@@ -180,6 +183,7 @@ fun NativeReportsScreen(
                             val signedUrl = repository.signedEvidenceUrl(path, userId)
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(signedUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         } catch (error: Exception) {
+                            clearSessionIfExpired(client, error)
                             toast = nativeReportError(error)
                         } finally { evidenceLoading = false }
                     }
@@ -538,6 +542,21 @@ private fun formatFileSize(size: Long?): String {
     if (size < 1024L) return size.toString() + " B"
     if (size < 1024L * 1024L) return (size / 1024L).toString() + " KB"
     return String.format("%.1f MB", size.toDouble() / (1024L * 1024L))
+}
+
+private suspend fun clearSessionIfExpired(client: SupabaseClient, error: Throwable) {
+    val text = error.message.orEmpty().lowercase()
+    val expired = text.contains("jwt expired") ||
+        text.contains("token expired") ||
+        text.contains("token has expired") ||
+        text.contains("invalid jwt") ||
+        text.contains("401 unauthorized") ||
+        text.contains("status code: 401")
+    if (expired) {
+        try { client.auth.signOut() } catch (_: Exception) {
+            // Preserve the original failure; auth state observer will handle local expiry when emitted.
+        }
+    }
 }
 
 private fun nativeReportError(error: Throwable): String {
