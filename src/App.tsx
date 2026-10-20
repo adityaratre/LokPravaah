@@ -523,6 +523,22 @@ export default function App() {
     void refreshData(false)
   }, [user?.id, client, refreshData, user])
 
+  // Keep website report stats and map aligned with the same live database rows used by Android.
+  useEffect(() => {
+    if (!user || !client) return
+    const channel = client.channel('lokpravaah-live-reports')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { void refreshData(true) })
+      .subscribe()
+    const interval = window.setInterval(() => void refreshData(true), 30_000)
+    const onFocus = () => { void refreshData(true) }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      void client.removeChannel(channel)
+    }
+  }, [client, user?.id, refreshData, user])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
