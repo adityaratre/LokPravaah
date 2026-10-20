@@ -82,7 +82,10 @@ private val ShellAmber = Color(0xFFF8D58B)
 private val ShellRose = Color(0xFFFFA9B2)
 
 private enum class CitizenTab(val label: String) {
-    HOME("Home"), REPORTS("Reports"), REWARDS("Rewards"), COMMUNITY("Community"), PROFILE("Profile")
+    HOME("Home"), REPORTS("Reports"), AI("AI"), COMMUNITY("Community"), MORE("More"),
+    REWARDS("Rewards"), CIVIC_TOOLKIT("Civic toolkit"), EXPLORE_MAP("Explore map"),
+    WORKER_HUB("Worker hub"), REFERRALS("Refer & Earn"), DONATE("Donate"),
+    SUPPORT("Support"), PROFILE("Profile")
 }
 
 @Composable
@@ -109,8 +112,19 @@ fun NativeAppShell(client: SupabaseClient, userId: String, onOpenWebsite: () -> 
                         client = client, userId = userId, onOpenWebsite = onOpenWebsite,
                         onContentDepthChanged = { showBottomNav = !it }
                     )
-                    CitizenTab.REWARDS -> NativeRewardsScreen(client, userId)
+                    CitizenTab.AI -> NativeAiScreen(client = client, userId = userId)
                     CitizenTab.COMMUNITY -> NativeCommunityScreen(client, userId)
+                    CitizenTab.MORE -> NativeMoreScreen(
+                        onSelect = { selectedTab = it },
+                        onOpenWebsite = onOpenWebsite
+                    )
+                    CitizenTab.REWARDS -> NativeRewardsScreen(client, userId)
+                    CitizenTab.CIVIC_TOOLKIT -> NativeCivicToolkitScreen()
+                    CitizenTab.EXPLORE_MAP -> NativeExploreScreen(client, userId)
+                    CitizenTab.WORKER_HUB -> NativeWorkerScreen(client, userId)
+                    CitizenTab.REFERRALS -> NativeReferralScreen(client, userId)
+                    CitizenTab.DONATE -> NativeDonateScreen(client, userId, onOpenWebsite)
+                    CitizenTab.SUPPORT -> NativeSupportTicketsScreen(client, userId)
                     CitizenTab.PROFILE -> NativeProfileScreen(
                         client, userId, onOpenWebsite = onOpenWebsite,
                         onSignedOut = { selectedTab = CitizenTab.HOME }
@@ -138,9 +152,9 @@ private fun NativeBottomNavigation(selectedTab: CitizenTab, onSelect: (CitizenTa
         val items = listOf(
             CitizenTab.HOME to Icons.Outlined.Home,
             CitizenTab.REPORTS to Icons.Outlined.ReceiptLong,
-            CitizenTab.REWARDS to Icons.Outlined.AccountBalanceWallet,
+            CitizenTab.AI to Icons.Outlined.AutoAwesome,
             CitizenTab.COMMUNITY to Icons.Outlined.Forum,
-            CitizenTab.PROFILE to Icons.Outlined.Person
+            CitizenTab.MORE to Icons.Outlined.Apps
         )
         items.forEach { (tab, image) ->
             val selected = tab == selectedTab
