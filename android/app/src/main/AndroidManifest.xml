@@ -10,6 +10,8 @@
     <application
         android:allowBackup="false"
         android:label="LokPravaah"
+        android:icon="@drawable/ic_lokpravaah_logo"
+        android:roundIcon="@drawable/ic_lokpravaah_logo"
         android:usesCleartextTraffic="false"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
