@@ -48,7 +48,8 @@ private enum class NativeReportsPage { LIST, CREATE, DETAIL }
 fun NativeReportsScreen(
     client: SupabaseClient,
     userId: String,
-    onOpenWebsite: () -> Unit
+    onOpenWebsite: () -> Unit,
+    onContentDepthChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember(client, context.contentResolver) {
@@ -67,6 +68,10 @@ fun NativeReportsScreen(
     var errorMessage by remember { mutableStateOf("") }
     var formMessage by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf("") }
+
+    LaunchedEffect(page) {
+        onContentDepthChanged(page != NativeReportsPage.LIST)
+    }
 
     BackHandler(enabled = page != NativeReportsPage.LIST) {
         when (page) {
