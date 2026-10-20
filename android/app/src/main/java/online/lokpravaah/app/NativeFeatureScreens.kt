@@ -422,7 +422,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
             enabled = client.from("worker_settings").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("enabled")) {
                 filter { eq("id", true) }; limit(1)
             }.decodeList<NativeWorkerSetting>().firstOrNull()?.enabled ?: false
-            val profile = client.from("worker_profiles").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("user_id,status,city,ward,skills,motivation,available,admin_note,created_at")) {
+            val profile = client.from("worker_profiles").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("user_id,status,city,ward,skills,motivation,available,created_at")) {
                 filter { eq("user_id", userId) }; limit(1)
             }.decodeList<NativeWorkerProfile>().firstOrNull()
             if (profile != null) {
@@ -1571,8 +1571,7 @@ private data class NativeWorkerSetting(val enabled: Boolean = false)
 private data class NativeWorkerProfile(
     @SerialName("user_id") val userId: String, val status: String = "pending", val city: String = "",
     val ward: String = "", val skills: List<String> = emptyList(), val motivation: String = "",
-    val available: Boolean = true, @SerialName("admin_note") val adminNote: String? = null,
-    @SerialName("created_at") val createdAt: String = ""
+    val available: Boolean = true, @SerialName("created_at") val createdAt: String = ""
 )
 
 @Serializable
