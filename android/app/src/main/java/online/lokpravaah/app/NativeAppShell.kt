@@ -383,10 +383,9 @@ private fun NativeHomeScreen(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = ShellMint, trackColor = ShellCard)
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                        NativeMetricCard("PUBLIC", sharedStats?.total?.toString() ?: "—", Icons.Outlined.Description, ShellBlue, Modifier.weight(1f))
-                        NativeMetricCard("ACTIVE", sharedStats?.active?.toString() ?: "—", Icons.Outlined.Timeline, ShellAmber, Modifier.weight(1f))
+                        NativeMetricCard("TOTAL", sharedStats?.total?.toString() ?: "—", Icons.Outlined.Description, ShellBlue, Modifier.weight(1f))
+                        NativeMetricCard("IN PROGRESS", sharedStats?.active?.toString() ?: "—", Icons.Outlined.Timeline, ShellAmber, Modifier.weight(1f))
                         NativeMetricCard("RESOLVED", sharedStats?.resolved?.toString() ?: "—", Icons.Outlined.CheckCircle, ShellMint, Modifier.weight(1f))
-                        NativeMetricCard("MINE", reports.size.toString(), Icons.Outlined.Person, ShellBlue, Modifier.weight(1f))
                     }
                 }
                 if (error.isNotBlank()) {
