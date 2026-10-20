@@ -421,11 +421,11 @@ private fun ReportCreatePage(
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Area, street or landmark") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
             Spacer(Modifier.height(12.dp))
-            Text("Coordinates (optional)", color = ReportsMuted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = latitude, onValueChange = { latitude = it.take(15) }, label = { Text("Latitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
-                OutlinedTextField(value = longitude, onValueChange = { longitude = it.take(15) }, label = { Text("Longitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
-            }
+            Text(
+                if (latitude.isNotBlank() && longitude.isNotBlank()) "Device location captured · required for submission" else "Current device location is required to submit a report.",
+                color = if (latitude.isNotBlank() && longitude.isNotBlank()) ReportsMint else ReportsMuted,
+                fontSize = 12.sp
+            )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
@@ -457,16 +457,19 @@ private fun ReportCreatePage(
             }
             Spacer(Modifier.height(18.dp))
             Button(onClick = {
-                val lat = if (latitude.isBlank()) null else latitude.toDoubleOrNull()
-                val lon = if (longitude.isBlank()) null else longitude.toDoubleOrNull()
+                val lat = latitude.toDoubleOrNull()
+                val lon = longitude.toDoubleOrNull()
                 when {
                     title.trim().length !in 6..160 -> pickerMessage = "Report title must be between 6 and 160 characters."
                     area.trim().length < 3 -> pickerMessage = "Enter an area, street or landmark."
-                    latitude.isNotBlank() && lat == null -> pickerMessage = "Enter a valid latitude."
-                    longitude.isNotBlank() && lon == null -> pickerMessage = "Enter a valid longitude."
-                    (latitude.isBlank()) != (longitude.isBlank()) -> pickerMessage = "Enter both coordinates or leave both empty."
-                    lat != null && lat !in -90.0..90.0 -> pickerMessage = "Latitude must be between -90 and 90."
-                    lon != null && lon !in -180.0..180.0 -> pickerMessage = "Longitude must be between -180 and 180."
+                    lat == null || lon == null -> {
+                        pickerMessage = "Current device location is required. Allow location access and tap Use my current location."
+                        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        if (fine || coarse) fillCurrentLocation()
+                        else requestLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                    }
+                    lat !in -90.0..90.0 || lon !in -180.0..180.0 -> pickerMessage = "Device location is invalid. Capture your current location again."
                     else -> { pickerMessage = ""; onSubmit(title, description, category, area, lat, lon, evidence) }
                 }
             }, modifier = Modifier.fillMaxWidth(), enabled = !saving, colors = ButtonDefaults.buttonColors(containerColor = ReportsMint, contentColor = ReportsNavy)) {
