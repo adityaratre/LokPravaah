@@ -48,7 +48,7 @@ class NativeAuthRepository(
     }
 
     suspend fun signInWithGoogle() {
-        supabase.auth.signInWith(Google)
+        supabase.auth.signInWith(Google, redirectUrl = "lokpravaah://auth")
     }
 
     suspend fun signOut() {
