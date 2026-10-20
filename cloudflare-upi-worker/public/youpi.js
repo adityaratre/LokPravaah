@@ -581,6 +581,7 @@
         '.youpi-manual-success-icon{width:58px;height:58px;border-radius:50%;margin:0 auto;background:#d8f7e9;color:#087d60;display:grid;place-items:center;font-size:30px}',
         '.youpi-manual-success h2{font-size:24px;margin:0;color:#102235}',
         '.youpi-manual-success p{font-size:13px;color:#627187;line-height:1.6;margin:0}',
+        '.youpi-manual-returning{margin-top:2px;color:#087d60;font-size:11px;font-weight:800;letter-spacing:.02em}',
         '.youpi-manual-success button{border:0;background:#0c8a66;color:#fff;border-radius:10px;padding:12px 18px;font-weight:800;margin-top:8px}',
         '@media(max-width:390px){.youpi-manual-proof-panel{padding:16px;padding-top:52px}.youpi-manual-proof-head h2{font-size:22px}.youpi-manual-proof-summary{grid-template-columns:1fr}.youpi-manual-actions{grid-template-columns:1fr}}'
       ].join('');
@@ -653,9 +654,12 @@
           panel.appendChild(stylesheet);
           const success = document.createElement('div');
           success.className = 'youpi-manual-success';
-          success.innerHTML = '<div class="youpi-manual-success-icon">✓</div><h2>Submitted for review</h2><p></p><small>Your donation will be marked successful only after an administrator matches the amount and UTR with the receiving bank statement. Track progress in <b>My donations</b>. Please do not pay again while this claim is under review.</small><button type="button">Close checkout</button>';
-          success.querySelector('p').textContent = outcome.message || 'Your proof is in the administrator review queue.';
+          success.innerHTML = '<div class="youpi-manual-success-icon">✓</div><h2>Thank you for your donation</h2><p></p><small>Your payment proof is <b>under review</b>. An administrator will compare the UTR and amount with the receiving bank statement before confirming it. Please do not pay again while this claim is being checked.</small><div class="youpi-manual-returning">Returning to LokPravaah…</div><button type="button">Return now</button>';
+          success.querySelector('p').textContent = outcome.message || 'Your proof was submitted to the administrator review queue.';
           success.querySelector('button').addEventListener('click', () => this.close());
+          // The React donation page now shows its branded thank-you/review screen underneath.
+          // Close the checkout automatically instead of leaving users on a white/light modal.
+          window.setTimeout(() => { if (this.isOpen) this.close(); }, 1800);
           return;
         }
         errorBox.hidden = false;
