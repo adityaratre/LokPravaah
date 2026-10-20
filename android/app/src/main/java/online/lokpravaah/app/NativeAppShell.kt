@@ -489,7 +489,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
             val rewardFlag = client.from("app_feature_flags").select(columns = Columns.raw("flag_key,enabled")) {
                 filter { eq("flag_key", "rewards") }; limit(1)
             }.decodeList<NativeFeatureFlag>().firstOrNull()?.enabled ?: false
-            check(rewardFlag) { "Rewards are temporarily disabled by the administrator." }
+            check(rewardFlag) { "Rewards are temporarily unavailable. Please try again later." }
             settings = client.from("reward_settings").select(columns = Columns.raw("enabled,cash_redemption_enabled,points_per_rupee,min_withdrawal_points,max_withdrawal_points,enabled_payout_methods")) {
                 filter { eq("id", true) }; limit(1)
             }.decodeList<NativeRewardSettings>().firstOrNull()
@@ -575,7 +575,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                                 Icon(Icons.Outlined.Lock, contentDescription = null, tint = ShellAmber, modifier = Modifier.size(21.dp))
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("Redemption is not active yet", color = ShellText, fontWeight = FontWeight.Bold)
-                                    Text("You can view your verified points. Withdrawal requests remain unavailable until an administrator enables the redemption programme.", color = ShellMuted, fontSize = 12.sp, lineHeight = 18.sp)
+                                    Text("Your verified points are available to view. Payout requests are temporarily unavailable.", color = ShellMuted, fontSize = 12.sp, lineHeight = 18.sp)
                                 }
                             }
                         }
@@ -832,7 +832,7 @@ private fun NativeCommunityScreen(client: SupabaseClient, userId: String) {
                 }
                 if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = ShellMint, trackColor = ShellCard) }
                 if (error.isNotBlank()) item { NativeErrorCard(error, onRetry = { refresh++ }) }
-                if (!loading && error.isBlank() && !enabled) item { NativeEmptyCard("Community chat is paused", "The administrator has temporarily disabled public community chat.") }
+                if (!loading && error.isBlank() && !enabled) item { NativeEmptyCard("Community chat is paused", "Community chat is temporarily unavailable. Please try again later.") }
                 if (!loading && error.isBlank() && enabled && messages.isEmpty()) item { NativeEmptyCard("Start a constructive conversation", "No messages yet. Share a useful update or a question about local civic issues.") }
                 if (enabled && error.isBlank()) items(messages, key = { it.id }) { message ->
                     val own = message.userId == userId
@@ -1127,9 +1127,9 @@ private fun shellFriendlyError(exception: Throwable): String {
     return when {
         lowered.contains("session has expired") || lowered.contains("jwt") || lowered.contains("not authenticated") -> "Your session may have expired. Sign in again and retry."
         lowered.contains("row-level security") || lowered.contains("permission denied") || lowered.contains("403") -> "Supabase denied this action under the current account permissions."
-        lowered.contains("cash redemptions are not enabled") -> "Cash redemption is not enabled yet. Your points remain visible; ask an administrator about the rewards programme."
-        lowered.contains("rewards are currently disabled") || lowered.contains("feature is disabled") -> "This feature is temporarily disabled by an administrator."
-        lowered.contains("relation") && lowered.contains("does not exist") -> "This backend feature is not available in the connected database yet. No tables were created or permissions bypassed."
+        lowered.contains("cash redemptions are not enabled") || lowered.contains("withdrawals are not enabled yet") -> "Payout requests are temporarily unavailable. Your verified points remain visible."
+        lowered.contains("rewards are currently disabled") || lowered.contains("feature is disabled") -> "This feature is temporarily unavailable. Please try again later."
+        lowered.contains("relation") && lowered.contains("does not exist") -> "This feature is temporarily unavailable. Please try again later."
         else -> "The request could not be completed. Check your connection and try again."
     }
 }
