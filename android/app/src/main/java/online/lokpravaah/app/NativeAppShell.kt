@@ -512,7 +512,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                 order("created_at", Order.DESCENDING)
                 limit(30)
             }.decodeList<NativeRewardLedger>()
-            withdrawals = client.from("reward_withdrawals").select(columns = Columns.raw("id,points_requested,amount_inr,payout_method,status,admin_note,created_at,processed_at,gift_card_brand,gift_card_code")) {
+            withdrawals = client.from("reward_withdrawals").select(columns = Columns.raw("id,points_requested,amount_inr,payout_method,status,created_at,processed_at,gift_card_brand,gift_card_code")) {
                 filter { eq("user_id", userId) }
                 order("created_at", Order.DESCENDING)
                 limit(20)
@@ -1056,7 +1056,6 @@ private fun NativeWithdrawalRow(row: NativeRewardWithdrawal, onCopyGiftCard: (St
                     }
                 }
             }
-            if (!row.adminNote.isNullOrBlank()) Text(row.adminNote, color = ShellMuted, fontSize = 11.sp, lineHeight = 16.sp)
         }
     }
 }
@@ -1195,7 +1194,6 @@ private data class NativeRewardWithdrawal(
     val status: String,
     @SerialName("gift_card_brand") val giftCardBrand: String? = null,
     @SerialName("gift_card_code") val giftCardCode: String? = null,
-    @SerialName("admin_note") val adminNote: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("processed_at") val processedAt: String? = null
 )
