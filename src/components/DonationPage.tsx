@@ -317,7 +317,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         : current)
       void loadMyDonations()
       if (claim.status === 'rejected') {
-        setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'We couldn't verify this payment claim. Check the UTR and upload the correct receipt.' })
+        setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'We could not verify this payment claim. Check the UTR and upload the correct receipt.' })
       }
     })()
     return () => { cancelled = true }
