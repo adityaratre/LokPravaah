@@ -29,6 +29,13 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+      # GitHub-hosted runners are ephemeral. Cache the Android debug signing key so
+      # successive debug APKs can update the installed app instead of conflicting.
+      - name: Restore stable debug signing identity
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: lokpravaah-android-debug-signing-v1
       - name: Run Android unit tests and build debug APK
         env:
           SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
