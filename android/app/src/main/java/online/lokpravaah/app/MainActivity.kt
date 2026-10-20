@@ -192,6 +192,17 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView, url: String) {
                     pageLoading = false
                     webError = false
+                    // The native app is for citizens; hide web admin entry points in this shell.
+                    // Server-side role checks remain authoritative on the website and database.
+                    if (Uri.parse(url).host == APP_HOST) {
+                        view.evaluateJavascript(
+                            "(function(){" +
+                                "document.querySelectorAll('.admin-sidebar-link,.admin-entry').forEach(function(e){e.style.display='none';});" +
+                                "document.querySelectorAll('button').forEach(function(b){if(/admin console|moderation console/i.test(b.innerText||'')){b.style.display='none';}});" +
+                                "})();",
+                            null
+                        )
+                    }
                 }
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     if (request.isForMainFrame) {
