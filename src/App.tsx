@@ -347,13 +347,13 @@ export default function App() {
           } else {
             // Supabase restores the signed-in session on page reload. Keep the
             // authenticated workspace visible instead of falling back to welcome.
-            setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+            setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
           }
         }
       } catch {
         if (sessionUser) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       }
       setAuthLoading(false)
@@ -393,16 +393,16 @@ export default function App() {
         } else if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
           // Rehydrate on initial load/sign-in; token refresh must not interrupt navigation.
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       } catch {
         if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       }
       if (!session?.user) {
-        setEntryScreen('welcome')
+        setEntryScreen(IS_MOBILE_APP ? 'auth' : 'welcome')
         setIssues([])
         setStats(EMPTY_STATS)
         setProfile(null)
