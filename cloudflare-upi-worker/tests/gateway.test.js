@@ -194,7 +194,7 @@ test('active checkout QR endpoint returns a real SVG even without hosted checkou
   };
   const response = await worker.fetch(req(`/checkout/${sampleDbPayment.id}/qr.svg`), defaultEnv, {});
   assert.equal(response.status, 200);
-  assert.match(response.headers.get('Content-Type') || '', /image\\/svg\\+xml/i);
+  assert.ok((response.headers.get('Content-Type') || '').includes('image/svg+xml'));
   const svg = await response.text();
   assert.match(svg, /^<svg /);
   assert.match(svg, /<rect /);
