@@ -67,50 +67,18 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
                 Text("Restoring your secure session…", color = AppMuted)
             }
         } else if (authenticated && client != null) {
-            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("LokPravaah", color = AppMint, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("Your voice. Your city. Your impact.", color = AppMuted)
-                Text("Citizen Home", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                Text("Your account stays connected to the existing LokPravaah backend.", color = AppMuted)
-                Button(onClick = {
-                    reportsLoading = true
-                    message = ""
-                    scope.launch {
-                        try {
-                            val userId = client.auth.currentUserOrNull()?.id ?: error("Session expired. Sign in again.")
-                            val result = client.from("reports").select {
-                                filter { eq("reporter_id", userId) }
-                            }
-                            reports = Json.parseToJsonElement(result.data).jsonArray.map { row ->
-                                val obj = row.jsonObject
-                                val title = obj["title"]?.jsonPrimitive?.content ?: "Untitled report"
-                                val status = (obj["status"]?.jsonPrimitive?.content ?: "submitted").replace('_', ' ')
-                                val code = obj["public_code"]?.jsonPrimitive?.content.orEmpty()
-                                title + "\\n" + status.replaceFirstChar { it.uppercase() } + if (code.isNotBlank()) " · " + code else ""
-                            }
-                            if (reports.isEmpty()) message = "No reports found for this account yet."
-                        } catch (e: Exception) { message = e.message?.take(180) ?: "Couldn't load reports." }
-                        finally { reportsLoading = false }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = AppMint, contentColor = AppNavy)) { Text("Load my reports") }
-                if (reportsLoading) CircularProgressIndicator(color = AppMint)
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(reports) { report ->
-                        Surface(color = Color(0xFF102239), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text(report, color = Color.White, modifier = Modifier.padding(14.dp), lineHeight = 21.sp)
-                        }
-                    }
+            val currentUserId = client.auth.currentUserOrNull()?.id.orEmpty()
+            if (currentUserId.isBlank()) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text("Your session could not be restored.", color = Color.White)
+                    TextButton(onClick = { message = "Please sign in again." }) { Text("Continue", color = AppMint) }
                 }
-                Button(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A3048))) { Text("Open full LokPravaah website", color = Color.White) }
-                OutlinedButton(onClick = {
-                    busy = true
-                    scope.launch {
-                        try { NativeAuthRepository().signOut(); message = "Signed out." }
-                        catch (e: Exception) { message = e.message ?: "Sign-out failed." }
-                        finally { busy = false }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), enabled = !busy) { Text(if (busy) "Signing out…" else "Sign out", color = Color.White) }
-                if (message.isNotBlank()) Text(message, color = AppMuted)
+            } else {
+                NativeReportsScreen(
+                    client = client,
+                    userId = currentUserId,
+                    onOpenWebsite = onOpenWebsite
+                )
             }
         } else {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
