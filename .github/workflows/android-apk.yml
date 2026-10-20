@@ -80,3 +80,5 @@ jobs:
           retention-days: 14
       - name: Explain artifact signing
         run: echo "APK variant: $APK_VARIANT"
+
+# Re-trigger Android APK validation after release signing secrets setup.
