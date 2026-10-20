@@ -11,10 +11,11 @@ import io.github.jan.supabase.storage.storage
 import io.ktor.http.ContentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Serializable
 data class NativeReport(
@@ -147,7 +148,7 @@ class NativeReportsRepository(
                     .takeLast(90)
                     .ifBlank { "evidence" }
                 val path = reporterId + "/" + UUID.randomUUID().toString() + "-" + safeName
-                val bytes = readBoundedBytes(evidence.uri)
+                val bytes = withContext(Dispatchers.IO) { readBoundedBytes(evidence.uri) }
                 supabase.storage.from(EVIDENCE_BUCKET).upload(path, bytes) {
                     contentType = ContentType.parse(evidence.mimeType)
                     upsert = false
@@ -169,9 +170,9 @@ class NativeReportsRepository(
             )
             requireCurrentUser(reporterId)
             return supabase.from("reports").insert(payload).decodeSingle<NativeReport>()
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (uploadedPath != null) {
-                try { supabase.storage.from(EVIDENCE_BUCKET).delete(uploadedPath) } catch (_: Throwable) { /* best-effort cleanup */ }
+                try { supabase.storage.from(EVIDENCE_BUCKET).delete(uploadedPath) } catch (_: Exception) { /* best-effort cleanup */ }
             }
             throw error
         }
