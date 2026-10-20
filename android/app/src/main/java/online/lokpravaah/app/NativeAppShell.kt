@@ -469,7 +469,13 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
     var error by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var pointsText by remember { mutableStateOf("") }
+    var payoutMethod by remember { mutableStateOf("UPI") }
     var upiText by remember { mutableStateOf("") }
+    var bankName by remember { mutableStateOf("") }
+    var bankAccountNumber by remember { mutableStateOf("") }
+    var bankIfsc by remember { mutableStateOf("") }
+    var giftCardOptions by remember { mutableStateOf<List<NativeGiftCardOption>>(emptyList()) }
+    var giftCardBrand by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(userId, refresh) {
@@ -480,9 +486,20 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                 filter { eq("flag_key", "rewards") }; limit(1)
             }.decodeList<NativeFeatureFlag>().firstOrNull()?.enabled ?: false
             check(rewardFlag) { "Rewards are temporarily disabled by the administrator." }
-            settings = client.from("reward_settings").select(columns = Columns.raw("enabled,cash_redemption_enabled,min_withdrawal_points,enabled_payout_methods")) {
+            settings = client.from("reward_settings").select(columns = Columns.raw("enabled,cash_redemption_enabled,points_per_rupee,min_withdrawal_points,max_withdrawal_points,enabled_payout_methods")) {
                 filter { eq("id", true) }; limit(1)
             }.decodeList<NativeRewardSettings>().firstOrNull()
+            try {
+                giftCardOptions = client.from("reward_gift_card_options").select(columns = Columns.raw("brand,min_amount_inr,max_amount_inr,active")) {
+                    filter { eq("active", true) }
+                    order("brand", Order.ASCENDING)
+                    limit(30)
+                }.decodeList<NativeGiftCardOption>()
+                if (giftCardBrand.isBlank()) giftCardBrand = giftCardOptions.firstOrNull()?.brand.orEmpty()
+            } catch (_: Exception) {
+                // Gift cards are optional; UPI and bank-transfer redemptions remain available.
+                giftCardOptions = emptyList()
+            }
             val balanceRows = client.postgrest.rpc("janwatch_reward_balance").decodeList<NativeRewardBalance>()
             balance = balanceRows.firstOrNull()
             ledger = client.from("reward_ledger").select(columns = Columns.raw("id,delta_points,reason,created_at,source_report_id")) {
@@ -502,10 +519,23 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
 
     val currentSettings = settings
     val currentBalance = balance
-    val canRequest = !loading && error.isBlank() && currentSettings?.enabled == true &&
-        currentSettings.cashRedemptionEnabled &&
-        currentSettings.enabledPayoutMethods.contains("UPI") &&
-        (currentBalance?.availablePoints ?: 0L) >= (currentSettings.minWithdrawalPoints.toLong())
+    val requestedPoints = pointsText.toIntOrNull()
+    val redemptionEnabled = !loading && error.isBlank() && currentSettings?.enabled == true &&
+        currentSettings.cashRedemptionEnabled && payoutMethod in currentSettings.enabledPayoutMethods
+    val destinationValid = when (payoutMethod) {
+        "UPI" -> Regex("^[A-Za-z0-9._-]{2,}@[A-Za-z0-9._-]{2,}$").matches(upiText.trim())
+        "Bank transfer" -> bankName.trim().length in 2..50 &&
+            bankAccountNumber.matches(Regex("^[0-9]{8,18}$")) &&
+            Regex("^[A-Z]{4}0[A-Z0-9]{6}$").matches(bankIfsc.trim().uppercase())
+        "Gift card" -> giftCardOptions.any { it.brand == giftCardBrand }
+        else -> false
+    }
+    val canRequest = redemptionEnabled && !sending &&
+        requestedPoints != null &&
+        requestedPoints >= (currentSettings?.minWithdrawalPoints ?: Int.MAX_VALUE) &&
+        requestedPoints <= (currentSettings?.maxWithdrawalPoints ?: 0) &&
+        requestedPoints.toLong() <= (currentBalance?.availablePoints ?: 0L) &&
+        destinationValid
 
     Column(Modifier.fillMaxSize().background(ShellNavy)) {
         LazyColumn(
