@@ -1290,6 +1290,14 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
 }
 
 private fun buildNativeUpiUri(vpa: String, payeeName: String, amountPaise: Long, orderId: String): String {
+    // UPI PSPs expect a numeric transaction reference (maximum 35 characters).
+    // The internal order ID is human-readable and is not valid as a UPI transaction reference.
+    val suffix = orderId.replace("-", "").takeLast(16)
+    val transactionReference = runCatching {
+        java.math.BigInteger(suffix, 16).toString()
+    }.getOrElse {
+        orderId.filter { it.isDigit() }.takeLast(35).ifBlank { System.currentTimeMillis().toString() }
+    }
     return Uri.Builder()
         .scheme("upi")
         .authority("pay")
@@ -1297,10 +1305,11 @@ private fun buildNativeUpiUri(vpa: String, payeeName: String, amountPaise: Long,
         .appendQueryParameter("pn", payeeName)
         .appendQueryParameter("am", String.format(Locale.ROOT, "%.2f", amountPaise / 100.0))
         .appendQueryParameter("cu", "INR")
-        .appendQueryParameter("tr", orderId)
-        .appendQueryParameter("tn", "LokPravaah contribution " + orderId)
+        .appendQueryParameter("tr", transactionReference)
+        .appendQueryParameter("tn", ("LokPravaah " + orderId).take(50))
         .build()
         .toString()
+        .replace("+", "%20")
 }
 
 private fun createNativeUpiQrBitmap(value: String): Bitmap? {
