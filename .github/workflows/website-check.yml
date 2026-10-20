@@ -1,0 +1,45 @@
+name: Check LokPravaah Website
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "scripts/**"
+      - "supabase/migrations/**"
+      - ".github/workflows/website-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "scripts/**"
+      - "supabase/migrations/**"
+      - ".github/workflows/website-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Check RPC contracts and build production website
+        run: npm run build
