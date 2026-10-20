@@ -612,12 +612,12 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
           handlePaymentStatus(orderId, 'PENDING_REVIEW')
-          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
+          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not marked successful until the amount and UTR are verified against the receiving-bank statement.` })
           setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
         onSuccess: () => {
           handlePaymentStatus(orderId, 'PENDING_REVIEW')
-          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
+          setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not marked successful until the amount and UTR are verified against the receiving-bank statement.` })
           setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
         onFailed: result => { handlePaymentStatus(orderId, 'FAILED'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
