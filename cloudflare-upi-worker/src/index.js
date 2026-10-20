@@ -1,3 +1,5 @@
+import { qrcode } from '../public/qr-lib.js';
+
 const DEFAULT_MERCHANT_ID = '00000000-0000-0000-0000-000000000001';
 const MAX_BODY_BYTES = 16 * 1024;
 const SECURITY_HEADERS = {
@@ -62,6 +64,25 @@ function paiseFromAmount(amount) {
   return Number.isSafeInteger(value) && value >= 100 && value <= 10_000_000 ? value : null;
 }
 function rupees(paise) { return (Number(paise) / 100).toFixed(2); }
+function generateQrSvg(value, boxSize = 260) {
+  const qr = qrcode(0, 'M');
+  qr.addData(value);
+  qr.make();
+  const count = qr.getModuleCount();
+  const moduleSize = boxSize / count;
+  let rects = '';
+  for (let row = 0; row < count; row++) {
+    for (let col = 0; col < count; col++) {
+      if (qr.isDark(row, col)) {
+        const x = (col * moduleSize).toFixed(2);
+        const y = (row * moduleSize).toFixed(2);
+        const size = (moduleSize + 0.05).toFixed(2);
+        rects += `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="#0f172a"/>`;
+      }
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${boxSize} ${boxSize}" width="${boxSize}" height="${boxSize}" shape-rendering="crispEdges"><rect width="${boxSize}" height="${boxSize}" fill="#fff"/>${rects}</svg>`;
+}
 function hex(bytes) { return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join(''); }
 async function sha256Hex(value) {
   return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
@@ -676,7 +697,7 @@ async function handler(request, env) {
       const receiver = await getReceiverSettings(env);
       const uri = buildUpiUri(payment, env, receiver);
       if (!uri) return text(request, env, 'Receiver UPI details are not configured.', 503);
-      return text(request, env, 'QR codes are generated client-side by the hosted checkout. Open /checkout/' + payment.id + ' in a browser.', 410);
+      return text(request, env, generateQrSvg(uri, 260), 200, 'image/svg+xml; charset=utf-8');
     } catch { return text(request, env, 'QR temporarily unavailable', 503); }
   }
   const checkoutMatch = path.match(/^\/checkout\/([a-f0-9-]{36})$/i);
