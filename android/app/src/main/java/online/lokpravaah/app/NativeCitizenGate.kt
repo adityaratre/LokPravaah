@@ -18,7 +18,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import online.lokpravaah.app.data.NativeAuthRepository
 import online.lokpravaah.app.data.NativeSupabaseClientProvider
-import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -78,7 +78,7 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
                     scope.launch {
                         try {
                             val userId = client.auth.currentUserOrNull()?.id ?: error("Session expired. Sign in again.")
-                            val result = client.postgrest["reports"].select {
+                            val result = client.from("reports").select {
                                 filter { eq("reporter_id", userId) }
                             }
                             reports = Json.parseToJsonElement(result.data).jsonArray.map { row ->
