@@ -23,7 +23,7 @@ import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Coins
+import androidx.compose.material.icons.outlined.MonetizationOn
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LocationOn
@@ -35,7 +35,7 @@ import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.SouthEast
 import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.outlined.TrendingUp
-import androidx.compose.material.icons.outlined.Wallet
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -57,6 +57,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -136,7 +137,7 @@ private fun NativeBottomNavigation(selectedTab: CitizenTab, onSelect: (CitizenTa
         val items = listOf(
             CitizenTab.HOME to Icons.Outlined.Home,
             CitizenTab.REPORTS to Icons.Outlined.ReceiptLong,
-            CitizenTab.REWARDS to Icons.Outlined.Wallet,
+            CitizenTab.REWARDS to Icons.Outlined.AccountBalanceWallet,
             CitizenTab.COMMUNITY to Icons.Outlined.Forum,
             CitizenTab.PROFILE to Icons.Outlined.Person
         )
@@ -180,7 +181,7 @@ private fun NativeHomeScreen(
         loading = true
         error = ""
         try {
-            val profile = client.from("profiles").select {
+            val profile = client.from("profiles").select(columns = Columns.raw("display_name,city,ward,account_type")) {
                 filter { eq("id", userId) }
                 limit(1)
             }.decodeList<NativeProfileSummary>().firstOrNull()
@@ -288,7 +289,7 @@ private fun NativeHomeScreen(
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     NativeQuickAction("My reports", "Track progress", Icons.Outlined.ReceiptLong, ShellBlue, onOpenReports, Modifier.weight(1f))
-                    NativeQuickAction("Rewards", "Your contribution", Icons.Outlined.Coins, ShellAmber, onOpenRewards, Modifier.weight(1f))
+                    NativeQuickAction("Rewards", "Your contribution", Icons.Outlined.MonetizationOn, ShellAmber, onOpenRewards, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(10.dp))
                 NativeQuickAction("Community", "Talk with neighbours", Icons.Outlined.ChatBubbleOutline, ShellMint, onOpenCommunity, Modifier.fillMaxWidth())
@@ -398,21 +399,21 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
         loading = true; error = ""
         try {
             check(client.auth.currentUserOrNull()?.id == userId) { "Your session has expired. Please sign in again." }
-            val rewardFlag = client.from("app_feature_flags").select {
+            val rewardFlag = client.from("app_feature_flags").select(columns = Columns.raw("flag_key,enabled")) {
                 filter { eq("flag_key", "rewards") }; limit(1)
             }.decodeList<NativeFeatureFlag>().firstOrNull()?.enabled ?: false
             check(rewardFlag) { "Rewards are temporarily disabled by the administrator." }
-            settings = client.from("reward_settings").select {
+            settings = client.from("reward_settings").select(columns = Columns.raw("enabled,cash_redemption_enabled,min_withdrawal_points,enabled_payout_methods")) {
                 filter { eq("id", true) }; limit(1)
             }.decodeList<NativeRewardSettings>().firstOrNull()
             val balanceRows = client.postgrest.rpc("janwatch_reward_balance").decodeList<NativeRewardBalance>()
             balance = balanceRows.firstOrNull()
-            ledger = client.from("reward_ledger").select {
+            ledger = client.from("reward_ledger").select(columns = Columns.raw("id,delta_points,reason,created_at,source_report_id")) {
                 filter { eq("user_id", userId) }
                 order("created_at", Order.DESCENDING)
                 limit(30)
             }.decodeList<NativeRewardLedger>()
-            withdrawals = client.from("reward_withdrawals").select {
+            withdrawals = client.from("reward_withdrawals").select(columns = Columns.raw("id,points_requested,payout_method,status,admin_note,created_at,processed_at")) {
                 filter { eq("user_id", userId) }
                 order("created_at", Order.DESCENDING)
                 limit(20)
@@ -435,7 +436,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { NativePageHeader("Rewards", "Your contributions, tracked transparently", Icons.Outlined.Wallet, onRefresh = { refresh++ }, loading = loading) }
+            item { NativePageHeader("Rewards", "Your contributions, tracked transparently", Icons.Outlined.AccountBalanceWallet, onRefresh = { refresh++ }, loading = loading) }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = ShellMint, trackColor = ShellCard) }
             if (error.isNotBlank()) item { NativeErrorCard(error, onRetry = { refresh++ }) }
             if (!loading && error.isBlank() && currentBalance != null) {
@@ -556,11 +557,11 @@ private fun NativeCommunityScreen(client: SupabaseClient, userId: String) {
         loading = true; error = ""
         try {
             check(client.auth.currentUserOrNull()?.id == userId) { "Your session has expired. Please sign in again." }
-            enabled = client.from("app_feature_flags").select {
+            enabled = client.from("app_feature_flags").select(columns = Columns.raw("flag_key,enabled")) {
                 filter { eq("flag_key", "public_chat") }; limit(1)
             }.decodeList<NativeFeatureFlag>().firstOrNull()?.enabled ?: false
             if (enabled) {
-                messages = client.from("community_messages").select {
+                messages = client.from("community_messages").select(columns = Columns.raw("id,user_id,author_name,body,is_hidden,created_at")) {
                     order("created_at", Order.DESCENDING)
                     limit(100)
                 }.decodeList<NativeCommunityMessage>().reversed()
@@ -670,7 +671,7 @@ private fun NativeProfileScreen(client: SupabaseClient, userId: String, onOpenWe
         loading = true; error = ""
         try {
             check(client.auth.currentUserOrNull()?.id == userId) { "Your session has expired. Please sign in again." }
-            profile = client.from("profiles").select {
+            profile = client.from("profiles").select(columns = Columns.raw("display_name,city,ward,account_type")) {
                 filter { eq("id", userId) }; limit(1)
             }.decodeList<NativeProfileSummary>().firstOrNull()
         } catch (exception: Exception) {
