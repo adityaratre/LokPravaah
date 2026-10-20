@@ -6,6 +6,8 @@ on:
     paths:
       - "android/**"
       - "src/App.tsx"
+      - "src/components/Downloads.tsx"
+      - "src/components/Downloads.css"
       - ".github/workflows/android-apk.yml"
   push:
     branches: [main]
