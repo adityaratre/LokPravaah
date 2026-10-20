@@ -11,7 +11,8 @@ fun buildConfigString(value: String): String =
 
 android {
     namespace = "online.lokpravaah.app"
-    compileSdk = 35
+    // Supabase's Android Custom Tabs dependency requires API 36 at compile time.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "online.lokpravaah.app"
