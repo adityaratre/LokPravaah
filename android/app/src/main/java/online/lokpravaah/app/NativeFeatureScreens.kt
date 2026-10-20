@@ -466,7 +466,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                                                 }
                                             )
                                             status = result.data.trim('"')
-                                            message = if (status == "active") "Worker access is active." else "Application saved. It is not approved until an administrator reviews it."
+                                            message = if (status == "active") "Worker access is active." else "Application saved. You can check this page for its review status."
                                             refresh++
                                         } catch (exception: Exception) { message = "Application could not be saved. Review your details and retry." }
                                         finally { busy = false }
@@ -480,7 +480,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                                 else Text("Submit worker application", fontWeight = FontWeight.Bold)
                             }
                             if (message.isNotBlank()) Text(message, color = FxMint, fontSize = 12.sp)
-                            Text("Worker access requires administrator approval. Applications never approve themselves.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp)
+                            Text("Your application remains pending until it has been reviewed.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp)
                         }
                     }
                 }
@@ -506,7 +506,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                     }
                 }
                 item { Text("Assigned tasks", color = FxText, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                if (assignments.isEmpty()) item { FxEmptyCard("No assigned tasks", "New tasks will appear here when an administrator assigns a report to you.") }
+                if (assignments.isEmpty()) item { FxEmptyCard("No assigned tasks", "New assignments will appear here when a task is assigned to you.") }
                 items(assignments, key = { it.id }) { task ->
                     Surface(color = FxSurface, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -734,7 +734,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                             }                        }
                     }
                 }
-                item { Text("Payment is not confirmed by the app UI. Only the existing server/webhook or authorised admin review can confirm a donation.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp) }
+                item { Text("Your contribution will appear in the totals after the payment has been verified. Keep your UPI reference until the status is confirmed.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp) }
             }
         }
     }
