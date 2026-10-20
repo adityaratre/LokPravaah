@@ -19,7 +19,8 @@ import AdminOperations from './components/AdminOperations'
 import WorkerReferralHub, { ReferralStudio } from './components/WorkerReferralHub'
 import DonationPage from './components/DonationPage'
 import TicketSupport from './components/TicketSupport'
-import { PublicDownloads, DownloadsAdmin } from './components/Downloads'
+import { DownloadThankYou, PublicDownloads, DownloadsAdmin } from './components/Downloads'
+import type { PublicDownloadInfo } from './components/Downloads'
 
 type DbStatus = 'submitted' | 'under_review' | 'verified' | 'in_progress' | 'resolved' | 'rejected'
 type SuggestedSeverity = 'normal' | 'high' | 'urgent'
@@ -27,7 +28,7 @@ type ViewName = 'Overview' | 'Explore map' | 'My reports' | 'Community' | 'Publi
 const PRIVILEGED_PLATFORM_ROLES = ['moderator', 'admin', 'super_admin'] as const
 type Language = 'EN' | 'HI'
 type Theme = 'dark' | 'light'
-type EntryScreen = 'welcome' | 'auth' | 'onboarding' | 'workspace'
+type EntryScreen = 'welcome' | 'auth' | 'onboarding' | 'workspace' | 'download-thanks'
 type AuthMode = 'login' | 'register' | 'reset'
 type AccountType = 'citizen' | 'volunteer' | 'organisation'
 type Profile = { display_name: string | null; avatar_url: string | null; impact_points: number | null; preferred_language: string | null; phone?: string | null; city?: string | null; ward?: string | null; account_type?: AccountType | null; preferred_service?: string | null }
@@ -201,6 +202,7 @@ export default function App() {
   const client = supabase
   // The public welcome page is intentional: even a returning authenticated user lands here first.
   const [entryScreen, setEntryScreen] = useState<EntryScreen>(ENTRY_SCREEN)
+  const [downloadThanks, setDownloadThanks] = useState<PublicDownloadInfo | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
@@ -964,8 +966,9 @@ export default function App() {
     })
   }, [issues, query, filter, active, user?.id])
 
+  if (entryScreen === 'download-thanks' && downloadThanks) return <DownloadThankYou download={downloadThanks} onSignIn={() => { setDownloadThanks(null); void chooseAuth('login') }} onBack={() => { setDownloadThanks(null); setEntryScreen('welcome') }} />
   if (authLoading) return <AuthLoading dark={dark} />
-  if (entryScreen === 'welcome') return <><WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} /><PublicDownloads /></>
+  if (entryScreen === 'welcome') return <><WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} /><PublicDownloads onDownloadStarted={download => { setDownloadThanks(download); setEntryScreen('download-thanks') }} /></>
   if (entryScreen === 'auth') return <AuthScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} isConfigured={isSupabaseConfigured} busy={authBusy} error={authError} message={authMessage} mode={authMode} setMode={mode => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} fullName={authFullName} setFullName={setAuthFullName} confirmPassword={authConfirmPassword} setConfirmPassword={setAuthConfirmPassword} onSubmit={submitEmailAuth} onGoogle={() => void signInWithGoogle()} onForgotPassword={() => void resetPassword()} onResend={() => void resendConfirmation()} onBack={() => { setEntryScreen(IS_MOBILE_APP ? 'auth' : 'welcome'); setAuthError(''); setAuthMessage('') }} />
   if (entryScreen === 'onboarding') {
     if (!user) return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />

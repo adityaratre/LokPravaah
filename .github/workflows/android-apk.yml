@@ -6,9 +6,11 @@ on:
     paths:
       - "android/**"
       - "src/App.tsx"
+      - "src/components/Downloads.tsx"
+      - "src/components/Downloads.css"
       - ".github/workflows/android-apk.yml"
   push:
-    branches: [main]
+    branches: [main, feature/native-android-app]
     paths:
       - "android/**"
       - ".github/workflows/android-apk.yml"
@@ -29,12 +31,54 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Prepare stable signing key (if configured)
+        env:
+          APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+        run: |
+          if [ -n "$APK_KEYSTORE_BASE64" ] && [ -n "$APK_KEYSTORE_PASSWORD" ] && [ -n "$APK_KEY_ALIAS" ] && [ -n "$APK_KEY_PASSWORD" ]; then
+            echo "$APK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lokpravaah-release.jks"
+            echo "APK_KEYSTORE_PATH=$RUNNER_TEMP/lokpravaah-release.jks" >> "$GITHUB_ENV"
+            echo "HAS_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
+          elif [ -z "$APK_KEYSTORE_BASE64" ] && [ -z "$APK_KEYSTORE_PASSWORD" ] && [ -z "$APK_KEY_ALIAS" ] && [ -z "$APK_KEY_PASSWORD" ]; then
+            echo "HAS_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+            echo "Release signing secrets not configured; producing a debug APK for testing."
+          else
+            echo "ERROR: Configure all four APK signing secrets together, or leave all four empty." >&2
+            exit 1
+          fi
+      - name: Build signed release APK
+        if: env.HAS_RELEASE_SIGNING == 'true'
+        env:
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: gradle --no-daemon -p android :app:assembleRelease
+      - name: Build debug APK (signing not configured)
+        if: env.HAS_RELEASE_SIGNING != 'true'
         run: gradle --no-daemon -p android :app:assembleDebug
+      - name: Stage APK with a consistent filename
+        run: |
+          mkdir -p dist
+          if [ "$HAS_RELEASE_SIGNING" = "true" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk dist/LokPravaah.apk
+            echo "APK_VARIANT=release-signed" >> "$GITHUB_ENV"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk dist/LokPravaah.apk
+            echo "APK_VARIANT=debug-test-only" >> "$GITHUB_ENV"
+          fi
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lokpravaah-android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: LokPravaah-Android
+          path: dist/LokPravaah.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Explain artifact signing
+        run: echo "APK variant: $APK_VARIANT"
+
+# Re-trigger Android APK validation after release signing secrets setup.
