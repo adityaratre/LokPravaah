@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -100,8 +101,8 @@ enum class CitizenTab(val label: String) {
 
 @Composable
 fun NativeAppShell(client: SupabaseClient, userId: String) {
-    var selectedTab by remember { mutableStateOf(CitizenTab.HOME) }
-    var showBottomNav by remember { mutableStateOf(true) }
+    var selectedTab by rememberSaveable(userId) { mutableStateOf(CitizenTab.HOME) }
+    var showBottomNav by rememberSaveable(userId) { mutableStateOf(true) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     var accountError by remember { mutableStateOf("") }
