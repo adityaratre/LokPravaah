@@ -445,7 +445,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                     Surface(shape = RoundedCornerShape(25.dp), color = ShellMint, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFFD7FFEA), ShellMint, Color(0xFF8FE5BF)))).padding(21.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.Coins, contentDescription = null, tint = Color(0xFF0D4C3A), modifier = Modifier.size(25.dp))
+                                Icon(Icons.Outlined.MonetizationOn, contentDescription = null, tint = Color(0xFF0D4C3A), modifier = Modifier.size(25.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text("AVAILABLE REWARD POINTS", color = Color(0xFF0D4C3A), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                             }
@@ -795,7 +795,7 @@ private fun NativeWithdrawalRow(row: NativeRewardWithdrawal) {
     }
     Surface(color = ShellSurface, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(13.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Wallet, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
+            Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = null, tint = statusColor, modifier = Modifier.size(22.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(row.pointsRequested.toString() + " points · " + row.payoutMethod, color = ShellText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 Text(shortShellDate(row.createdAt), color = ShellMuted, fontSize = 10.sp)
