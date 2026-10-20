@@ -289,7 +289,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   useEffect(() => {
     void loadPublicData()
-    const interval = window.setInterval(() => void loadPublicData(), 30_000)
+    const interval = window.setInterval(() => void loadPublicData(), 15_000)
     const onFocus = () => void loadPublicData()
     window.addEventListener('focus', onFocus)
     return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
