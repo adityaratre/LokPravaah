@@ -339,6 +339,13 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
             error = "Public reports could not be loaded. Check your connection and database permissions."
         } finally { loading = false }
     }
+    LaunchedEffect(userId) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            refresh++
+        }
+    }
+
     val visible = reports.filter { filter == "All" || it.status.equals(filter, ignoreCase = true) }
     val locatedReports = visible.filter { it.latitude != null && it.longitude != null }
     Column(Modifier.fillMaxSize().background(FxNavy)) {
