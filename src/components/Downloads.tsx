@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowRight, Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle, Smartphone, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './Downloads.css'
@@ -150,12 +150,14 @@ export function DownloadsAdmin({ userId }: { userId: string }) {
 
 export function DownloadThankYou({ download, onSignIn, onBack }: { download: PublicDownloadInfo; onSignIn: () => void; onBack: () => void }) {
   const [countdown, setCountdown] = useState(7)
+  const onSignInRef = useRef(onSignIn)
+  useEffect(() => { onSignInRef.current = onSignIn }, [onSignIn])
   useEffect(() => {
     setCountdown(7)
     const interval = window.setInterval(() => setCountdown(value => Math.max(0, value - 1)), 1000)
-    const redirect = window.setTimeout(() => onSignIn(), 7000)
+    const redirect = window.setTimeout(() => onSignInRef.current(), 7000)
     return () => { window.clearInterval(interval); window.clearTimeout(redirect) }
-  }, [onSignIn])
+  }, [])
   return <main className="downloads-thankyou-page" aria-labelledby="download-thankyou-title">
     <section className="downloads-thankyou-card">
       <div className="downloads-thankyou-icon"><CheckCircle2 size={32}/></div>
