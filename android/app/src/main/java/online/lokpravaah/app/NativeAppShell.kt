@@ -476,6 +476,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
     var bankIfsc by remember { mutableStateOf("") }
     var giftCardOptions by remember { mutableStateOf<List<NativeGiftCardOption>>(emptyList()) }
     var giftCardBrand by remember { mutableStateOf("") }
+    var giftCardMenuExpanded by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(userId, refresh) {
@@ -576,58 +577,185 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                             }
                         }
                     }
-                } else if (canRequest) {
+                } else if (currentSettings?.enabled == true && currentSettings.cashRedemptionEnabled) {
                     item {
                         Surface(color = ShellSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                                Text("Request a UPI withdrawal", color = ShellText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                                Text("The server checks your balance and sends the request for administrator review. Requesting does not guarantee payment.", color = ShellMuted, fontSize = 12.sp, lineHeight = 18.sp)
-                                OutlinedTextField(
-                                    value = pointsText, onValueChange = { pointsText = it.filter(Char::isDigit).take(9) },
-                                    label = { Text("Points to redeem") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth(), enabled = !sending,
-                                    colors = shellFieldColors()
+                                Text("Redeem reward points", color = ShellText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Choose a payout method. Your available balance and the server's current rules are checked before a request is saved.",
+                                    color = ShellMuted, fontSize = 12.sp, lineHeight = 18.sp
                                 )
-                                OutlinedTextField(
-                                    value = upiText, onValueChange = { upiText = it.take(120) },
-                                    label = { Text("UPI ID") }, placeholder = { Text("name@bank") }, singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(), enabled = !sending, colors = shellFieldColors()
-                                )
-                                Button(onClick = {
-                                    val points = pointsText.toIntOrNull()
-                                    val upi = upiText.trim()
-                                    when {
-                                        points == null || points < (currentSettings?.minWithdrawalPoints ?: Int.MAX_VALUE) -> message = "Enter at least the configured minimum points."
-                                        points.toLong() > (currentBalance?.availablePoints ?: 0L) -> message = "The requested points exceed your available balance."
-                                        !Regex("^[A-Za-z0-9._-]{2,}@[A-Za-z0-9._-]{2,}$").matches(upi) -> message = "Enter a valid UPI ID."
-                                        else -> {
-                                            sending = true; message = ""
-                                            scope.launch {
-                                                try {
-                                                    client.postgrest.rpc(
-                                                        function = "janwatch_request_reward_withdrawal",
-                                                        parameters = buildJsonObject {
-                                                            put("p_points", points)
-                                                            put("p_method", "UPI")
-                                                            put("p_destination", upi)
-                                                        }
-                                                    )
-                                                    pointsText = ""; upiText = ""
-                                                    message = "Request submitted for administrator review."
-                                                    refresh++
-                                                } catch (exception: Exception) {
-                                                    message = shellFriendlyError(exception)
-                                                } finally { sending = false }
+                                if (currentSettings.enabledPayoutMethods.isNotEmpty()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                        currentSettings.enabledPayoutMethods.forEach { option ->
+                                            Surface(
+                                                color = if (payoutMethod == option) ShellMint else ShellCard,
+                                                shape = RoundedCornerShape(11.dp),
+                                                modifier = Modifier.weight(1f).clickable {
+                                                    payoutMethod = option
+                                                    message = ""
+                                                }
+                                            ) {
+                                                Text(
+                                                    option,
+                                                    color = if (payoutMethod == option) ShellNavy else ShellText,
+                                                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 11.dp),
+                                                    maxLines = 2
+                                                )
                                             }
                                         }
                                     }
-                                }, enabled = !sending, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ShellMint, contentColor = ShellNavy)) {
+                                } else {
+                                    Text("No payout methods are currently available.", color = ShellAmber, fontSize = 12.sp)
+                                }
+                                OutlinedTextField(
+                                    value = pointsText,
+                                    onValueChange = { pointsText = it.filter(Char::isDigit).take(9); message = "" },
+                                    label = { Text("Points to redeem") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !sending,
+                                    colors = shellFieldColors()
+                                )
+                                val enteredPoints = pointsText.toLongOrNull()
+                                val rupeesEstimate = if (enteredPoints != null && currentSettings.pointsPerRupee > 0.0)
+                                    enteredPoints / currentSettings.pointsPerRupee else null
+                                Text(
+                                    "Minimum: ${currentSettings.minWithdrawalPoints} points · Maximum: ${currentSettings.maxWithdrawalPoints} points" +
+                                        (rupeesEstimate?.let { " · Approx. ₹" + String.format(Locale.ROOT, "%.2f", it) } ?: ""),
+                                    color = ShellMuted, fontSize = 10.sp, lineHeight = 15.sp
+                                )
+                                when (payoutMethod) {
+                                    "UPI" -> OutlinedTextField(
+                                        value = upiText, onValueChange = { upiText = it.take(120); message = "" },
+                                        label = { Text("UPI ID") }, placeholder = { Text("name@bank") }, singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(), enabled = !sending, colors = shellFieldColors()
+                                    )
+                                    "Bank transfer" -> {
+                                        OutlinedTextField(
+                                            value = bankName, onValueChange = { bankName = it.filter { ch -> ch != ';' && ch != '\n' }.take(50); message = "" },
+                                            label = { Text("Account holder name") }, singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(), enabled = !sending, colors = shellFieldColors()
+                                        )
+                                        OutlinedTextField(
+                                            value = bankAccountNumber, onValueChange = { bankAccountNumber = it.filter(Char::isDigit).take(18); message = "" },
+                                            label = { Text("Bank account number") }, singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth(), enabled = !sending, colors = shellFieldColors()
+                                        )
+                                        OutlinedTextField(
+                                            value = bankIfsc, onValueChange = { bankIfsc = it.filter(Char::isLetterOrDigit).uppercase().take(11); message = "" },
+                                            label = { Text("IFSC code") }, singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(), enabled = !sending, colors = shellFieldColors()
+                                        )
+                                    }
+                                    "Gift card" -> {
+                                        Box(Modifier.fillMaxWidth()) {
+                                            OutlinedButton(
+                                                onClick = { giftCardMenuExpanded = true },
+                                                enabled = !sending && giftCardOptions.isNotEmpty(),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(giftCardBrand.ifBlank { "Choose a gift card brand" }, color = ShellText, modifier = Modifier.weight(1f))
+                                                Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = ShellMint)
+                                            }
+                                            DropdownMenu(
+                                                expanded = giftCardMenuExpanded,
+                                                onDismissRequest = { giftCardMenuExpanded = false }
+                                            ) {
+                                                giftCardOptions.forEach { option ->
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Column {
+                                                                Text(option.brand)
+                                                                Text("₹${option.minAmountInr}–₹${option.maxAmountInr}", color = ShellMuted, fontSize = 10.sp)
+                                                            }
+                                                        },
+                                                        onClick = { giftCardBrand = option.brand; giftCardMenuExpanded = false; message = "" }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        if (giftCardOptions.isEmpty()) {
+                                            Text("Gift cards are not available right now. Choose another payout method.", color = ShellAmber, fontSize = 11.sp)
+                                        } else {
+                                            Text("The gift card code will appear here after the request is approved and marked paid.", color = ShellMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                                        }
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        val points = pointsText.toIntOrNull()
+                                        val destination = when (payoutMethod) {
+                                            "UPI" -> upiText.trim()
+                                            "Bank transfer" -> "Name: ${bankName.trim()}; Account: ${bankAccountNumber.trim()}; IFSC: ${bankIfsc.trim().uppercase()}"
+                                            "Gift card" -> "IN_APP"
+                                            else -> ""
+                                        }
+                                        when {
+                                            points == null || points < currentSettings.minWithdrawalPoints -> message = "Enter at least ${currentSettings.minWithdrawalPoints} points."
+                                            points > currentSettings.maxWithdrawalPoints -> message = "The request exceeds the configured maximum of ${currentSettings.maxWithdrawalPoints} points."
+                                            points.toLong() > currentBalance.availablePoints -> message = "The requested points exceed your available balance."
+                                            payoutMethod !in currentSettings.enabledPayoutMethods -> message = "This payout method is unavailable. Choose another method."
+                                            !destinationValid -> message = when (payoutMethod) {
+                                                "UPI" -> "Enter a valid UPI ID, such as name@bank."
+                                                "Bank transfer" -> "Check the account holder name, 8–18 digit account number and IFSC code."
+                                                "Gift card" -> "Choose an available gift card brand."
+                                                else -> "Choose an available payout method."
+                                            }
+                                            else -> {
+                                                sending = true
+                                                message = ""
+                                                scope.launch {
+                                                    try {
+                                                        client.postgrest.rpc(
+                                                            function = "janwatch_request_reward_withdrawal",
+                                                            parameters = buildJsonObject {
+                                                                put("p_points", points)
+                                                                put("p_method", payoutMethod)
+                                                                put("p_destination", destination)
+                                                                if (payoutMethod == "Gift card") put("p_gift_card_brand", giftCardBrand)
+                                                            }
+                                                        )
+                                                        pointsText = ""
+                                                        upiText = ""
+                                                        bankName = ""
+                                                        bankAccountNumber = ""
+                                                        bankIfsc = ""
+                                                        message = "Request submitted. You can track its status below."
+                                                        refresh++
+                                                    } catch (exception: Exception) {
+                                                        message = shellFriendlyError(exception)
+                                                    } finally { sending = false }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = canRequest,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ShellMint, contentColor = ShellNavy)
+                                ) {
                                     if (sending) CircularProgressIndicator(Modifier.size(18.dp), color = ShellNavy)
                                     else Text("Submit withdrawal request", fontWeight = FontWeight.Bold)
                                 }
-                                if (message.isNotBlank()) Text(message, color = if (message.contains("submitted", true)) ShellMint else ShellAmber, fontSize = 12.sp)
+                                if (message.isNotBlank()) Text(
+                                    message,
+                                    color = if (message.contains("submitted", true)) ShellMint else ShellAmber,
+                                    fontSize = 12.sp
+                                )
                             }
                         }
+                    }
+                } else {
+                    item {
+                        NativeEmptyCard(
+                            "Redemption is not active yet",
+                            "Your verified points remain visible. Payout requests will become available when the redemption programme is enabled."
+                        )
                     }
                 }
                 item {
