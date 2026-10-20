@@ -296,7 +296,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         : current)
       void loadMyDonations()
       if (claim.status === 'rejected') {
-        setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'The administrator could not verify this claim. Check the UTR and upload the correct receipt.' })
+        setProofNotice({ tone: 'error', title: 'More information is needed', body: claim.admin_review_note || 'We couldn't verify this payment claim. Check the UTR and upload the correct receipt.' })
       }
     })()
     return () => { cancelled = true }
@@ -359,7 +359,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   async function reopenActivePayment() {
     const session = activeDonation
     if (!session || !window.Youpi?.pay) {
-      setProofNotice({ tone: 'error', title: 'Checkout is unavailable', body: 'The original reference is saved. You can still submit the UTR and receipt below for administrator review.' })
+      setProofNotice({ tone: 'error', title: 'Checkout is unavailable', body: 'The payment reference is saved. You can still submit the UTR and receipt below for review.' })
       return
     }
     setLaunching(true)
@@ -377,8 +377,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         apiUrl: gatewayApiUrl,
         theme: { color: '#55d8a1' },
         metadata: { purpose: 'lokpravaah_donation', order_id: session.orderId, amount_paise: session.amountPaise },
-        handler: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'Checkout reported a payment response. Only admin verification against the receiving-bank statement can mark this donation successful.' }) },
-        onSuccess: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'The donation is not successful until an administrator verifies the bank record.' }); void loadPublicData(); void loadMyDonations() },
+        handler: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'Checkout reported a payment response. The donation is marked successful only after the receiving-bank record is verified.' }) },
+        onSuccess: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'The donation is not marked successful until the bank record has been verified.' }); void loadPublicData(); void loadMyDonations() },
         onFailed: () => { handlePaymentStatus(session.orderId, 'FAILED'); setLaunching(false) },
         onSuspicious: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false) },
         onExpired: () => { handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
@@ -396,11 +396,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     event.preventDefault()
     const session = activeDonation
     if (!session || !supabase || !userId) {
-      setProofNotice({ tone: 'error', title: 'Sign in required', body: 'Sign in to submit a private payment receipt for administrator review.' })
+      setProofNotice({ tone: 'error', title: 'Sign in required', body: 'Sign in to submit your private payment receipt for review.' })
       return
     }
     if (session.claimStatus === 'pending_review' || session.claimStatus === 'confirmed') {
-      setProofNotice({ tone: 'info', title: 'Payment proof already submitted', body: session.claimStatus === 'confirmed' ? 'This donation has already been verified.' : 'Your proof is in the administrator review queue. Please do not pay again.' })
+      setProofNotice({ tone: 'info', title: 'Payment proof already submitted', body: session.claimStatus === 'confirmed' ? 'This donation has already been verified.' : 'Your proof is waiting to be checked. Please do not pay again while it's under review.' })
       return
     }
     const utr = proofUtr.trim()
@@ -418,7 +418,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       return
     }
     if (!proofFile) {
-      setProofNotice({ tone: 'error', title: 'Payment screenshot required', body: 'Attach the UPI receipt or bank transaction screenshot so the administrator can compare it with the receiving account.' })
+      setProofNotice({ tone: 'error', title: 'Payment screenshot required', body: 'Attach the UPI receipt or bank transaction screenshot so our team can compare it with the receiving account.' })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(proofFile.type) || proofFile.size > 10 * 1024 * 1024) {
@@ -431,7 +431,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     }
 
     setProofBusy(true)
-    setProofNotice({ tone: 'info', title: 'Submitting payment proof…', body: 'Your receipt is stored privately and sent to the administrator review queue. This does not mark the donation paid automatically.' })
+    setProofNotice({ tone: 'info', title: 'Submitting payment proof…', body: 'Your receipt is stored privately for review. This does not mark the donation paid automatically.' })
     let uploadedPath = ''
     try {
       uploadedPath = `${userId}/${session.orderId}-${Date.now()}-${evidenceFileName(proofFile.name)}`
@@ -457,9 +457,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         : current)
       setProofOpen(false)
       setProofFile(null)
-      setProofNotice({ tone: 'success', title: 'Sent to admin for review', body: 'Your screenshot and claimed UTR were submitted privately. The donation total updates only after an administrator verifies the UTR against the receiving bank statement. Do not pay again while this is being checked.' })
+      setProofNotice({ tone: 'success', title: 'Payment sent for review', body: 'Your screenshot and UTR were submitted privately. The donation total updates only after the payment is verified against the receiving bank statement. Do not pay again while this is being checked.' })
       setProofSubmission({ orderId: session.orderId, amountPaise: claimedAmountPaise, submittedAt: new Date().toISOString() })
-      setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for administrator review.` })
+      setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for payment review.` })
       void loadMyDonations(); void loadPublicData()
     } catch (error) {
       setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: error instanceof Error ? error.message : 'Please check your connection and try again.' })
@@ -488,7 +488,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (note.length > 2000) return { success: false, message: 'Keep the reviewer note under 2,000 characters.' }
 
     setProofBusy(true)
-    setProofNotice({ tone: 'info', title: 'Submitting payment proof', body: 'Uploading the receipt privately. Your donation remains unverified until an administrator checks the bank record.' })
+    setProofNotice({ tone: 'info', title: 'Submitting payment proof', body: 'Uploading the receipt privately. Your donation remains unverified until the bank record is checked.' })
     let uploadedPath = ''
     try {
       uploadedPath = userId + '/' + orderId + '-' + Date.now() + '-' + evidenceFileName(evidenceFile.name)
@@ -517,7 +517,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setProofFile(null)
       setProofNotice({ tone: 'success', title: 'Under review', body: 'Your payment proof was submitted privately. Do not pay again while the bank record is being checked.' })
       setProofSubmission({ orderId, amountPaise, submittedAt: new Date().toISOString() })
-      setNotice({ tone: 'info', title: 'Payment proof submitted', body: claim?.message || ('The receipt for ' + orderId + ' is in the administrator review queue.') })
+      setNotice({ tone: 'info', title: 'Payment proof submitted', body: claim?.message || ('The receipt for ' + orderId + ' is waiting for review.') })
       // Do not wait for independent dashboard refresh RPCs inside the checkout SDK callback;
       // a slow public feed or donation-history query must not leave its I Paid modal blank.
       void loadMyDonations()
@@ -589,7 +589,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!settings.donations_enabled) { setNotice({ tone: 'warning', title: 'Donations are temporarily paused', body: 'The LokPravaah team has paused new contributions. Please check back later.' }); return }
     if (!settings.payment_gateway_enabled) { setNotice({ tone: 'warning', title: 'Online payments are temporarily paused', body: 'The payment service is temporarily unavailable. Please try again later.' }); return }
     if (!gatewayConfigured || gatewayState !== 'ready' || !window.Youpi?.pay) {
-      setNotice({ tone: 'warning', title: 'UPI checkout is not connected yet', body: 'The website page is available, but the administrator still needs to deploy/configure the LokPravaah payment service and public merchant settings.' }); return
+      setNotice({ tone: 'warning', title: 'UPI checkout is not connected yet', body: 'The payment service is temporarily unavailable. No payment has been started; please try again later.' }); return
     }
     if (!supabase || !isSupabaseConfigured) { setNotice({ tone: 'error', title: 'Donation records are unavailable', body: 'The database is not configured, so checkout has been stopped before any payment session was created.' }); return }
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
@@ -663,7 +663,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         <span className="donation-section-kicker">DONATION PROOF RECEIVED</span>
         <h1 id="donation-review-title">Thank you for supporting LokPravaah.</h1>
         <p className="donation-review-lead">Your payment details have been submitted successfully.</p>
-        <div className="donation-review-status"><Clock3 size={19}/><div><strong>Payment is under review</strong><span>Our admin team will compare the UTR, amount and receipt with the receiving bank record. Your donation will be marked verified only after that check.</span></div></div>
+        <div className="donation-review-status"><Clock3 size={19}/><div><strong>Payment is under review</strong><span>Our team will compare the UTR, amount and receipt with the receiving bank record. Your donation will be marked verified only after that check.</span></div></div>
         <div className="donation-review-reference"><span>Donation reference</span><code>{proofSubmission.orderId}</code></div>
         <div className="donation-review-amount"><span>Amount you reported as paid</span><strong>{money(proofSubmission.amountPaise)}</strong></div>
         <p className="donation-review-reminder">Please do not pay again while this claim is being reviewed. Keep your UPI receipt for your records.</p>
@@ -695,7 +695,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     <div className="donation-layout">
       <section className="donation-form-card">
         <div className="donation-card-header"><div className="donation-icon"><Wallet size={20}/></div><div><span className="donation-section-kicker">MAKE A CONTRIBUTION</span><h2>Choose your amount</h2><p>UPI checkout · One-time contribution · INR</p></div></div>
-        {!settings.donations_enabled && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Donations are temporarily paused by the LokPravaah administrators.</span></div>}
+        {!settings.donations_enabled && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Contributions are temporarily paused. Please check back later.</span></div>}
         <form onSubmit={startDonation}>
           <div className="donation-presets" aria-label="Suggested amounts">{settings.suggested_amounts.map(value => <button type="button" key={value} className={`donation-preset ${selectedPreset === value ? 'selected' : ''}`} onClick={() => selectPreset(value)}>{amountLabel(value * 100)}{value === settings.suggested_amounts[0] && <small>Start here</small>}</button>)}</div>
           <label className="donation-field"><span>Custom amount (₹)</span><div className="donation-amount-input"><span>₹</span><input type="number" inputMode="decimal" min={settings.min_amount_paise / 100} max={settings.max_amount_paise / 100} step="0.01" value={amountText} onChange={e => { setAmountText(e.target.value); setSelectedPreset(settings.suggested_amounts.find(v => String(v) === e.target.value) ?? null); setNotice(null) }} aria-describedby="donation-amount-help" required/><span className="donation-inr-pill">INR</span></div><small id="donation-amount-help">Minimum {money(settings.min_amount_paise)} · Maximum {money(settings.max_amount_paise)} · up to 2 decimals</small></label>
@@ -723,9 +723,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed'
             ? <div className="donation-proof-message proof-success"><CircleCheck size={17}/><span>This donation is verified. Thank you for supporting LokPravaah.</span></div>
             : activeDonation.claimStatus === 'pending_review'
-              ? <div className="donation-proof-message proof-pending"><Clock3 size={17}/><span>Your claimed UTR and screenshot are in the administrator review queue. Do not pay again while it is being checked.</span></div>
+              ? <div className="donation-proof-message proof-pending"><Clock3 size={17}/><span>Your claimed UTR and screenshot are waiting for review. Do not pay again while it is being checked.</span></div>
               : activeDonation.claimStatus === 'rejected'
-                ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>Admin review needs more information: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
+                ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>We need more information to review this payment: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
                 : null}
           <div className="donation-active-actions">
             {activeDonation.status !== 'SUCCESS' && Boolean(activeDonation.paymentId) && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
@@ -733,7 +733,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
           </div>
           {proofOpen && activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <form className="donation-manual-proof-form" id="manual-payment-confirmation" onSubmit={submitManualPaymentProof}>
-            <div><span className="donation-section-kicker">MANUAL PAYMENT CONFIRMATION</span><h4>Send your UTR and receipt to the admin team</h4><p>Only submit this after the UPI app or your bank confirms that money was sent. The administrator will compare your claim with the receiving bank record before confirming it.</p></div>
+            <div><span className="donation-section-kicker">MANUAL PAYMENT CONFIRMATION</span><h4>Send your UTR and receipt for payment review</h4><p>Only submit this after the UPI app or your bank confirms that money was sent. Our team will compare your claim with the receiving bank record before confirming it.</p></div>
             <label className="donation-field"><span>UPI transaction ID / UTR</span><input value={proofUtr} onChange={e => setProofUtr(e.target.value.trimStart())} minLength={6} maxLength={80} pattern="[A-Za-z0-9_-]{6,80}" autoComplete="off" spellCheck={false} placeholder="Enter UTR / transaction reference" required/></label>
             <label className="donation-field"><span>Amount actually paid (₹)</span><input type="number" inputMode="decimal" min="1" max="100000" step="0.01" value={proofAmountText} onChange={e => setProofAmountText(e.target.value)} required/><small>Expected donation amount: {money(activeDonation.amountPaise)}. The admin checks the amount in your receipt and bank statement.</small></label>
             <label className="donation-field"><span>Payment date and time <small>(optional)</small></span><input type="datetime-local" value={proofTime} onChange={e => setProofTime(e.target.value)}/></label>
@@ -794,7 +794,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           <p className="donation-history-foot"><ShieldCheck size={13}/> Only the verified bank-record review changes a donation to successful. Ticket replies and status are available in Support tickets.</p>
         </section>
 
-        <div className="donation-security-note"><LockKeyhole size={15}/><span>Payments appear in public totals only after an administrator verifies the amount and UTR against the receiving-bank statement. Screenshots alone do not confirm payment. Never share your UPI PIN or OTP.</span></div>
+        <div className="donation-security-note"><LockKeyhole size={15}/><span>Contributions appear in public totals only after the amount and UTR match the receiving-bank statement. Screenshots alone do not confirm payment. Never share your UPI PIN or OTP.</span></div>
       </section>
 
       <aside className="donation-info-column">
