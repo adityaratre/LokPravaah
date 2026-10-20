@@ -169,6 +169,11 @@ class MainActivity : ComponentActivity() {
                     kotlinx.coroutines.delay(2400)
                     showIntro = false
                 }
+                BackHandler(enabled = !showIntro && showWebsite && webView?.canGoBack() != true) {
+                    showWebsite = false
+                    webView = null
+                    webError = false
+                }
                 BackHandler(enabled = !showIntro && webView?.canGoBack() == true) {
                     webView?.goBack()
                 }
@@ -176,13 +181,44 @@ class MainActivity : ComponentActivity() {
                     if (showIntro) {
                         IntroScreen(soundEnabled = splashSoundEnabled, onToggleSound = { splashSoundEnabled = !splashSoundEnabled })
                     } else if (showWebsite) {
-                        AppWebScreen(
-                            activity = this@MainActivity,
-                            onWebView = { webView = it },
-                            loading = pageLoading,
-                            error = webError,
-                            onRetry = { webError = false; pageLoading = true; webView?.reload() }
-                        )
+                        Column(
+                            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).background(Navy)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                androidx.compose.material3.IconButton(onClick = {
+                                    showWebsite = false
+                                    webView = null
+                                    webError = false
+                                }) {
+                                    androidx.compose.material3.Icon(
+                                        androidx.compose.material.icons.Icons.Outlined.ArrowBack,
+                                        contentDescription = "Back to native app",
+                                        tint = Color(0xFFB6F4D7)
+                                    )
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("LokPravaah", color = Color(0xFFF5F9FF), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text("Website tools · stays inside the app", color = Color(0xFF9BB1C8), fontSize = 10.sp)
+                                }
+                                androidx.compose.material3.TextButton(onClick = {
+                                    showWebsite = false
+                                    webView = null
+                                    webError = false
+                                }) { Text("Back to app", color = Color(0xFFB6F4D7), fontSize = 11.sp) }
+                            }
+                            AppWebScreen(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                activity = this@MainActivity,
+                                onWebView = { webView = it },
+                                loading = pageLoading,
+                                error = webError,
+                                onRetry = { webError = false; pageLoading = true; webView?.reload() }
+                            )
+                        }
                     } else {
                         NativeCitizenGate(
                             onOpenWebsite = { showWebsite = true },
