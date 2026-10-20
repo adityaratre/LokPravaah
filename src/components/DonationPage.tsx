@@ -146,6 +146,16 @@ function readSavedDonation(userId?: string | null): ActiveDonation | null {
 function evidenceFileName(name: string): string {
   return name.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-100) || 'payment-proof'
 }
+
+type EvidenceFileLike = Pick<File, 'name' | 'size' | 'type' | 'lastModified' | 'arrayBuffer'>
+function isEvidenceFileLike(value: unknown): value is EvidenceFileLike {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<EvidenceFileLike>
+  return typeof candidate.name === 'string'
+    && typeof candidate.size === 'number' && Number.isFinite(candidate.size)
+    && typeof candidate.type === 'string'
+    && typeof candidate.arrayBuffer === 'function'
+}
 const TERMINAL_PAYMENT_STATUSES = new Set(['SUCCESS', 'SUSPICIOUS', 'EXPIRED', 'FAILED', 'CANCELLED'])
 
 export default function DonationPage({ userId = null, userName = '', onOpenSupportTickets }: Props) {
@@ -482,7 +492,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (orderId.length < 8) return { success: false, message: 'The donation reference is missing. Close this window and reopen the same checkout from My donations.' }
     if (!/^[A-Za-z0-9_-]{6,80}$/.test(utr)) return { success: false, message: 'Enter the actual UTR / bank reference shown by your UPI app.' }
     if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 10_000_000) return { success: false, message: 'Enter a valid amount between ₹1 and ₹1,00,000.' }
-    if (!(evidenceFile instanceof File) || !['image/jpeg','image/png','image/webp','application/pdf'].includes(evidenceFile.type) || evidenceFile.size > 10 * 1024 * 1024) {
+    if (!isEvidenceFileLike(evidenceFile) || !['image/jpeg','image/png','image/webp','application/pdf'].includes(evidenceFile.type) || evidenceFile.size <= 0 || evidenceFile.size > 10 * 1024 * 1024) {
       return { success: false, message: 'Attach one JPG, PNG, WebP image or PDF receipt up to 10 MB.' }
     }
     if (note.length > 2000) return { success: false, message: 'Keep the reviewer note under 2,000 characters.' }
@@ -492,8 +502,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     let uploadedPath = ''
     try {
       uploadedPath = userId + '/' + orderId + '-' + Date.now() + '-' + evidenceFileName(evidenceFile.name)
-      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, evidenceFile, {
-        cacheControl: '3600', contentType: evidenceFile.type, upsert: false,
+      // The checkout SDK may return a File created by a different window/iframe realm.
+      // Normalize it to this page's File constructor before handing it to Supabase Storage.
+      const uploadFile = evidenceFile instanceof File ? evidenceFile : new File([await evidenceFile.arrayBuffer()], evidenceFile.name, { type: evidenceFile.type, lastModified: evidenceFile.lastModified })
+      const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, uploadFile, {
+        cacheControl: '3600', contentType: uploadFile.type || 'application/octet-stream', upsert: false,
       })
       if (uploadError) throw new Error('Receipt upload failed: ' + uploadError.message)
       const { data, error: claimError } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
