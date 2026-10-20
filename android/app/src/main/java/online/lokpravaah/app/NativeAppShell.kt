@@ -435,9 +435,9 @@ private fun NativeHomeScreen(
     }
 }
 
-@Composable
 private data class NativePublicReportStats(val total: Long, val active: Long, val resolved: Long)
 
+@Composable
 private fun NativeMetricCard(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, modifier: Modifier) {
     Surface(color = ShellSurface, shape = RoundedCornerShape(17.dp), modifier = modifier) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
