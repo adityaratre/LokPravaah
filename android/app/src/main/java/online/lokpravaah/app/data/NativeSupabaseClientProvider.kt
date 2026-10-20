@@ -6,6 +6,7 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.ExternalAuthAction
 import io.github.jan.supabase.auth.FlowType
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
 
 /**
  * Shared native Supabase client. This connects to the same project as the website;
@@ -28,6 +29,7 @@ object NativeSupabaseClientProvider {
                     defaultExternalAuthAction = ExternalAuthAction.CustomTabs()
                 }
                 install(Postgrest)
+                install(Storage)
             }
         }
     }
