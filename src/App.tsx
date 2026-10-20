@@ -8,7 +8,7 @@ import {
   ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
   CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, CircleAlert, UserRound, FileDown, ClipboardCheck,
-  PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift
+  PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift, Smartphone
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import CivicToolkit from './components/CivicToolkit'
