@@ -18,8 +18,8 @@ android {
         applicationId = "online.lokpravaah.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.1.1"
+        versionCode = 6
+        versionName = "1.2.0"
 
         // Only the public Supabase publishable/anon key may be bundled in a client app.
         // The service-role key and provider secrets must stay on trusted servers.
@@ -56,6 +56,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.browser:browser:1.8.0")
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
