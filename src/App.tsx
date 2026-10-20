@@ -434,11 +434,9 @@ export default function App() {
       const reportRequest = canReviewAllReports
         ? client.from('reports').select(reportColumns).order('created_at', { ascending: false }).limit(500)
         : client.from('reports').select(reportColumns).or(`visibility.eq.public,reporter_id.eq.${user.id}`).order('created_at', { ascending: false }).limit(200)
-      const [reportResult, totalResult, activeResult, resolvedResult, mineResult, profileResult] = await Promise.all([
+      const [reportResult, sharedStatsResult, mineResult, profileResult] = await Promise.all([
         reportRequest,
-        client.from('reports').select('id', { count: 'exact', head: true }).eq('visibility', 'public'),
-        client.from('reports').select('id', { count: 'exact', head: true }).eq('visibility', 'public').in('status', ['submitted', 'under_review', 'verified', 'in_progress']),
-        client.from('reports').select('id', { count: 'exact', head: true }).eq('visibility', 'public').eq('status', 'resolved'),
+        client.rpc('janwatch_get_public_report_stats'),
         client.from('reports').select('id', { count: 'exact', head: true }).eq('reporter_id', user.id),
         client.from('profiles').select('display_name,avatar_url,impact_points,preferred_language,phone,city,ward,account_type,preferred_service').eq('id', user.id).maybeSingle(),
       ])
@@ -457,10 +455,13 @@ export default function App() {
         }
       }
       setIssues(nextIssues)
+      const sharedStats = !sharedStatsResult.error && sharedStatsResult.data && typeof sharedStatsResult.data === 'object'
+        ? sharedStatsResult.data as { total?: number; active?: number; resolved?: number }
+        : null
       setStats({
-        total: totalResult.error ? null : (totalResult.count ?? 0),
-        active: activeResult.error ? null : (activeResult.count ?? 0),
-        resolved: resolvedResult.error ? null : (resolvedResult.count ?? 0),
+        total: sharedStats ? Number(sharedStats.total ?? 0) : null,
+        active: sharedStats ? Number(sharedStats.active ?? 0) : null,
+        resolved: sharedStats ? Number(sharedStats.resolved ?? 0) : null,
         mine: mineResult.error ? null : (mineResult.count ?? 0),
       })
       if (!profileResult.error && profileResult.data) {
