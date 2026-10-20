@@ -179,6 +179,28 @@ test('long order references fall back to a compact UPI-safe payment reference', 
   assert.ok((upi.searchParams.get('tr') || '').length <= 35);
 });
 
+test('active checkout QR endpoint returns a real SVG even without hosted checkout UI', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/upi_gateway_payments')) {
+      return new Response(JSON.stringify([sampleDbPayment]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/rpc/upi_gateway_get_receiver_settings')) {
+      return new Response(JSON.stringify({ message: 'function unavailable in legacy test schema' }), { status: 404 });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+  const response = await worker.fetch(req(`/checkout/${sampleDbPayment.id}/qr.svg`), defaultEnv, {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('Content-Type') || '', /image\\/svg\\+xml/i);
+  const svg = await response.text();
+  assert.match(svg, /^<svg /);
+  assert.match(svg, /<rect /);
+  assert.match(svg, /viewBox="0 0 260 260"/);
+});
+
 test('checkout never exposes QR for a queued payment', async t => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
