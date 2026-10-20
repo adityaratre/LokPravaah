@@ -187,6 +187,7 @@ fun NativeCivicToolkitScreen() {
             "", "Observations (facts only):", details.ifBlank { "[What you observed and when]" },
             "", "A missing record or cost difference alone does not prove wrongdoing. Verify the relevant documents and ask for clarification."
         ).joinToString("\n")
+    }
 
     Column(Modifier.fillMaxSize().background(FxNavy)) {
         LazyColumn(
@@ -275,6 +276,7 @@ fun NativeCivicToolkitScreen() {
 @Composable
 fun NativeExploreScreen(client: SupabaseClient, userId: String) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var reports by remember { mutableStateOf<List<NativePublicReport>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
