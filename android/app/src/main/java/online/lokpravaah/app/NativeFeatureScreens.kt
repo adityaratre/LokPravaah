@@ -1189,7 +1189,8 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                                                 put("p_screenshot_path", filePath)
                                                                 put("p_claimed_utr", utr)
                                                                 put("p_claimed_amount_paise", (actualAmount * 100.0).toLong())
-                                                                put("p_user_note", proofNote.trim())
+                                                                put("p_payment_timestamp", null as String?)
+                                                                put("p_user_note", proofNote.trim().takeIf { it.isNotBlank() })
                                                             }
                                                         )
                                                         val returned = Json.parseToJsonElement(result.data).jsonObject
