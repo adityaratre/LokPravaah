@@ -74,6 +74,7 @@ import online.lokpravaah.app.data.NativeReportsRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val ShellNavy = Color(0xFF06111F)
 private val ShellSurface = Color(0xFF0E1D30)
@@ -664,7 +665,7 @@ private fun NativeRewardsScreen(client: SupabaseClient, userId: String) {
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Text(giftCardBrand.ifBlank { "Choose a gift card brand" }, color = ShellText, modifier = Modifier.weight(1f))
-                                                Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = ShellMint)
+                                                Text("⌄", color = ShellMint, fontSize = 18.sp)
                                             }
                                             DropdownMenu(
                                                 expanded = giftCardMenuExpanded,
@@ -1050,7 +1051,7 @@ private fun NativeWithdrawalRow(row: NativeRewardWithdrawal, onCopyGiftCard: (St
                             }
                         }
                         IconButton(onClick = { onCopyGiftCard(row.giftCardCode) }) {
-                            Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy gift card code", tint = ShellMint)
+                            Text("Copy", color = ShellMint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
