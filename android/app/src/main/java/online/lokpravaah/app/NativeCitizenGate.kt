@@ -49,7 +49,11 @@ private val AuthLine = Color(0xFF2B4159)
 private val AuthWhite = Color(0xFFF5F9FF)
 
 @Composable
-fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
+fun NativeCitizenGate(
+    onOpenWebsite: () -> Unit,
+    passwordRecoveryPending: Boolean = false,
+    onPasswordRecoveryComplete: () -> Unit = {}
+) {
     val client = NativeSupabaseClientProvider.client
     var authenticated by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
@@ -95,6 +99,9 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
                         Text("Restoring your secure session", color = AuthMuted, fontSize = 13.sp)
                     }
                 }
+            }
+            passwordRecoveryPending && authenticated && client != null -> {
+                NativePasswordRecoveryScreen(onComplete = onPasswordRecoveryComplete)
             }
             authenticated && client != null -> {
                 val currentUserId = client.auth.currentUserOrNull()?.id.orEmpty()
@@ -329,6 +336,96 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NativePasswordRecoveryScreen(onComplete: () -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Box(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
+            .background(Brush.verticalGradient(listOf(Color(0xFF071321), AuthNavy, Color(0xFF09192A))),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NativeWaveBrandMark(56.dp)
+                Column {
+                    Text("LokPravaah", color = AuthWhite, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp)
+                    Text("ACCOUNT SECURITY", color = AuthMuted, fontWeight = FontWeight.Bold, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                }
+            }
+            Spacer(Modifier.height(15.dp))
+            Text("Create a new\npassword.", color = AuthWhite, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Choose a strong password to secure your LokPravaah account.", color = AuthMuted, fontSize = 13.sp, lineHeight = 19.sp)
+            Spacer(Modifier.height(8.dp))
+            Surface(color = AuthPanel, shape = RoundedCornerShape(23.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AuthLine), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                    OutlinedTextField(
+                        value = password, onValueChange = { password = it; message = "" },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("New password") },
+                        leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null, tint = AuthMuted) },
+                        trailingIcon = { TextButton(onClick = { showPassword = !showPassword }) { Text(if (showPassword) "HIDE" else "SHOW", color = AuthMint, fontSize = 10.sp) } },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        colors = authFieldColors(), shape = RoundedCornerShape(15.dp)
+                    )
+                    OutlinedTextField(
+                        value = confirmPassword, onValueChange = { confirmPassword = it; message = "" },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("Confirm password") },
+                        leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null, tint = AuthMuted) },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        colors = authFieldColors(), shape = RoundedCornerShape(15.dp)
+                    )
+                    Button(
+                        onClick = {
+                            when {
+                                password.length < 8 -> { message = "Use a password with at least 8 characters."; isError = true }
+                                password != confirmPassword -> { message = "The passwords do not match."; isError = true }
+                                else -> {
+                                    busy = true; message = ""; isError = false
+                                    scope.launch {
+                                        try {
+                                            NativeAuthRepository().updatePassword(password)
+                                            message = "Password updated. Opening your secure workspace…"
+                                            isError = false
+                                            kotlinx.coroutines.delay(900)
+                                            onComplete()
+                                        } catch (exception: Exception) {
+                                            message = exception.message?.take(200) ?: "Password could not be updated. Reopen the recovery link and try again."
+                                            isError = true
+                                        } finally { busy = false }
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !busy && password.isNotBlank() && confirmPassword.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AuthMint, contentColor = AuthNavy)
+                    ) {
+                        if (busy) CircularProgressIndicator(Modifier.size(19.dp), color = AuthNavy)
+                        else Text("Update password securely", fontWeight = FontWeight.Bold)
+                    }
+                    if (message.isNotBlank()) {
+                        Text(message, color = if (isError) Color(0xFFFFBAC2) else AuthMint, fontSize = 12.sp, lineHeight = 18.sp)
+                    }
+                }
+            }
+            Text("The recovery session is handled by Supabase Auth. Your password is never saved in the app database.", color = AuthMuted, fontSize = 11.sp, lineHeight = 17.sp)
         }
     }
 }
