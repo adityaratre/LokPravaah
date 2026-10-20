@@ -48,7 +48,6 @@ private enum class NativeReportsPage { LIST, CREATE, DETAIL }
 fun NativeReportsScreen(
     client: SupabaseClient,
     userId: String,
-    onOpenWebsite: () -> Unit,
     onContentDepthChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -139,7 +138,6 @@ fun NativeReportsScreen(
             onRefresh = { refreshing++ },
             onCreate = { formMessage = ""; errorMessage = ""; page = NativeReportsPage.CREATE },
             onOpen = { report -> selectedReport = report; reportEvents = emptyList(); errorMessage = ""; page = NativeReportsPage.DETAIL },
-            onOpenWebsite = onOpenWebsite,
             onSignOut = {
                 scope.launch {
                     try { client.auth.signOut() }
@@ -216,7 +214,6 @@ private fun ReportListPage(
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
     onOpen: (NativeReport) -> Unit,
-    onOpenWebsite: () -> Unit,
     onSignOut: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().background(ReportsNavy).padding(horizontal = 18.dp, vertical = 14.dp)) {
@@ -240,7 +237,6 @@ private fun ReportListPage(
             Text("＋  Submit a report", fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth()) { Text("Open full LokPravaah website", color = Color.White) }
 
         if (toast.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
