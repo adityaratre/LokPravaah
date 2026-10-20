@@ -309,6 +309,13 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
     var selectedMapReport by remember { mutableStateOf<NativePublicReport?>(null) }
     var centeredReportId by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(userId) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            refresh++
+        }
+    }
+
     LaunchedEffect(userId, refresh) {
         loading = true; error = ""
         try {
