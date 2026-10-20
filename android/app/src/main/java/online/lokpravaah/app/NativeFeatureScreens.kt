@@ -55,6 +55,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -1060,7 +1061,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                     }
                 }
 
-                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank()) {
+                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && activeClaimStatusIsOpen(history, activeOrderId)) {
                     item {
                         Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(
