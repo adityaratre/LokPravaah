@@ -51,6 +51,10 @@ type ActiveDonation = {
   paymentId: string
   amountPaise: number
   status: string
+  upiUri?: string
+  upiVpa?: string
+  payeeName?: string
+  checkoutMethod?: 'gateway' | 'upi_qr'
   claimStatus?: ManualClaimStatus
   claimedUtr?: string
   adminReviewNote?: string | null
@@ -63,7 +67,12 @@ type MyDonationRow = {
   payment_timestamp?: string | null; admin_review_note?: string | null; reviewed_at?: string | null
   ticket_number?: number | null; ticket_status?: string | null
 }
-declare global { interface Window { Youpi?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> } } }
+declare global {
+  interface Window {
+    Youpi?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> }
+    QRCode?: new (element: HTMLElement, options: { text: string; width: number; height: number; colorDark?: string; colorLight?: string }) => unknown
+  }
+}
 
 type Props = { userId?: string | null; userName?: string; onOpenSupportTickets?: () => void }
 type GatewayState = 'not-configured' | 'loading' | 'ready' | 'error'
@@ -162,6 +171,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [showMessagePublicly, setShowMessagePublicly] = useState(false)
   const [message, setMessage] = useState('')
   const [gatewayState, setGatewayState] = useState<GatewayState>('loading')
+  const [upiVpa, setUpiVpa] = useState('')
+  const [upiPayeeName, setUpiPayeeName] = useState('LokPravaah')
+  const upiQrRef = useRef<HTMLDivElement>(null)
   const [launching, setLaunching] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
   const [lastOrderId, setLastOrderId] = useState('')
@@ -197,7 +209,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const gatewayApiUrl = (settings.gateway_api_url?.trim() || envGatewayApiUrl || gatewayPortalUrl).replace(/\/+$/, '')
   const merchantKey = settings.gateway_merchant_key?.trim() || envMerchantKey
   const gatewayConfigured = Boolean(gatewayPortalUrl && gatewayApiUrl && merchantKey)
-  const paymentReady = gatewayState === 'ready' && isSupabaseConfigured && Boolean(supabase) && settings.donations_enabled && settings.payment_gateway_enabled && gatewayConfigured
+  const paymentReady = isSupabaseConfigured && Boolean(supabase) && settings.donations_enabled && settings.payment_gateway_enabled &&
+    ((gatewayState === 'ready' && gatewayConfigured && Boolean(window.Youpi?.pay)) || Boolean(upiVpa))
   const goalPercent = settings.campaign_goal_paise > 0 && publicData ? Math.min(100, Math.round(publicData.total_raised_paise / settings.campaign_goal_paise * 100)) : 0
 
   const loadPublicData = useCallback(async () => {
@@ -214,6 +227,14 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const mergedSettings = { ...DEFAULT_SETTINGS, ...payload.settings, suggested_amounts: Array.isArray(payload.settings.suggested_amounts) ? payload.settings.suggested_amounts.filter((v): v is number => Number.isInteger(v) && v > 0).slice(0, 8) : DEFAULT_SETTINGS.suggested_amounts }
       setSettings(mergedSettings)
       setPublicData({ settings: mergedSettings, total_raised_paise: Number(payload.total_raised_paise || 0), successful_donations: Number(payload.successful_donations || 0), top_donors: Array.isArray(payload.top_donors) ? payload.top_donors : [], recent_donations: Array.isArray(payload.recent_donations) ? payload.recent_donations : [], refreshed_at: payload.refreshed_at })
+      try {
+        const { data: checkoutConfig, error: checkoutConfigError } = await supabase.rpc('janwatch_get_public_donation_checkout_config')
+        if (!checkoutConfigError && checkoutConfig && typeof checkoutConfig === 'object') {
+          const config = checkoutConfig as { upi_vpa?: string | null; upi_payee_name?: string | null }
+          setUpiVpa(String(config.upi_vpa || '').trim())
+          setUpiPayeeName(String(config.upi_payee_name || 'LokPravaah').trim() || 'LokPravaah')
+        }
+      } catch { /* campaign totals remain available if the public UPI configuration is temporarily unavailable */ }
       setFeedError('')
     } catch (error) {
       setFeedError(error instanceof Error ? error.message : 'Live donation activity is temporarily unavailable.')
@@ -307,6 +328,24 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   useEffect(() => { if (userName && !donorName) setDonorName(userName) }, [userName, donorName])
   useEffect(() => {
+    const target = upiQrRef.current
+    if (!target || !activeDonation?.upiUri) return
+    target.innerHTML = ''
+    if (window.QRCode) {
+      new window.QRCode(target, {
+        text: activeDonation.upiUri,
+        width: 232,
+        height: 232,
+        colorDark: '#06111f',
+        colorLight: '#ffffff',
+      })
+    } else {
+      target.textContent = 'QR display is unavailable in this browser. Use the Open UPI app link below.'
+    }
+    return () => { target.innerHTML = '' }
+  }, [activeDonation?.upiUri])
+
+  useEffect(() => {
     if (feedLoading) return
     if (!gatewayConfigured) { setGatewayState('not-configured'); return }
     if (!/^https:\/\//i.test(gatewayPortalUrl) || !/^https:\/\//i.test(gatewayApiUrl)) { setGatewayState('error'); return }
@@ -358,6 +397,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   async function reopenActivePayment() {
     const session = activeDonation
+    if (session?.upiUri) {
+      document.getElementById('active-payment-checkout')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setProofNotice({ tone: 'info', title: 'Your UPI QR is ready', body: 'Scan this QR with your UPI app or tap Open UPI app. After your bank confirms the transfer, submit the UTR and receipt here.' })
+      return
+    }
     if (!session || !window.Youpi?.pay) {
       setProofNotice({ tone: 'error', title: 'Checkout is unavailable', body: 'The original reference is saved. You can still submit the UTR and receipt below for administrator review.' })
       return
@@ -588,8 +632,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!userId) { setNotice({ tone: 'warning', title: 'Sign in to donate', body: 'Sign in so your private donation history, manual payment review and support tickets stay linked to your account.' }); return }
     if (!settings.donations_enabled) { setNotice({ tone: 'warning', title: 'Donations are temporarily paused', body: 'The LokPravaah team has paused new contributions. Please check back later.' }); return }
     if (!settings.payment_gateway_enabled) { setNotice({ tone: 'warning', title: 'Online payments are temporarily paused', body: 'The payment service is temporarily unavailable. Please try again later.' }); return }
-    if (!gatewayConfigured || gatewayState !== 'ready' || !window.Youpi?.pay) {
-      setNotice({ tone: 'warning', title: 'UPI checkout is not connected yet', body: 'The website page is available, but the administrator still needs to deploy/configure the LokPravaah payment service and public merchant settings.' }); return
+    const useHostedCheckout = gatewayConfigured && gatewayState === 'ready' && Boolean(window.Youpi?.pay)
+    if (!useHostedCheckout && !upiVpa) {
+      setNotice({ tone: 'error', title: 'UPI details are unavailable', body: 'The configured receiving UPI ID could not be loaded. No payment was started. Please try again later or contact support.' }); return
     }
     if (!supabase || !isSupabaseConfigured) { setNotice({ tone: 'error', title: 'Donation records are unavailable', body: 'The database is not configured, so checkout has been stopped before any payment session was created.' }); return }
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
@@ -604,8 +649,39 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
       if (error) throw new Error(`Could not create a donation record: ${error.message}`)
+      if (!useHostedCheckout) {
+        const params = new URLSearchParams({
+          pa: upiVpa,
+          pn: upiPayeeName,
+          am: (parsedAmount / 100).toFixed(2),
+          cu: 'INR',
+          tr: orderId,
+          tn: `LokPravaah contribution ${orderId}`,
+        })
+        const upiUri = `upi://pay?${params.toString()}`
+        setActiveDonation({
+          orderId,
+          paymentId: '',
+          amountPaise: parsedAmount,
+          status: 'ACTIVE',
+          upiUri,
+          upiVpa,
+          payeeName: upiPayeeName,
+          checkoutMethod: 'upi_qr',
+        })
+        setNotice({ tone: 'info', title: 'UPI QR is ready', body: `Scan the QR using any UPI app, or tap Open UPI app. Reference: ${orderId}. Your donation is not confirmed until the payment proof is reviewed.` })
+        setProofOpen(false)
+        setProofUtr('')
+        setProofAmountText((parsedAmount / 100).toFixed(2))
+        setProofFile(null)
+        setProofNotice(null)
+        void loadMyDonations()
+        setLaunching(false)
+        window.setTimeout(() => document.getElementById('active-payment-checkout')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+        return
+      }
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
-      const checkout = await window.Youpi.pay({
+      const checkout = await window.Youpi!.pay({
         key: merchantKey, order_id: orderId, amount: Number((parsedAmount / 100).toFixed(2)), currency: 'INR', name: 'LokPravaah',
         description: 'Voluntary contribution to support LokPravaah development and operating costs',
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
@@ -709,7 +785,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {!isSupabaseConfigured && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Supabase is not configured. Donation history and verified totals are unavailable until the database is enabled.</span></div>}
           {gatewayState === 'not-configured' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The donation page is live, but UPI checkout must be connected in hosting settings before payments can be accepted.</span></div>}
           {gatewayState === 'loading' && <div className="donation-gateway-state"><LoaderCircle size={15} className="donation-spin"/> Connecting to UPI checkout…</div>}
-          {gatewayState === 'error' && <div className="donation-inline-warning"><CircleAlert size={16}/><span>The UPI checkout SDK could not be loaded. Check the gateway service URL and its availability.</span></div>}
+          {gatewayState === 'error' && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout is unavailable. The locally generated UPI QR is ready as a fallback.</span></div>}
+          {gatewayState === 'error' && !upiVpa && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI checkout is temporarily unavailable and no receiving UPI ID is configured. No payment has been started.</span></div>}
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
         </form>
@@ -718,6 +795,15 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <div className="donation-active-payment-icon"><Wallet size={20}/></div>
             <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3>{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
           </div>
+          {activeDonation.upiUri && <div className="donation-upi-checkout">
+            <div className="donation-section-kicker">PAY WITH ANY UPI APP</div>
+            <div className="donation-upi-qr" ref={upiQrRef} aria-label="Donation UPI QR code" />
+            <strong>{activeDonation.payeeName || 'LokPravaah'}</strong>
+            <span>{activeDonation.upiVpa}</span>
+            <strong className="donation-upi-amount">{money(activeDonation.amountPaise)}</strong>
+            <p>Check the payee and exact amount in your UPI app before approving. QR scanning or returning to this screen does not verify payment.</p>
+            <a className="donation-active-primary" href={activeDonation.upiUri}>Open UPI app <ArrowRight size={15}/></a>
+          </div>}
           <div className="donation-active-reference"><span>Donation reference</span><code>{activeDonation.orderId}</code></div>
           <p className="donation-active-help">Closing the QR window will not cancel this session. Reopen the same QR here while it is active. If PhonePe does not auto-confirm after you actually paid, submit the UTR and receipt below. A screenshot alone does not verify payment.</p>
           {activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed'
@@ -728,7 +814,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                 ? <div className="donation-proof-message proof-rejected"><CircleAlert size={17}/><span>Admin review needs more information: {activeDonation.adminReviewNote || 'Please check the UTR and submit the correct receipt.'}</span></div>
                 : null}
           <div className="donation-active-actions">
-            {activeDonation.status !== 'SUCCESS' && Boolean(activeDonation.paymentId) && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
+            {activeDonation.status !== 'SUCCESS' && (Boolean(activeDonation.paymentId) || Boolean(activeDonation.upiUri)) && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{activeDonation.upiUri ? 'Show my UPI QR' : ['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
             {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => proofOpen ? setProofOpen(false) : openManualProofForm()}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
             {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
           </div>
