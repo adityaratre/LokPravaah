@@ -12,6 +12,7 @@ on:
       - 'scripts/**'
       - 'tsconfig*.json'
       - 'vite.config.ts'
+      - 'wrangler.jsonc'
       - '.github/workflows/deploy-cloudflare-pages.yml'
   workflow_dispatch:
 
