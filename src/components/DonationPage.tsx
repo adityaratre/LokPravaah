@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
@@ -175,6 +175,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [proofBusy, setProofBusy] = useState(false)
   const [proofNotice, setProofNotice] = useState<ProofNotice | null>(null)
   const [proofSubmission, setProofSubmission] = useState<{ orderId: string; amountPaise: number; submittedAt: string } | null>(null)
+  const manualProofSubmittedRef = useRef(false)
   const [myDonations, setMyDonations] = useState<MyDonationRow[]>([])
   const [myDonationsLoading, setMyDonationsLoading] = useState(false)
   const [myDonationsError, setMyDonationsError] = useState('')
@@ -505,9 +506,10 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       })
       if (claimError) throw new Error(claimError.message || 'Could not create the manual review request.')
       const claim = data as { status?: ManualClaimStatus; message?: string } | null
+      manualProofSubmittedRef.current = true
       setActiveDonation(current => current?.orderId === orderId
         ? { ...current, status: 'PENDING_REVIEW', claimStatus: claim?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null }
-        : current)
+        : { orderId, paymentId: String(result.paymentId || ''), amountPaise, status: 'PENDING_REVIEW', claimStatus: claim?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null })
       setProofOpen(false)
       setProofUtr(utr)
       setProofAmountText((amountPaise / 100).toFixed(2))
@@ -593,6 +595,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
 
     setLaunching(true)
+    manualProofSubmittedRef.current = false
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
@@ -624,6 +627,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
         onClose: () => setLaunching(false),
       })
+      // The I Paid callback may complete while this checkout promise is still pending.
+      // Preserve its review state instead of overwriting it with a fresh ACTIVE session.
+      if (manualProofSubmittedRef.current) { setLaunching(false); return }
       const paymentId = String(checkout?.options?.paymentId || '')
       if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
       setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
