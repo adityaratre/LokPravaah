@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowRight, Award, BadgeCheck, CircleAlert, CircleCheck, Clock3, Crown, HandHeart,
@@ -174,6 +174,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [proofBusy, setProofBusy] = useState(false)
   const [proofNotice, setProofNotice] = useState<ProofNotice | null>(null)
+  const [proofSubmission, setProofSubmission] = useState<{ orderId: string; amountPaise: number; submittedAt: string } | null>(null)
+  const manualProofSubmittedRef = useRef(false)
   const [myDonations, setMyDonations] = useState<MyDonationRow[]>([])
   const [myDonationsLoading, setMyDonationsLoading] = useState(false)
   const [myDonationsError, setMyDonationsError] = useState('')
@@ -456,6 +458,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setProofOpen(false)
       setProofFile(null)
       setProofNotice({ tone: 'success', title: 'Sent to admin for review', body: 'Your screenshot and claimed UTR were submitted privately. The donation total updates only after an administrator verifies the UTR against the receiving bank statement. Do not pay again while this is being checked.' })
+      setProofSubmission({ orderId: session.orderId, amountPaise: claimedAmountPaise, submittedAt: new Date().toISOString() })
       setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for administrator review.` })
       void loadMyDonations(); void loadPublicData()
     } catch (error) {
@@ -503,17 +506,22 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       })
       if (claimError) throw new Error(claimError.message || 'Could not create the manual review request.')
       const claim = data as { status?: ManualClaimStatus; message?: string } | null
+      manualProofSubmittedRef.current = true
       setActiveDonation(current => current?.orderId === orderId
         ? { ...current, status: 'PENDING_REVIEW', claimStatus: claim?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null }
-        : current)
+        : { orderId, paymentId: String(result.paymentId || ''), amountPaise, status: 'PENDING_REVIEW', claimStatus: claim?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null })
       setProofOpen(false)
       setProofUtr(utr)
       setProofAmountText((amountPaise / 100).toFixed(2))
       setProofTime(result.payment_timestamp || '')
       setProofFile(null)
       setProofNotice({ tone: 'success', title: 'Under review', body: 'Your payment proof was submitted privately. Do not pay again while the bank record is being checked.' })
+      setProofSubmission({ orderId, amountPaise, submittedAt: new Date().toISOString() })
       setNotice({ tone: 'info', title: 'Payment proof submitted', body: claim?.message || ('The receipt for ' + orderId + ' is in the administrator review queue.') })
-      await Promise.all([loadMyDonations(), loadPublicData()])
+      // Do not wait for independent dashboard refresh RPCs inside the checkout SDK callback;
+      // a slow public feed or donation-history query must not leave its I Paid modal blank.
+      void loadMyDonations()
+      void loadPublicData()
       return { success: true, message: 'Your UTR and receipt were submitted privately. The donation becomes successful only after admin bank-statement verification.' }
     } catch (caught) {
       if (uploadedPath) await supabase.storage.from('donation-payment-evidence').remove([uploadedPath]).catch(() => undefined)
@@ -587,6 +595,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (donorEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donorEmail.trim())) { setNotice({ tone: 'error', title: 'Check the email address', body: 'Enter a valid email address or leave the field blank.' }); return }
 
     setLaunching(true)
+    manualProofSubmittedRef.current = false
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
@@ -618,6 +627,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
         onClose: () => setLaunching(false),
       })
+      // The I Paid callback may complete while this checkout promise is still pending.
+      // Preserve its review state instead of overwriting it with a fresh ACTIVE session.
+      if (manualProofSubmittedRef.current) { setLaunching(false); return }
       const paymentId = String(checkout?.options?.paymentId || '')
       if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
       setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
@@ -644,6 +656,21 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const pendingDonationCount = myDonations.filter(item => item.status !== 'succeeded' && item.claim_status !== 'confirmed').length
   const successfulDonationCount = myDonations.filter(item => item.status === 'succeeded' || item.claim_status === 'confirmed').length
 
+  if (proofSubmission) {
+    return <div className="donation-page donation-thankyou-page">
+      <section className="donation-review-success" aria-labelledby="donation-review-title" role="status">
+        <div className="donation-review-success-icon"><CircleCheck size={34}/></div>
+        <span className="donation-section-kicker">DONATION PROOF RECEIVED</span>
+        <h1 id="donation-review-title">Thank you for supporting LokPravaah.</h1>
+        <p className="donation-review-lead">Your payment details have been submitted successfully.</p>
+        <div className="donation-review-status"><Clock3 size={19}/><div><strong>Payment is under review</strong><span>Our admin team will compare the UTR, amount and receipt with the receiving bank record. Your donation will be marked verified only after that check.</span></div></div>
+        <div className="donation-review-reference"><span>Donation reference</span><code>{proofSubmission.orderId}</code></div>
+        <div className="donation-review-amount"><span>Amount you reported as paid</span><strong>{money(proofSubmission.amountPaise)}</strong></div>
+        <p className="donation-review-reminder">Please do not pay again while this claim is being reviewed. Keep your UPI receipt for your records.</p>
+        <button type="button" className="donation-submit donation-review-back" onClick={() => setProofSubmission(null)}>Back to donations <ArrowRight size={16}/></button>
+      </section>
+    </div>
+  }
   return <div className="donation-page">
     <section className="donation-hero">
       <div className="donation-orb donation-orb-one" aria-hidden="true"/><div className="donation-orb donation-orb-two" aria-hidden="true"/>
