@@ -2,6 +2,8 @@ package online.lokpravaah.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +18,11 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import online.lokpravaah.app.data.NativeAuthRepository
 import online.lokpravaah.app.data.NativeSupabaseClientProvider
+import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 
 private val AppNavy = Color(0xFF07111F)
@@ -32,6 +39,8 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var createAccount by remember { mutableStateOf(false) }
+    var reports by remember { mutableStateOf<List<String>>(emptyList()) }
+    var reportsLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(client) {
@@ -62,8 +71,37 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
                 Text("LokPravaah", color = AppMint, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                 Text("Your voice. Your city. Your impact.", color = AppMuted)
                 Text("Citizen Home", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                Text("You're signed in with your existing LokPravaah account. Reports and rewards will use the shared Supabase data.", color = AppMuted)
-                Button(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = AppMint, contentColor = AppNavy)) { Text("Open full LokPravaah website") }
+                Text("Your account stays connected to the existing LokPravaah backend.", color = AppMuted)
+                Button(onClick = {
+                    reportsLoading = true
+                    message = ""
+                    scope.launch {
+                        try {
+                            val userId = client.auth.currentUserOrNull()?.id ?: error("Session expired. Sign in again.")
+                            val result = client.postgrest["reports"].select {
+                                filter { eq("reporter_id", userId) }
+                            }
+                            reports = Json.parseToJsonElement(result.data).jsonArray.map { row ->
+                                val obj = row.jsonObject
+                                val title = obj["title"]?.jsonPrimitive?.content ?: "Untitled report"
+                                val status = (obj["status"]?.jsonPrimitive?.content ?: "submitted").replace('_', ' ')
+                                val code = obj["public_code"]?.jsonPrimitive?.content.orEmpty()
+                                title + "\\n" + status.replaceFirstChar { it.uppercase() } + if (code.isNotBlank()) " · " + code else ""
+                            }
+                            if (reports.isEmpty()) message = "No reports found for this account yet."
+                        } catch (e: Exception) { message = e.message?.take(180) ?: "Couldn't load reports." }
+                        finally { reportsLoading = false }
+                    }
+                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = AppMint, contentColor = AppNavy)) { Text("Load my reports") }
+                if (reportsLoading) CircularProgressIndicator(color = AppMint)
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(reports) { report ->
+                        Surface(color = Color(0xFF102239), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(report, color = Color.White, modifier = Modifier.padding(14.dp), lineHeight = 21.sp)
+                        }
+                    }
+                }
+                Button(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A3048))) { Text("Open full LokPravaah website", color = Color.White) }
                 OutlinedButton(onClick = {
                     busy = true
                     scope.launch {
