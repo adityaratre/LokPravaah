@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
     private var showIntro by mutableStateOf(true)
     private var showWebsite by mutableStateOf(false)
     private var splashSoundEnabled by mutableStateOf(true)
+    private var passwordRecoveryPending by mutableStateOf(false)
     private var startupTone: ToneGenerator? = null
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -180,7 +181,11 @@ class MainActivity : ComponentActivity() {
                             onRetry = { webError = false; pageLoading = true; webView?.reload() }
                         )
                     } else {
-                        NativeCitizenGate(onOpenWebsite = { showWebsite = true })
+                        NativeCitizenGate(
+                            onOpenWebsite = { showWebsite = true },
+                            passwordRecoveryPending = passwordRecoveryPending,
+                            onPasswordRecoveryComplete = { passwordRecoveryPending = false }
+                        )
                     }
                 }
             }
@@ -336,6 +341,11 @@ class MainActivity : ComponentActivity() {
     private fun handleNativeAuthCallback(intent: Intent?) {
         val callbackUri = intent?.data ?: return
         if (!NativeSupabaseConfig.isConfigured || callbackUri.scheme != "lokpravaah" || callbackUri.host != "auth") return
+        val callbackPayload = (callbackUri.encodedQuery.orEmpty() + "&" + callbackUri.encodedFragment.orEmpty())
+        if (callbackUri.getQueryParameter("type")?.equals("recovery", ignoreCase = true) == true ||
+            callbackPayload.contains("type=recovery", ignoreCase = true)) {
+            passwordRecoveryPending = true
+        }
         // The SDK validates and exchanges the PKCE callback; do not log the callback URL or tokens.
         NativeSupabaseClientProvider.client?.handleDeeplinks(intent)
     }
