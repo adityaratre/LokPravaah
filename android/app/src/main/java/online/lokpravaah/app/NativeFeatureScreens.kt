@@ -758,9 +758,12 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     val raised = total / 100.0
     val goalInRupees = goal / 100.0
     val progress = if (goal > 0L) (total.toDouble() / goal.toDouble()).coerceIn(0.0, 1.0).toFloat() else 0f
+    val amountTextValid = Regex("^\\d+(?:\\.\\d{0,2})?$").matches(amountText.trim())
     val amountRupees = amountText.trim().toDoubleOrNull()
-    val amountPaise = amountRupees?.let { (it * 100.0).toLong() }
-    val gatewayReady = portalUrl.startsWith("https://") && apiUrl.startsWith("https://") && merchantKey.isNotBlank()
+    val amountPaise = if (amountTextValid) amountRupees?.let { Math.round(it * 100.0) } else null
+    val gatewayReady = portalUrl.startsWith("https://") && apiUrl.startsWith("https://") &&
+        Uri.parse(portalUrl).host?.equals(Uri.parse(apiUrl).host, ignoreCase = true) == true &&
+        merchantKey.isNotBlank()
     val donorEmailValid = donorEmail.isBlank() || Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(donorEmail.trim())
     val mayCheckout = !loading && !paymentBusy && enabled && gatewayEnabled && gatewayReady &&
         amountPaise != null && amountPaise in minimumPaise..maximumPaise && donorEmailValid &&
@@ -828,7 +831,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                             FxTextField(
                                 value = amountText,
                                 onValueChange = { amountText = it.filter { ch -> ch.isDigit() || ch == '.' }.take(9); paymentMessage = "" },
-                                label = "Custom amount (₹1–₹100,000)",
+                                label = "Custom amount (₹)",
                                 numeric = true
                             )
                             if (!anonymous) {
@@ -1138,6 +1141,9 @@ private suspend fun createNativeDonationCheckout(
     val portalUri = Uri.parse(portalUrl)
     check(apiUri.scheme == "https" && !apiUri.host.isNullOrBlank()) { "The secure payment service is unavailable." }
     check(portalUri.scheme == "https" && !portalUri.host.isNullOrBlank()) { "The secure payment portal is unavailable." }
+    check(apiUri.host.equals(portalUri.host, ignoreCase = true)) {
+        "The payment service configuration doesn't match the trusted checkout portal. No payment was started."
+    }
     check(merchantKey.isNotBlank()) { "The secure payment service is not configured." }
 
     val body = JSONObject()
