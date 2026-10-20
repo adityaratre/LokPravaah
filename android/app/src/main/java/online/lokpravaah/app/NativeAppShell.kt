@@ -67,6 +67,9 @@ import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import online.lokpravaah.app.data.NativeReport
@@ -273,6 +276,7 @@ private fun NativeHomeScreen(
     val context = LocalContext.current
     var name by remember { mutableStateOf("Citizen") }
     var reports by remember { mutableStateOf<List<NativeReport>>(emptyList()) }
+    var sharedStats by remember { mutableStateOf<NativePublicReportStats?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
@@ -289,10 +293,28 @@ private fun NativeHomeScreen(
                 ?: client.auth.currentUserOrNull()?.email?.substringBefore("@")
                 ?: "Citizen"
             reports = NativeReportsRepository(client, context.contentResolver).loadMyReports(userId)
+            try {
+                val statsResponse = client.postgrest.rpc("janwatch_get_public_report_stats")
+                val statsJson = Json.parseToJsonElement(statsResponse.data).jsonObject
+                sharedStats = NativePublicReportStats(
+                    total = statsJson["total"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                    active = statsJson["active"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                    resolved = statsJson["resolved"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+                )
+            } catch (_: Exception) {
+                sharedStats = null
+            }
         } catch (exception: Exception) {
             error = "Your dashboard could not refresh. Check your connection and try again."
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(userId) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            refresh++
         }
     }
 
@@ -361,9 +383,10 @@ private fun NativeHomeScreen(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = ShellMint, trackColor = ShellCard)
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                        NativeMetricCard("TOTAL", reports.size.toString(), Icons.Outlined.Description, ShellBlue, Modifier.weight(1f))
-                        NativeMetricCard("IN PROGRESS", reports.count { it.status in listOf("submitted", "under_review", "verified", "in_progress") }.toString(), Icons.Outlined.Timeline, ShellAmber, Modifier.weight(1f))
-                        NativeMetricCard("RESOLVED", reports.count { it.status == "resolved" }.toString(), Icons.Outlined.CheckCircle, ShellMint, Modifier.weight(1f))
+                        NativeMetricCard("PUBLIC", sharedStats?.total?.toString() ?: "—", Icons.Outlined.Description, ShellBlue, Modifier.weight(1f))
+                        NativeMetricCard("ACTIVE", sharedStats?.active?.toString() ?: "—", Icons.Outlined.Timeline, ShellAmber, Modifier.weight(1f))
+                        NativeMetricCard("RESOLVED", sharedStats?.resolved?.toString() ?: "—", Icons.Outlined.CheckCircle, ShellMint, Modifier.weight(1f))
+                        NativeMetricCard("MINE", reports.size.toString(), Icons.Outlined.Person, ShellBlue, Modifier.weight(1f))
                     }
                 }
                 if (error.isNotBlank()) {
@@ -413,6 +436,8 @@ private fun NativeHomeScreen(
 }
 
 @Composable
+private data class NativePublicReportStats(val total: Long, val active: Long, val resolved: Long)
+
 private fun NativeMetricCard(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, modifier: Modifier) {
     Surface(color = ShellSurface, shape = RoundedCornerShape(17.dp), modifier = modifier) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
