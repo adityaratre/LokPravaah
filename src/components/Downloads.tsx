@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { ArrowRight, Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle, Smartphone, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './Downloads.css'
+
+export type PublicDownloadInfo = { title: string; fileName: string; href: string }
 
 type DownloadRow = {
   id: string; title: string; description: string | null; file_name: string
@@ -11,10 +13,34 @@ type DownloadRow = {
 const readableSize = (n: number) => n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`
 const getPublicUrl = (path: string) => supabase?.storage.from('app-downloads').getPublicUrl(path).data.publicUrl ?? '#'
 
-export function PublicDownloads() {
+export function PublicDownloads({ onDownloadStarted }: { onDownloadStarted?: (download: PublicDownloadInfo) => void } = {}) {
   const [rows, setRows] = useState<DownloadRow[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  const [popupOpen, setPopupOpen] = useState(false)
+  const [popupDismissed, setPopupDismissed] = useState(true)
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 767px)')
+    const mobileUserAgent = /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent)
+    const updateDevice = () => setIsMobile(mobileQuery.matches || mobileUserAgent)
+    updateDevice()
+    mobileQuery.addEventListener?.('change', updateDevice)
+    try { setPopupDismissed(localStorage.getItem('lokpravaah.appPromptDismissed') === '1') } catch { /* optional storage */ }
+    return () => mobileQuery.removeEventListener?.('change', updateDevice)
+  }, [])
+  useEffect(() => {
+    if (!isMobile || popupDismissed) return
+    const timer = window.setTimeout(() => setPopupOpen(true), 2500)
+    return () => window.clearTimeout(timer)
+  }, [isMobile, popupDismissed])
+  const dismissPopup = (remember = false) => {
+    setPopupOpen(false)
+    if (remember) {
+      try { localStorage.setItem('lokpravaah.appPromptDismissed', '1') } catch { /* optional storage */ }
+      setPopupDismissed(true)
+    }
+  }
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); setFailed(true); return }
     setLoading(true); setFailed(false)
@@ -26,13 +52,17 @@ export function PublicDownloads() {
     setLoading(false)
   }, [])
   useEffect(() => { void load() }, [load])
-  return <section className="public-downloads" aria-labelledby="downloads-title">
+  if (!isMobile) return null
+  return <><section className="public-downloads" id="lokpravaah-downloads" aria-labelledby="downloads-title">
     <div className="public-downloads-heading"><div><span className="downloads-kicker">LOKPRAVAAH DOWNLOAD CENTRE</span><h2 id="downloads-title">Useful tools, <em>one click away.</em></h2><p>Official downloads published by the LokPravaah team.</p></div><span className="downloads-badge"><FileDown size={16}/> Official files</span></div>
     {loading ? <div className="downloads-empty"><LoaderCircle className="downloads-spin" size={23}/> Loading available downloads…</div> :
       failed ? <div className="downloads-empty"><AlertCircle size={22}/><span>Downloads could not be loaded. Please try again.</span><button className="downloads-secondary" onClick={() => void load()}>Retry</button></div> :
       rows.length === 0 ? <div className="downloads-empty"><FileArchive size={25}/><div><b>Downloads are coming soon</b><span>Published apps and files will appear here.</span></div></div> :
-      <div className="public-download-grid">{rows.map(row => <article className="public-download-card" key={row.id}><div className="download-file-icon"><FileArchive size={22}/></div><div className="download-file-info"><div className="download-file-title">{row.title}</div>{row.description && <p>{row.description}</p>}<div className="download-file-meta">{row.version ? <span>v{row.version}</span> : null}<span>{readableSize(Number(row.file_size))}</span><span>{row.file_name.split('.').pop()?.toUpperCase() || 'FILE'}</span></div><a className="downloads-primary" href={getPublicUrl(row.storage_path)} download={row.file_name} target="_blank" rel="noreferrer"><Download size={15}/> Download file</a></div></article>)}</div>}
+      <div className="public-download-grid">{rows.map(row => <article className="public-download-card" key={row.id}><div className="download-file-icon"><FileArchive size={22}/></div><div className="download-file-info"><div className="download-file-title">{row.title}</div>{row.description && <p>{row.description}</p>}<div className="download-file-meta">{row.version ? <span>v{row.version}</span> : null}<span>{readableSize(Number(row.file_size))}</span><span>{row.file_name.split('.').pop()?.toUpperCase() || 'FILE'}</span></div><a className="downloads-primary" href={getPublicUrl(row.storage_path)} download={row.file_name} target="_blank" rel="noreferrer" onClick={() => { const download = { title: row.title, fileName: row.file_name, href: getPublicUrl(row.storage_path) }; window.setTimeout(() => onDownloadStarted?.(download), 120) }}><Download size={15}/> Download file</a></div></article>)}</div>}
   </section>
+    <button type="button" className="mobile-app-fab" onClick={() => document.getElementById('lokpravaah-downloads')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><Smartphone size={17}/> Get the app</button>
+    {popupOpen && <div className="mobile-app-backdrop" role="presentation" onClick={() => dismissPopup()}><section className="mobile-app-popup" role="dialog" aria-modal="true" aria-labelledby="mobile-app-title" onClick={event => event.stopPropagation()}><button type="button" className="mobile-app-popup-close" aria-label="Close app prompt" onClick={() => dismissPopup()}><X size={18}/></button><div className="mobile-app-popup-icon"><Smartphone size={25}/></div><span className="downloads-kicker">LOKPRAVAAH FOR ANDROID</span><h2 id="mobile-app-title">Your community, closer.</h2><p>Get the LokPravaah Android app from the official download centre.</p><button type="button" className="downloads-primary" onClick={() => { dismissPopup(); document.getElementById('lokpravaah-downloads')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}><Download size={16}/> View app downloads</button><button type="button" className="mobile-app-never" onClick={() => dismissPopup(true)}>Don’t show again</button></section></div>}
+  </>
 }
 
 export function DownloadsAdmin({ userId }: { userId: string }) {
@@ -115,4 +145,30 @@ export function DownloadsAdmin({ userId }: { userId: string }) {
     <div className="downloads-list-heading"><h3>Uploaded files <span>{rows.length}</span></h3></div>
     {loading ? <div className="downloads-empty"><LoaderCircle size={22} className="downloads-spin"/> Loading files…</div> : rows.length === 0 ? <div className="downloads-empty">No files uploaded yet.</div> : <div className="downloads-admin-list">{rows.map(row=><article className="downloads-admin-row" key={row.id}><div className="download-file-icon"><FileArchive size={21}/></div><div className="download-file-info"><b>{row.title}</b><span>{row.file_name} · {readableSize(Number(row.file_size))}{row.version ? ` · v${row.version}` : ''}</span><span className={row.is_published ? 'downloads-status published' : 'downloads-status draft'}>{row.is_published ? 'Published on welcome page' : 'Draft / hidden'}</span></div><div className="downloads-admin-actions"><a className="downloads-icon-button" href={getPublicUrl(row.storage_path)} target="_blank" rel="noreferrer" aria-label={`Preview ${row.title}`}><Download size={16}/></a><button className="downloads-icon-button" type="button" disabled={busy} onClick={()=>void togglePublished(row)} aria-label={row.is_published?'Hide download':'Publish download'}>{row.is_published ? <EyeOff size={16}/> : <Eye size={16}/>}</button><button className="downloads-icon-button danger" type="button" disabled={busy} onClick={()=>void removeRow(row)} aria-label={`Delete ${row.title}`}><Trash2 size={16}/></button></div></article>)}</div>}
   </section>
+}
+
+
+export function DownloadThankYou({ download, onSignIn, onBack }: { download: PublicDownloadInfo; onSignIn: () => void; onBack: () => void }) {
+  const [countdown, setCountdown] = useState(7)
+  const onSignInRef = useRef(onSignIn)
+  useEffect(() => { onSignInRef.current = onSignIn }, [onSignIn])
+  useEffect(() => {
+    setCountdown(7)
+    const interval = window.setInterval(() => setCountdown(value => Math.max(0, value - 1)), 1000)
+    const redirect = window.setTimeout(() => onSignInRef.current(), 7000)
+    return () => { window.clearInterval(interval); window.clearTimeout(redirect) }
+  }, [])
+  return <main className="downloads-thankyou-page" aria-labelledby="download-thankyou-title">
+    <section className="downloads-thankyou-card">
+      <div className="downloads-thankyou-icon"><CheckCircle2 size={32}/></div>
+      <span className="downloads-kicker">LOKPRAVAAH DOWNLOAD CENTRE</span>
+      <h1 id="download-thankyou-title">Thanks for choosing LokPravaah.</h1>
+      <p className="downloads-thankyou-lead">Your download request for <strong>{download.title}</strong> has started in a new tab. You can sign in to continue using the civic-action platform.</p>
+      <div className="downloads-countdown"><LoaderCircle size={17} className="downloads-spin"/><span>Taking you to sign in in <strong>{countdown} {countdown === 1 ? 'second' : 'seconds'}</strong>.</span></div>
+      <a className="downloads-primary downloads-thankyou-retry" href={download.href} download={download.fileName} target="_blank" rel="noreferrer"><Download size={16}/> Download again</a>
+      <button type="button" className="downloads-secondary downloads-thankyou-signin" onClick={onSignIn}>Sign in now <ArrowRight size={16}/></button>
+      <button type="button" className="downloads-thankyou-back" onClick={onBack}>Back to website</button>
+      <p className="downloads-thankyou-footnote">If the file did not start downloading, use “Download again” above. The Android app may request installation permission from your phone.</p>
+    </section>
+  </main>
 }
