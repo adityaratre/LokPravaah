@@ -40,6 +40,13 @@ class NativeAuthRepository(
         supabase.auth.resetPasswordForEmail(email.trim())
     }
 
+    suspend fun updatePassword(password: String) {
+        require(password.length >= 8) { "Use a password with at least 8 characters." }
+        supabase.auth.updateUser {
+            this.password = password
+        }
+    }
+
     suspend fun signInWithGoogle() {
         supabase.auth.signInWith(Google)
     }
