@@ -780,6 +780,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     val amountPaise = if (amountTextValid) amountRupees?.let { Math.round(it * 100.0) } else null
     val upiConfigured = Regex("^[A-Za-z0-9._-]{2,}@[A-Za-z0-9._-]{2,}$").matches(upiVpa)
     val donorEmailValid = donorEmail.isBlank() || Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(donorEmail.trim())
+    val upiQrBitmap = remember(activeUpiUri) { activeUpiUri.takeIf { it.isNotBlank() }?.let { createNativeUpiQrBitmap(it) } }
     val mayCheckout = !loading && !paymentBusy && enabled && gatewayEnabled && upiConfigured &&
         amountPaise != null && amountPaise in minimumPaise..maximumPaise && donorEmailValid &&
         client.auth.currentUserOrNull()?.id == userId
@@ -981,7 +982,63 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                     }
                 }
 
-                if (activeOrderId.isNotBlank()) {
+                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank()) {
+                    item {
+                        Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                Text("SCAN TO PAY", color = FxMint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                                if (upiQrBitmap != null) {
+                                    Surface(color = Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(250.dp)) {
+                                        Image(
+                                            bitmap = upiQrBitmap.asImageBitmap(),
+                                            contentDescription = "UPI payment QR for LokPravaah",
+                                            modifier = Modifier.fillMaxSize().padding(10.dp)
+                                        )
+                                    }
+                                } else {
+                                    Text("QR could not be generated. Use Open UPI app below.", color = FxAmber, fontSize = 12.sp)
+                                }
+                                Text(upiPayeeName, color = FxText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(upiVpa, color = FxMuted, fontSize = 12.sp)
+                                Text("₹" + String.format(Locale.ROOT, "%.2f", activeAmountPaise / 100.0), color = FxMint, fontWeight = FontWeight.ExtraBold, fontSize = 25.sp)
+                                Text("Reference: " + activeOrderId, color = FxMuted, fontSize = 10.sp)
+                                Text(
+                                    "Before approving, verify the payee and amount in your UPI app. Returning to this screen does not confirm a payment.",
+                                    color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp
+                                )
+                                Button(
+                                    onClick = {
+                                        try {
+                                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(activeUpiUri)), "Pay with UPI"))
+                                        } catch (_: Exception) {
+                                            paymentMessage = "No UPI app could open the payment link. You can still scan the QR with a UPI app."
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = FxMint, contentColor = FxNavy)
+                                ) {
+                                    Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = null)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text("Open UPI app", fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = { showProofForm = !showProofForm; proofMessage = "" },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(if (showProofForm) "Hide payment confirmation" else "I paid — submit UTR")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (activeOrderId.isNotBlank() && showProofForm) {
                     item {
                         Surface(color = FxSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -1046,6 +1103,8 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                                         proofMessage = returned["message"]?.jsonPrimitive?.content
                                                             ?: "Receipt submitted for payment review. This does not mean payment has been verified."
                                                         activeOrderId = ""
+                                                        activeUpiUri = ""
+                                                        showProofForm = false
                                                         proofUri = null
                                                         claimedUtr = ""
                                                         refresh++
@@ -1133,6 +1192,41 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                 }
             }
         }
+    }
+}
+
+private fun buildNativeUpiUri(vpa: String, payeeName: String, amountPaise: Long, orderId: String): String {
+    return Uri.Builder()
+        .scheme("upi")
+        .authority("pay")
+        .appendQueryParameter("pa", vpa)
+        .appendQueryParameter("pn", payeeName)
+        .appendQueryParameter("am", String.format(Locale.ROOT, "%.2f", amountPaise / 100.0))
+        .appendQueryParameter("cu", "INR")
+        .appendQueryParameter("tr", orderId)
+        .appendQueryParameter("tn", "LokPravaah contribution " + orderId)
+        .build()
+        .toString()
+}
+
+private fun createNativeUpiQrBitmap(value: String): Bitmap? {
+    return try {
+        val hints = mapOf(
+            EncodeHintType.MARGIN to 2,
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+        )
+        val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, 640, 640, hints)
+        val pixels = IntArray(matrix.width * matrix.height)
+        for (y in 0 until matrix.height) {
+            for (x in 0 until matrix.width) {
+                pixels[y * matrix.width + x] = if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+        Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888).apply {
+            setPixels(pixels, 0, matrix.width, 0, 0, matrix.width, matrix.height)
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 
