@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Download, FileArchive, FileDown, LoaderCircle, Plus, RefreshCw, Trash2, UploadCloud, Eye, EyeOff, CheckCircle2, AlertCircle, Smartphone, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './Downloads.css'
 
@@ -15,6 +15,30 @@ export function PublicDownloads() {
   const [rows, setRows] = useState<DownloadRow[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  const [popupOpen, setPopupOpen] = useState(false)
+  const [popupDismissed, setPopupDismissed] = useState(true)
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 767px)')
+    const mobileUserAgent = /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent)
+    const updateDevice = () => setIsMobile(mobileQuery.matches || mobileUserAgent)
+    updateDevice()
+    mobileQuery.addEventListener?.('change', updateDevice)
+    try { setPopupDismissed(localStorage.getItem('lokpravaah.appPromptDismissed') === '1') } catch { /* optional storage */ }
+    return () => mobileQuery.removeEventListener?.('change', updateDevice)
+  }, [])
+  useEffect(() => {
+    if (!isMobile || popupDismissed) return
+    const timer = window.setTimeout(() => setPopupOpen(true), 2500)
+    return () => window.clearTimeout(timer)
+  }, [isMobile, popupDismissed])
+  const dismissPopup = (remember = false) => {
+    setPopupOpen(false)
+    if (remember) {
+      try { localStorage.setItem('lokpravaah.appPromptDismissed', '1') } catch { /* optional storage */ }
+      setPopupDismissed(true)
+    }
+  }
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); setFailed(true); return }
     setLoading(true); setFailed(false)
@@ -26,13 +50,17 @@ export function PublicDownloads() {
     setLoading(false)
   }, [])
   useEffect(() => { void load() }, [load])
-  return <section className="public-downloads" aria-labelledby="downloads-title">
+  if (!isMobile) return null
+  return <><section className="public-downloads" id="lokpravaah-downloads" aria-labelledby="downloads-title">
     <div className="public-downloads-heading"><div><span className="downloads-kicker">LOKPRAVAAH DOWNLOAD CENTRE</span><h2 id="downloads-title">Useful tools, <em>one click away.</em></h2><p>Official downloads published by the LokPravaah team.</p></div><span className="downloads-badge"><FileDown size={16}/> Official files</span></div>
     {loading ? <div className="downloads-empty"><LoaderCircle className="downloads-spin" size={23}/> Loading available downloads…</div> :
       failed ? <div className="downloads-empty"><AlertCircle size={22}/><span>Downloads could not be loaded. Please try again.</span><button className="downloads-secondary" onClick={() => void load()}>Retry</button></div> :
       rows.length === 0 ? <div className="downloads-empty"><FileArchive size={25}/><div><b>Downloads are coming soon</b><span>Published apps and files will appear here.</span></div></div> :
       <div className="public-download-grid">{rows.map(row => <article className="public-download-card" key={row.id}><div className="download-file-icon"><FileArchive size={22}/></div><div className="download-file-info"><div className="download-file-title">{row.title}</div>{row.description && <p>{row.description}</p>}<div className="download-file-meta">{row.version ? <span>v{row.version}</span> : null}<span>{readableSize(Number(row.file_size))}</span><span>{row.file_name.split('.').pop()?.toUpperCase() || 'FILE'}</span></div><a className="downloads-primary" href={getPublicUrl(row.storage_path)} download={row.file_name} target="_blank" rel="noreferrer"><Download size={15}/> Download file</a></div></article>)}</div>}
   </section>
+    <button type="button" className="mobile-app-fab" onClick={() => document.getElementById('lokpravaah-downloads')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><Smartphone size={17}/> Get the app</button>
+    {popupOpen && <div className="mobile-app-backdrop" role="presentation" onClick={() => dismissPopup()}><section className="mobile-app-popup" role="dialog" aria-modal="true" aria-labelledby="mobile-app-title" onClick={event => event.stopPropagation()}><button type="button" className="mobile-app-popup-close" aria-label="Close app prompt" onClick={() => dismissPopup()}><X size={18}/></button><div className="mobile-app-popup-icon"><Smartphone size={25}/></div><span className="downloads-kicker">LOKPRAVAAH FOR ANDROID</span><h2 id="mobile-app-title">Your community, closer.</h2><p>Get the LokPravaah Android app from the official download centre.</p><button type="button" className="downloads-primary" onClick={() => { dismissPopup(); document.getElementById('lokpravaah-downloads')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}><Download size={16}/> View app downloads</button><button type="button" className="mobile-app-never" onClick={() => dismissPopup(true)}>Don’t show again</button></section></div>}
+  </>
 }
 
 export function DownloadsAdmin({ userId }: { userId: string }) {
