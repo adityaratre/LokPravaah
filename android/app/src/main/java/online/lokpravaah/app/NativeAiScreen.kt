@@ -196,7 +196,7 @@ fun NativeAiScreen(client: SupabaseClient, userId: String) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Try asking", color = AiWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        activeMode.starters.forEach { starter ->
+                        mode.starters.forEach { starter ->
                             Surface(
                                 color = AiPanel, shape = RoundedCornerShape(14.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, AiLine),
