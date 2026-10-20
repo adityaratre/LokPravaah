@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "android/**"
+      - "src/App.tsx"
       - ".github/workflows/android-apk.yml"
   push:
     branches: [main]
