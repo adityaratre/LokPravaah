@@ -1035,14 +1035,9 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                             claimedAmountText = String.format(Locale.ROOT, "%.2f", value / 100.0)
                                             claimedUtr = ""
                                             proofUri = null
-                                            paymentMessage = "Your UPI QR is ready. Check the payee and amount in your UPI app. After payment, tap I paid to submit your UTR and receipt. Reference: " + orderId
+                                            paymentMessage = "Your UPI QR is ready below. Scan it using your UPI app, or tap Open UPI app. After payment, tap I paid to submit your UTR and receipt. Reference: " + orderId
+                                            showProofForm = false
                                             refresh++
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(upiUri))
-                                                context.startActivity(Intent.createChooser(intent, "Pay with UPI"))
-                                            } catch (_: Exception) {
-                                                paymentMessage = "Your UPI QR is ready below. Scan it with a UPI app, then tap I paid after the transfer."
-                                            }
                                         } catch (exception: Exception) {
                                             paymentMessage = exception.message?.take(220)
                                                 ?: "Checkout couldn't be started. No payment page was opened; please try again."
@@ -1059,7 +1054,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                 else {
                                     Icon(Icons.Outlined.Lock, contentDescription = null)
                                     Spacer(Modifier.width(7.dp))
-                                    Text("Generate UPI QR and pay", fontWeight = FontWeight.Bold)
+                                    Text("Generate UPI QR", fontWeight = FontWeight.Bold)
                                 }
                             }
                             if (paymentMessage.isNotBlank()) {
