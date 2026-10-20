@@ -2,7 +2,7 @@ package online.lokpravaah.app
 
 import android.content.Intent
 import android.net.Uri
-import android.text.format.DateFormat
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -67,6 +67,14 @@ fun NativeReportsScreen(
     var errorMessage by remember { mutableStateOf("") }
     var formMessage by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf("") }
+
+    BackHandler(enabled = page != NativeReportsPage.LIST) {
+        when (page) {
+            NativeReportsPage.CREATE -> if (!saving) { page = NativeReportsPage.LIST; formMessage = "" }
+            NativeReportsPage.DETAIL -> { page = NativeReportsPage.LIST; selectedReport = null; reportEvents = emptyList(); errorMessage = "" }
+            NativeReportsPage.LIST -> Unit
+        }
+    }
 
     LaunchedEffect(userId, refreshing) {
         if (client.auth.currentUserOrNull()?.id != userId) {
@@ -135,8 +143,6 @@ fun NativeReportsScreen(
             }
         )
         NativeReportsPage.CREATE -> ReportCreatePage(
-            repository = repository,
-            userId = userId,
             saving = saving,
             message = formMessage,
             onCancel = { if (!saving) { page = NativeReportsPage.LIST; formMessage = "" } },
@@ -286,8 +292,6 @@ private fun ReportListPage(
 
 @Composable
 private fun ReportCreatePage(
-    repository: NativeReportsRepository,
-    userId: String,
     saving: Boolean,
     message: String,
     onCancel: () -> Unit,
