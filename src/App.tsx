@@ -59,6 +59,9 @@ type ReportEvent = { event_type: string; note: string | null; created_at: string
 type FeatureKey = 'reporting' | 'public_chat' | 'rewards' | 'civic_toolkit' | 'evidence_upload' | 'community_support' | 'janwatch_ai'
 type SiteAnnouncement = { id: string; title: string; body: string; severity: 'info' | 'warning' | 'critical'; created_at: string; expires_at: string | null }
 
+const IS_MOBILE_APP = new URLSearchParams(window.location.search).get('mobileApp') === '1'
+const ENTRY_SCREEN: EntryScreen = IS_MOBILE_APP ? 'auth' : 'welcome'
+
 const EMPTY_STATS: Stats = { total: null, active: null, resolved: null, mine: null }
 const CATEGORIES = [
   'Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage',
@@ -197,7 +200,7 @@ function mapIssue(row: any): Issue {
 export default function App() {
   const client = supabase
   // The public welcome page is intentional: even a returning authenticated user lands here first.
-  const [entryScreen, setEntryScreen] = useState<EntryScreen>('welcome')
+  const [entryScreen, setEntryScreen] = useState<EntryScreen>(ENTRY_SCREEN)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
@@ -344,13 +347,13 @@ export default function App() {
           } else {
             // Supabase restores the signed-in session on page reload. Keep the
             // authenticated workspace visible instead of falling back to welcome.
-            setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+            setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
           }
         }
       } catch {
         if (sessionUser) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       }
       setAuthLoading(false)
@@ -390,16 +393,16 @@ export default function App() {
         } else if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
           // Rehydrate on initial load/sign-in; token refresh must not interrupt navigation.
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       } catch {
         if (sessionUser && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
           const setupComplete = sessionUser.user_metadata?.janwatch_onboarding_complete === true
-          setEntryScreen(current => current === 'welcome' ? (setupComplete ? 'workspace' : 'onboarding') : current)
+          setEntryScreen(current => (current === 'welcome' || (IS_MOBILE_APP && current === 'auth')) ? (setupComplete ? 'workspace' : 'onboarding') : current)
         }
       }
       if (!session?.user) {
-        setEntryScreen('welcome')
+        setEntryScreen(IS_MOBILE_APP ? 'auth' : 'welcome')
         setIssues([])
         setStats(EMPTY_STATS)
         setProfile(null)
@@ -963,10 +966,10 @@ export default function App() {
 
   if (authLoading) return <AuthLoading dark={dark} />
   if (entryScreen === 'welcome') return <><WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} /><PublicDownloads /></>
-  if (entryScreen === 'auth') return <AuthScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} isConfigured={isSupabaseConfigured} busy={authBusy} error={authError} message={authMessage} mode={authMode} setMode={mode => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} fullName={authFullName} setFullName={setAuthFullName} confirmPassword={authConfirmPassword} setConfirmPassword={setAuthConfirmPassword} onSubmit={submitEmailAuth} onGoogle={() => void signInWithGoogle()} onForgotPassword={() => void resetPassword()} onResend={() => void resendConfirmation()} onBack={() => { setEntryScreen('welcome'); setAuthError(''); setAuthMessage('') }} />
+  if (entryScreen === 'auth') return <AuthScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} isConfigured={isSupabaseConfigured} busy={authBusy} error={authError} message={authMessage} mode={authMode} setMode={mode => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} fullName={authFullName} setFullName={setAuthFullName} confirmPassword={authConfirmPassword} setConfirmPassword={setAuthConfirmPassword} onSubmit={submitEmailAuth} onGoogle={() => void signInWithGoogle()} onForgotPassword={() => void resetPassword()} onResend={() => void resendConfirmation()} onBack={() => { setEntryScreen(IS_MOBILE_APP ? 'auth' : 'welcome'); setAuthError(''); setAuthMessage('') }} />
   if (entryScreen === 'onboarding') {
     if (!user) return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />
-    return <OnboardingScreen mode={onboardingMode} dark={dark} userEmail={user.email ?? ''} fullName={authFullName || String(user.user_metadata?.full_name || user.user_metadata?.name || '')} setFullName={setAuthFullName} phone={profilePhone || String(user.user_metadata?.phone || '')} setPhone={setProfilePhone} city={profileCity || String(user.user_metadata?.city || '')} setCity={setProfileCity} ward={profileWard || String(user.user_metadata?.ward || '')} setWard={setProfileWard} accountType={accountType} setAccountType={setAccountType} preferredService={preferredService} setPreferredService={setPreferredService} saving={savingOnboarding} error={authError} onSubmit={saveOnboarding} onBack={() => setEntryScreen(onboardingMode === 'edit' ? 'workspace' : 'welcome')} />
+    return <OnboardingScreen mode={onboardingMode} dark={dark} userEmail={user.email ?? ''} fullName={authFullName || String(user.user_metadata?.full_name || user.user_metadata?.name || '')} setFullName={setAuthFullName} phone={profilePhone || String(user.user_metadata?.phone || '')} setPhone={setProfilePhone} city={profileCity || String(user.user_metadata?.city || '')} setCity={setProfileCity} ward={profileWard || String(user.user_metadata?.ward || '')} setWard={setProfileWard} accountType={accountType} setAccountType={setAccountType} preferredService={preferredService} setPreferredService={setPreferredService} saving={savingOnboarding} error={authError} onSubmit={saveOnboarding} onBack={() => setEntryScreen(onboardingMode === 'edit' ? 'workspace' : (IS_MOBILE_APP ? 'auth' : 'welcome'))} />
   }
   if (entryScreen !== 'workspace') return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />
   if (!user) return <WelcomeScreen dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} announcements={siteAnnouncements} onSignIn={() => void chooseAuth('login')} onRegister={() => void chooseAuth('register')} />

@@ -612,3 +612,39 @@ body{overflow-x:hidden}
 .wr-evidence-upload span{display:flex;flex-direction:column;gap:4px}
 .wr-evidence-upload small{font-size:12px;opacity:.76;overflow-wrap:anywhere}
 .wr-evidence-upload input[type=file]{max-width:100%;font:inherit;font-size:13px}
+
+/* Mobile release polish: safe-area spacing, readable inputs and reliable touch targets. */
+html{min-width:320px;overflow-x:hidden;scroll-padding-top:76px}
+body{overflow-x:hidden}
+button,a,input,select,textarea{touch-action:manipulation}
+@media(max-width:760px){
+ .app-shell{width:100%;min-width:320px;overflow-x:clip}
+ .main-content{width:100%;min-width:0}
+ .topbar{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+ .page-wrap{padding-left:max(13px,env(safe-area-inset-left));padding-right:max(13px,env(safe-area-inset-right));padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+ .btn,.icon-btn,.nav-link,.quick-action,.filter-btn,.table-action{min-height:40px}
+ .report-modal{width:100%;max-height:calc(100dvh - 24px);overscroll-behavior:contain}
+ .report-modal input,.report-modal select,.report-modal textarea,.wr-setting-points input{font-size:16px}
+ .auth-screen{min-height:100dvh;padding-top:max(15px,env(safe-area-inset-top));padding-bottom:max(15px,env(safe-area-inset-bottom))}
+ .auth-layout{grid-template-columns:minmax(0,1fr);gap:24px;padding:25px 0 28px;margin:0 auto;width:min(100%,520px)}
+ .auth-intro h1{font-size:clamp(37px,10vw,54px);letter-spacing:-2.2px;margin-top:15px}
+ .auth-intro>p{font-size:13px;line-height:1.75;margin-bottom:16px}
+ .auth-benefits{grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+ .auth-benefits>div{align-items:flex-start;gap:8px}
+ .auth-benefits>div>span{width:30px;height:30px;flex-basis:30px}
+ .auth-benefits b{font-size:10px;line-height:1.4}
+ .auth-benefits small{font-size:9px}
+ .auth-card{padding:clamp(20px,6vw,28px);border-radius:18px}
+ .auth-card h2{font-size:26px}
+ .auth-footer{flex-wrap:wrap;line-height:1.6}
+ .notification-pop{max-width:calc(100vw - 24px)}
+ .toast{bottom:calc(12px + env(safe-area-inset-bottom));right:12px}
+}
+@media(max-width:380px){
+ .auth-benefits{grid-template-columns:1fr}
+ .auth-card-top{margin-bottom:20px}
+ .auth-card h2{font-size:24px}
+ .topbar-actions>.icon-btn{width:34px;min-width:34px}
+ .page-wrap{padding-top:18px}
+}
+@media(prefers-reduced-motion:reduce){.sidebar,.nav-link,.btn,.icon-btn,.quick-action{transition:none!important}}
