@@ -130,6 +130,17 @@ function makeOrderId(): string {
     : Math.random().toString(36).slice(2, 18).toUpperCase()
   return `LPDON-${Date.now().toString(36).toUpperCase()}-${random}`
 }
+
+/** UPI transaction references must be numeric and no longer than 35 characters.
+ * Keep a stable numeric reference derived from the random order suffix so it can
+ * be matched to the internal donation order without sending an invalid LPDON-... value.
+ */
+function makeUpiTransactionRef(orderId: string): string {
+  const suffix = orderId.replace(/-/g, '').slice(-16)
+  if (/^[a-f0-9]{16}$/i.test(suffix)) return BigInt('0x' + suffix).toString()
+  const digits = orderId.replace(/\D/g, '').slice(-35)
+  return digits || String(Date.now())
+}
 function money(paise: number): string {
   return (Math.max(0, Number(paise) || 0) / 100).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
 }
@@ -655,10 +666,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           pn: upiPayeeName,
           am: (parsedAmount / 100).toFixed(2),
           cu: 'INR',
-          tr: orderId,
-          tn: `LokPravaah contribution ${orderId}`,
+          tr: makeUpiTransactionRef(orderId),
+          tn: `LokPravaah ${orderId}`.slice(0, 50),
         })
-        const upiUri = `upi://pay?${params.toString()}`
+        // Some UPI handlers incorrectly treat '+' as a literal space in deep links.
+        const upiUri = `upi://pay?${params.toString().replace(/\+/g, '%20')}`
         setActiveDonation({
           orderId,
           paymentId: '',
