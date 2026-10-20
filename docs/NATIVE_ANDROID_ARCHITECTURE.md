@@ -25,3 +25,18 @@
 
 ## Release gate
 Do not switch the production app away from its current entry point until native authentication and the core citizen flows are connected to the shared backend and verified. A successful APK build alone is not feature verification.
+
+
+## Google OAuth / native callback setup (in progress)
+
+The native auth screen is still presentation-only until the shared Supabase client and session lifecycle are wired. Android now reserves the callback URI `lokpravaah://auth/callback`.
+
+Before end-to-end testing:
+1. Enable Google in the existing Supabase project's Authentication → Providers.
+2. Set the Google provider's authorized redirect URI to the Supabase Auth callback shown in provider settings (usually `https://<project-ref>.supabase.co/auth/v1/callback`).
+3. Add `lokpravaah://auth/callback` to Supabase Authentication → URL Configuration → Redirect URLs.
+4. Keep the website's existing redirect URLs unchanged.
+5. Use only the public anon/publishable key in Android; never embed service-role keys or Google client secrets.
+6. Implement and verify callback token/code exchange and session persistence before enabling the native screen in MainActivity.
+
+Registering a callback URI alone does not complete OAuth. The production entry point remains the existing WebView until session handling and shared-account tests pass.

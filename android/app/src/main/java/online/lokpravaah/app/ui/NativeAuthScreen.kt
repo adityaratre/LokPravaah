@@ -2,6 +2,7 @@ package online.lokpravaah.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,7 +90,7 @@ fun NativeAuthScreen(
                 trailingIcon = {
                     Text(
                         if (passwordVisible) "Hide" else "Show",
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp).clickable { passwordVisible = !passwordVisible },
                         color = LokPravaahColors.Mint,
                         fontSize = 12.sp
                     )
@@ -134,6 +135,7 @@ fun NativeAuthScreen(
                 Text("New to LokPravaah?", color = LokPravaahColors.TextSecondary, fontSize = 13.sp)
                 Text(
                     "  Create account",
+                    modifier = Modifier.clickable(enabled = !isLoading) { onCreateAccount() },
                     color = LokPravaahColors.Mint,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
