@@ -788,7 +788,7 @@ export default function App() {
       setLocating(false)
       const reason = error.code === error.PERMISSION_DENIED ? 'Location permission was denied.' : error.code === error.TIMEOUT ? 'Location request timed out.' : 'Could not determine your location.'
       notify(reason)
-    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 })
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
   }
 
   async function submitReport(event: FormEvent<HTMLFormElement>) {
