@@ -1,6 +1,10 @@
 name: Deploy LokPravaah Cloudflare UPI Worker
 
 on:
+  pull_request:
+    paths:
+      - 'cloudflare-upi-worker/**'
+      - '.github/workflows/deploy-cloudflare-upi-worker.yml'
   push:
     branches: [main]
     paths:
@@ -31,6 +35,7 @@ jobs:
       - name: Validate Cloudflare bundle
         run: npm run check
       - name: Verify server-side Supabase key is configured
+        if: github.event_name != 'pull_request'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -48,11 +53,13 @@ jobs:
             exit 1
           fi
       - name: Deploy Worker
+        if: github.event_name != 'pull_request'
         run: npx wrangler deploy --config wrangler.jsonc
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Smoke test production gateway configuration
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail

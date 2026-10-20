@@ -648,3 +648,32 @@ button,a,input,select,textarea{touch-action:manipulation}
  .page-wrap{padding-top:18px}
 }
 @media(prefers-reduced-motion:reduce){.sidebar,.nav-link,.btn,.icon-btn,.quick-action{transition:none!important}}
+
+
+/* Final layout hardening: keep wide children inside their page shell while preserving vertical page scrolling. */
+html,body,#root{width:100%;max-width:100%;min-width:320px;box-sizing:border-box}
+html{overflow-x:clip;scroll-padding-top:84px}
+body{overflow-x:clip}
+#root{min-height:100vh}
+.app-shell{width:100%;min-width:320px;max-width:100%;overflow-x:clip;align-items:stretch}
+.main-content{flex:1 1 0%;width:auto;min-width:0;max-width:100%}
+.topbar,.topbar-left,.topbar-actions,.breadcrumb{min-width:0;max-width:100%;box-sizing:border-box}
+.breadcrumb{overflow-wrap:anywhere}
+.page-wrap{width:100%;min-width:0;max-width:1600px;box-sizing:border-box}
+.page-wrap>*{min-width:0}
+.page-wrap img,.page-wrap video,.page-wrap iframe,.public-site img,.public-site video{max-width:100%}
+.public-site{max-width:100%;overflow-x:clip;overflow-y:visible}
+.public-footer{min-width:0;max-width:100%;flex-wrap:wrap;overflow-wrap:anywhere}
+.donation-page,.donation-thankyou-page,.donation-admin,.downloads-admin,.public-downloads{min-width:0;max-width:100%}
+.donation-page :is(input,textarea,select,button),.donation-admin :is(input,textarea,select,button),.downloads-admin :is(input,textarea,select,button){max-width:100%;box-sizing:border-box}
+@media(max-width:760px){
+  .app-shell{overflow-x:clip}
+  .main-content{min-width:0}
+  .page-wrap{overflow-wrap:anywhere}
+  .public-footer{align-items:flex-start;gap:10px}
+  .public-downloads,.downloads-admin{width:100%;margin-left:0;margin-right:0}
+  .donation-page :is(.donation-active-payment,.donation-history-panel,.donation-history-item,.donation-review-success){min-width:0;max-width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+}
