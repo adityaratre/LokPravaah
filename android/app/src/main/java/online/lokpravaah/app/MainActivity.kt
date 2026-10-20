@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
     private var webError by mutableStateOf(false)
     private var pageLoading by mutableStateOf(true)
     private var showIntro by mutableStateOf(true)
+    private var showWebsite by mutableStateOf(false)
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = fileChooserCallback
@@ -148,7 +149,7 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(Navy)) {
                     if (showIntro) {
                         IntroScreen()
-                    } else {
+                    } else if (showWebsite) {
                         AppWebScreen(
                             activity = this@MainActivity,
                             onWebView = { webView = it },
@@ -156,6 +157,8 @@ class MainActivity : ComponentActivity() {
                             error = webError,
                             onRetry = { webError = false; pageLoading = true; webView?.reload() }
                         )
+                    } else {
+                        NativeCitizenGate(onOpenWebsite = { showWebsite = true })
                     }
                 }
             }
