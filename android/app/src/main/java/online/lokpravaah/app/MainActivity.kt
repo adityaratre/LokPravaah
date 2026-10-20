@@ -34,6 +34,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -323,7 +326,19 @@ private fun IntroScreen() {
                 ),
                 contentAlignment = Alignment.Center
             ) {
-                Text("≋", color = Color(0xFF12372A), fontSize = 76.sp, fontWeight = FontWeight.Black)
+                Canvas(Modifier.size(82.dp)) {
+                    val waveColor = Color(0xFF12372A)
+                    val waveStroke = Stroke(width = size.width * 0.075f)
+                    for (index in 0..2) {
+                        val y = size.height * (0.22f + index * 0.25f)
+                        val wave = Path().apply {
+                            moveTo(size.width * 0.08f, y)
+                            cubicTo(size.width * 0.22f, y - size.height * 0.14f, size.width * 0.31f, y - size.height * 0.14f, size.width * 0.45f, y)
+                            cubicTo(size.width * 0.59f, y + size.height * 0.14f, size.width * 0.70f, y + size.height * 0.14f, size.width * 0.92f, y)
+                        }
+                        drawPath(wave, waveColor, style = waveStroke)
+                    }
+                }
             }
             Spacer(Modifier.height(28.dp))
             Text("LokPravaah", color = White, fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
