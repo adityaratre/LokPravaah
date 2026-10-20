@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.location.LocationListener
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -303,14 +306,61 @@ private fun ReportCreatePage(
         try {
             val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            val location = providers.asSequence().mapNotNull { provider ->
+            val lastKnown = providers.asSequence().mapNotNull { provider ->
                 try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null } catch (_: IllegalArgumentException) { null }
             }.maxByOrNull { it.time }
-            if (location != null) {
-                latitude = location.latitude.toString()
-                longitude = location.longitude.toString()
-                pickerMessage = "Location filled. Check the pin before submitting."
-            } else pickerMessage = "No recent location fix. Turn on device location and retry, or enter coordinates manually."
+            // Use a recent cached fix immediately, but request a fresh fix rather than
+            // silently attaching an old location to a new civic report.
+            if (lastKnown != null && System.currentTimeMillis() - lastKnown.time < 2 * 60 * 1000L) {
+                latitude = lastKnown.latitude.toString()
+                longitude = lastKnown.longitude.toString()
+                pickerMessage = "Recent location filled. Check the pin before submitting."
+                return
+            }
+
+            val activeProviders = providers.filter { provider ->
+                try { manager.isProviderEnabled(provider) } catch (_: Exception) { false }
+            }
+            if (activeProviders.isEmpty()) {
+                pickerMessage = "Turn on device location, or enter coordinates manually."
+                return
+            }
+
+            pickerMessage = "Getting your current location…"
+            val handler = Handler(Looper.getMainLooper())
+            var completed = false
+            lateinit var listener: LocationListener
+            fun finish(message: String) {
+                if (completed) return
+                completed = true
+                try { manager.removeUpdates(listener) } catch (_: Exception) { }
+                handler.removeCallbacksAndMessages(null)
+                pickerMessage = message
+            }
+            listener = object : LocationListener {
+                override fun onLocationChanged(location: android.location.Location) {
+                    if (location.latitude.isFinite() && location.longitude.isFinite() &&
+                        location.latitude in -90.0..90.0 && location.longitude in -180.0..180.0) {
+                        latitude = location.latitude.toString()
+                        longitude = location.longitude.toString()
+                        finish("Current location filled. Check the pin before submitting.")
+                    }
+                }
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+                @Deprecated("Deprecated in Android")
+                override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+            }
+            try {
+                activeProviders.forEach { provider ->
+                    manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                }
+                handler.postDelayed({
+                    finish("Could not get a fresh fix in time. Move outdoors or enter coordinates manually.")
+                }, 12_000L)
+            } catch (_: SecurityException) {
+                finish("Location permission is unavailable. Enable it in App settings or enter coordinates manually.")
+            }
         } catch (_: Exception) {
             pickerMessage = "Could not read your location. You can still enter coordinates manually."
         }
