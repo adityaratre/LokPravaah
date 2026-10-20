@@ -66,7 +66,7 @@ private val FxAmber = Color(0xFFF8D58B)
 private val FxRose = Color(0xFFFFA9B2)
 
 @Composable
-fun NativeMoreScreen(onSelect: (CitizenTab) -> Unit, onOpenWebsite: () -> Unit) {
+fun NativeMoreScreen(onSelect: (CitizenTab) -> Unit) {
     val modules = listOf(
         NativeMoreItem("LokPravaah AI", "General, legal, civic and document assistance", Icons.Outlined.AutoAwesome) { onSelect(CitizenTab.AI) },
         NativeMoreItem("Civic toolkit", "Draft complaints, RTI requests and project checklists", Icons.Outlined.Assignment) { onSelect(CitizenTab.CIVIC_TOOLKIT) },
@@ -77,7 +77,9 @@ fun NativeMoreScreen(onSelect: (CitizenTab) -> Unit, onOpenWebsite: () -> Unit) 
         NativeMoreItem("Donate", "Campaign progress, donor information and secure checkout", Icons.Outlined.Favorite) { onSelect(CitizenTab.DONATE) },
         NativeMoreItem("Support tickets", "Report account, payment or technical problems", Icons.Outlined.SupportAgent) { onSelect(CitizenTab.SUPPORT) },
         NativeMoreItem("My profile", "Account information and secure sign-out", Icons.Outlined.Person) { onSelect(CitizenTab.PROFILE) },
-        NativeMoreItem("Full website", "Blog, downloads and remaining web tools in this app", Icons.Outlined.Language) { onOpenWebsite() }
+        NativeMoreItem("How it works", "A quick native guide to civic reporting", Icons.Outlined.MenuBook) { onSelect(CitizenTab.HOW_IT_WORKS) },
+        NativeMoreItem("Blog & updates", "Read published LokPravaah posts in the app", Icons.Outlined.Article) { onSelect(CitizenTab.BLOG) },
+        NativeMoreItem("Downloads", "Get files published by the LokPravaah team", Icons.Outlined.Download) { onSelect(CitizenTab.DOWNLOADS) }
     )
     Column(Modifier.fillMaxSize().background(FxNavy)) {
         LazyColumn(
@@ -97,7 +99,7 @@ fun NativeMoreScreen(onSelect: (CitizenTab) -> Unit, onOpenWebsite: () -> Unit) 
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         Text("One app. One civic workspace.", color = Color(0xFF08251D), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-                        Text("Jump into AI, reports, rewards or community tools. Complex web-only functions remain accessible through the in-app website portal.", color = Color(0xFF245546), fontSize = 12.sp, lineHeight = 18.sp)
+                        Text("AI, reports, guidance, updates and published downloads all stay inside this native app. Your account and civic data use the same secure backend as the website.", color = Color(0xFF245546), fontSize = 12.sp, lineHeight = 18.sp)
                     }
                 }
             }
@@ -662,7 +664,7 @@ fun NativeReferralScreen(client: SupabaseClient, userId: String) {
 }
 
 @Composable
-fun NativeDonateScreen(client: SupabaseClient, userId: String, onOpenWebsite: () -> Unit) {
+fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var enabled by remember { mutableStateOf(true) }
@@ -730,10 +732,18 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String, onOpenWebsite: ()
                                 }
                             }
                             Text(if (!enabled) "Donations are currently paused by the administrator." else if (!gatewayEnabled) "Online gateway is currently disabled. The official portal will show only payment methods that are actually configured." else "Payments are processed by the existing secure donation gateway.", color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp)
-                            Button(onClick = onOpenWebsite, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = FxMint, contentColor = FxNavy)) {
-                                Icon(Icons.Outlined.OpenInNew, contentDescription = null)
-                                Spacer(Modifier.width(7.dp))
-                                Text("Continue to secure donation portal", fontWeight = FontWeight.Bold)
+                            Surface(
+                                color = FxCard,
+                                shape = RoundedCornerShape(13.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.Top) {
+                                    Icon(Icons.Outlined.Security, contentDescription = null, tint = FxMint, modifier = Modifier.size(19.dp))
+                                    Text(
+                                        "This native screen never redirects to the website or pretends a payment succeeded. Secure in-app UPI checkout is being connected to the existing donation service; campaign totals update only after server/admin verification.",
+                                        color = FxMuted, fontSize = 11.sp, lineHeight = 17.sp
+                                    )
+                                }
                             }
                         }
                     }
