@@ -322,7 +322,7 @@ private fun ReportCreatePage(
                 try { manager.isProviderEnabled(provider) } catch (_: Exception) { false }
             }
             if (activeProviders.isEmpty()) {
-                pickerMessage = "Turn on device location, or enter coordinates manually."
+                pickerMessage = "Turn on device location, or retry location capture."
                 return
             }
 
@@ -356,13 +356,13 @@ private fun ReportCreatePage(
                     manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
                 }
                 handler.postDelayed({
-                    finish("Could not get a fresh fix in time. Move outdoors or enter coordinates manually.")
+                    finish("Could not get a fresh fix in time. Move outdoors and retry.")
                 }, 12_000L)
             } catch (_: SecurityException) {
-                finish("Location permission is unavailable. Enable it in App settings or enter coordinates manually.")
+                finish("Location permission is unavailable. Enable it in App settings and retry.")
             }
         } catch (_: Exception) {
-            pickerMessage = "Could not read your location. You can still enter coordinates manually."
+            pickerMessage = "Could not read your location. Enable location access and retry."
         }
     }
     val requestLocationPermission = rememberLauncherForActivityResult(
@@ -370,8 +370,15 @@ private fun ReportCreatePage(
     ) { grants ->
         if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) fillCurrentLocation()
-        else pickerMessage = "Location permission was denied. Enter coordinates manually or enable it in App settings."
+        else pickerMessage = "Location permission was denied. Enable it in App settings to submit a report."
     }
+    LaunchedEffect(Unit) {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) fillCurrentLocation()
+        else requestLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+
     val pickEvidence = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
