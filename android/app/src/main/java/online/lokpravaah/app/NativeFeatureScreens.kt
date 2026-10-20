@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
@@ -69,6 +70,11 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 
 private data class NativeMoreItem(
     val title: String,
@@ -299,6 +305,8 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
     var error by remember { mutableStateOf("") }
     var supportNotice by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
+    var selectedMapReport by remember { mutableStateOf<NativePublicReport?>(null) }
+    var centeredReportId by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(userId, refresh) {
         loading = true; error = ""
@@ -324,6 +332,7 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
         } finally { loading = false }
     }
     val visible = reports.filter { filter == "All" || it.status.equals(filter, ignoreCase = true) }
+    val locatedReports = visible.filter { it.latitude != null && it.longitude != null }
     Column(Modifier.fillMaxSize().background(FxNavy)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             item { FxHeader("Explore map", "Public civic issues and their locations", Icons.Outlined.Map, onRefresh = { refresh++ }, loading = loading) }
@@ -334,6 +343,75 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                         Surface(color = if (sel) FxMint else FxSurface, shape = RoundedCornerShape(10.dp), modifier = Modifier.clickable { filter = option }) {
                             Text(if (option == "in_progress") "In progress" else option.replaceFirstChar { it.uppercase() }, color = if (sel) FxNavy else FxText, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp))
                         }
+                    }
+                }
+            }
+            item {
+                Surface(color = FxSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("Live civic map", color = FxText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text(locatedReports.size.toString() + " real report locations", color = FxMuted, fontSize = 10.sp)
+                            }
+                            Icon(Icons.Outlined.Map, contentDescription = null, tint = FxMint)
+                        }
+                        if (locatedReports.isNotEmpty()) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxWidth().height(300.dp),
+                                factory = { mapContext ->
+                                    Configuration.getInstance().userAgentValue = mapContext.packageName
+                                    MapView(mapContext).apply {
+                                        setTileSource(TileSourceFactory.MAPNIK)
+                                        setMultiTouchControls(true)
+                                        controller.setZoom(12.0)
+                                    }
+                                },
+                                update = { mapView ->
+                                    mapView.overlays.removeAll { it is Marker }
+                                    locatedReports.forEach { report ->
+                                        val latitude = report.latitude ?: return@forEach
+                                        val longitude = report.longitude ?: return@forEach
+                                        val marker = Marker(mapView).apply {
+                                            position = GeoPoint(latitude, longitude)
+                                            title = report.title
+                                            snippet = report.publicCode + " · " + report.status.replace('_', ' ')
+                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                            setOnMarkerClickListener { _, _ ->
+                                                selectedMapReport = report
+                                                true
+                                            }
+                                        }
+                                        mapView.overlays.add(marker)
+                                    }
+                                    val first = locatedReports.firstOrNull()
+                                    if (first != null && centeredReportId != first.id) {
+                                        mapView.controller.setCenter(GeoPoint(first.latitude!!, first.longitude!!))
+                                        centeredReportId = first.id
+                                    }
+                                    mapView.invalidate()
+                                }
+                            )
+                            selectedMapReport?.takeIf { it in locatedReports }?.let { picked ->
+                                Surface(color = FxCard, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                        Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = FxMint)
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(picked.title, color = FxText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text(picked.publicCode + " · " + picked.status.replace('_', ' '), color = FxMuted, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(color = FxCard, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(13.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Outlined.Info, contentDescription = null, tint = FxAmber)
+                                    Text("No reports in this filter have saved GPS coordinates yet. The map won't invent locations.", color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                                }
+                            }
+                        }
+                        Text("Tap a pin to view its report. Only saved latitude/longitude values are plotted.", color = FxMuted, fontSize = 10.sp, lineHeight = 15.sp)
                     }
                 }
             }
