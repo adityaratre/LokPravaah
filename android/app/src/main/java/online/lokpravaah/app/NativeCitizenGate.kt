@@ -1,10 +1,6 @@
 package online.lokpravaah.app
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,11 +14,6 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import online.lokpravaah.app.data.NativeAuthRepository
 import online.lokpravaah.app.data.NativeSupabaseClientProvider
-import io.github.jan.supabase.postgrest.from
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 
 private val AppNavy = Color(0xFF07111F)
@@ -39,8 +30,6 @@ fun NativeCitizenGate(onOpenWebsite: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var createAccount by remember { mutableStateOf(false) }
-    var reports by remember { mutableStateOf<List<String>>(emptyList()) }
-    var reportsLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(client) {
