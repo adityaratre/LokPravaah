@@ -342,7 +342,7 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                                                 val flag = client.from("app_feature_flags").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("enabled")) {
                                                     filter { eq("flag_key", "community_support") }; limit(1)
                                                 }.decodeList<NativeWorkerSetting>().firstOrNull()?.enabled ?: false
-                                                check(flag) { "Community support votes are paused by the administrator." }
+                                                check(flag) { "Community support is temporarily unavailable. Please try again later." }
                                                 check(client.auth.currentUserOrNull()?.id == userId) { "Sign in again to support a report." }
                                                 client.from("report_votes").insert(NativeReportVoteInsert(report.id, userId))
                                                 reports = reports.map { if (it.id == report.id) it.copy(supportedByMe = true) else it }
@@ -431,7 +431,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { FxHeader("Worker Hub", "Help with verified community tasks", Icons.Outlined.VolunteerActivism, onRefresh = { refresh++ }, loading = loading) }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
-            if (!loading && !enabled) item { FxEmptyCard("Worker programme paused", "The administrator has temporarily disabled new worker applications.") }
+            if (!loading && !enabled) item { FxEmptyCard("Worker programme paused", "New worker applications are temporarily unavailable. Please try again later.") }
             if (message.isNotBlank()) item { FxErrorCard(message) { refresh++ } }
             if (!loading && enabled && status != "active") {
                 item {
