@@ -25,3 +25,23 @@
 .downloads-admin .downloads-message.ok{color:#166534!important}.downloads-admin .downloads-message.error{color:#b91c1c!important}
 .downloads-admin :is(button,input,textarea,a):focus-visible{outline:3px solid #2fbf9b!important;outline-offset:3px}
 @media(max-width:700px){.downloads-admin .downloads-upload-form{padding:15px}.downloads-admin .downloads-admin-heading{align-items:stretch}.downloads-admin .downloads-admin-heading>button{align-self:flex-start}}
+
+/* Dedicated post-download confirmation page; scoped to avoid changing app-wide themes. */
+.downloads-thankyou-page{min-height:100vh;width:100%;box-sizing:border-box;display:grid;place-items:center;padding:clamp(18px,4vw,44px);background:#081118;color:#edf7f4}
+.downloads-thankyou-card{width:min(560px,100%);box-sizing:border-box;padding:clamp(24px,5vw,42px);border:1px solid #29434a;border-radius:25px;background:radial-gradient(ellipse at 50% 0%,#54d8a11a,transparent 60%),#101d25;box-shadow:0 24px 75px #0005;text-align:center;animation:downloads-thanks-rise .28s ease-out both}
+.downloads-thankyou-icon{width:72px;height:72px;display:grid;place-items:center;margin:0 auto 19px;border:1px solid #57dca45e;border-radius:23px;background:#4bd7a51a;color:#8be8c4}
+.downloads-thankyou-card>.downloads-kicker{display:inline-block;color:#8be8c4;margin-bottom:8px}
+.downloads-thankyou-card h1{font:800 clamp(27px,5vw,39px)/1.13 Manrope,sans-serif;letter-spacing:-1.2px;margin:8px 0 13px;color:#f4fbf8}
+.downloads-thankyou-lead{font-size:13px;line-height:1.8;color:#bbcbc9;margin:0 auto 22px;overflow-wrap:anywhere}
+.downloads-thankyou-lead strong{color:#eaf8f2}
+.downloads-countdown{display:flex;align-items:center;justify-content:center;gap:9px;padding:14px;margin:0 0 18px;border:1px solid #29454a;border-radius:12px;background:#0b171e;color:#d8e7e2;font-size:12px}
+.downloads-countdown>svg{color:#8be8c4;flex:0 0 auto}
+.downloads-countdown strong{color:#8be8c4}
+.downloads-thankyou-retry,.downloads-thankyou-signin{width:100%;min-height:46px;box-sizing:border-box;margin:6px 0;display:flex}
+.downloads-thankyou-retry{background:#8be8c4!important;color:#09221b!important}
+.downloads-thankyou-signin{background:transparent!important;border-color:#35545a!important;color:#edf7f4!important}
+.downloads-thankyou-back{display:inline-flex;justify-content:center;align-items:center;min-height:42px;margin:7px auto 0;padding:7px 12px;border:0;background:transparent;color:#a7c0bb;font:600 12px inherit;cursor:pointer}
+.downloads-thankyou-back:hover{color:#8be8c4}
+.downloads-thankyou-footnote{margin:15px 0 0;color:#8da6a3;font-size:10px;line-height:1.7}
+@keyframes downloads-thanks-rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.downloads-thankyou-card{animation:none}}
