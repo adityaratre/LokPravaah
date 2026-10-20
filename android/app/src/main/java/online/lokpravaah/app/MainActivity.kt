@@ -194,11 +194,7 @@ class MainActivity : ComponentActivity() {
                                     webView = null
                                     webError = false
                                 }) {
-                                    androidx.compose.material3.Icon(
-                                        androidx.compose.material.icons.Icons.Outlined.ArrowBack,
-                                        contentDescription = "Back to native app",
-                                        tint = Color(0xFFB6F4D7)
-                                    )
+                                    Text("←", color = Color(0xFFB6F4D7), fontSize = 25.sp)
                                 }
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text("LokPravaah", color = Color(0xFFF5F9FF), fontWeight = FontWeight.Bold, fontSize = 15.sp)
