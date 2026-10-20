@@ -278,19 +278,27 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
     var reports by remember { mutableStateOf<List<NativePublicReport>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    var supportNotice by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(userId, refresh) {
         loading = true; error = ""
         try {
             check(client.auth.currentUserOrNull()?.id == userId) { "Sign in again to view public reports." }
-            reports = client.from("reports").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw(
+            val publicReports = client.from("reports").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw(
                 "id,public_code,title,description,category,status,address_label,created_at,latitude,longitude,visibility"
             )) {
                 filter { eq("visibility", "public") }
                 order("created_at", Order.DESCENDING)
                 limit(100)
             }.decodeList<NativePublicReport>()
+            val ownVotes = try {
+                client.from("report_votes").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("report_id,user_id")) {
+                    filter { eq("user_id", userId) }
+                    limit(500)
+                }.decodeList<NativeReportVote>().map { it.reportId }.toSet()
+            } catch (_: Exception) { emptySet() }
+            reports = publicReports.map { it.copy(supportedByMe = it.id in ownVotes) }
         } catch (exception: Exception) {
             reports = emptyList()
             error = "Public reports could not be loaded. Check your connection and database permissions."
@@ -312,6 +320,7 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
             }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
             if (error.isNotBlank()) item { FxErrorCard(error) { refresh++ } }
+            if (supportNotice.isNotBlank()) item { Text(supportNotice, color = FxMint, fontSize = 11.sp) }
             if (!loading && error.isBlank() && visible.isEmpty()) item { FxEmptyCard("No public reports found", "Refresh later or change the status filter.") }
             items(visible, key = { it.id }) { report ->
                 Surface(color = FxSurface, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
@@ -325,6 +334,39 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                         }
                         Text(report.category + " · " + report.addressLabel.orEmpty().ifBlank { "Area not recorded" }, color = FxMuted, fontSize = 11.sp)
                         if (report.description.isNotBlank()) Text(report.description.take(220), color = FxMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                        OutlinedButton(
+                            onClick = {
+                                scope@ run {
+                                    supportNotice = ""
+                                    if (report.supportedByMe) {
+                                        supportNotice = "You have already supported this report."
+                                    } else {
+                                        scope.launch {
+                                            try {
+                                                val flag = client.from("app_feature_flags").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("enabled")) {
+                                                    filter { eq("flag_key", "community_support") }; limit(1)
+                                                }.decodeList<NativeWorkerSetting>().firstOrNull()?.enabled ?: false
+                                                check(flag) { "Community support votes are paused by the administrator." }
+                                                check(client.auth.currentUserOrNull()?.id == userId) { "Sign in again to support a report." }
+                                                client.from("report_votes").insert(NativeReportVoteInsert(report.id, userId))
+                                                reports = reports.map { if (it.id == report.id) it.copy(supportedByMe = true) else it }
+                                                supportNotice = "Your support was saved."
+                                            } catch (exception: Exception) {
+                                                supportNotice = if (exception.message.orEmpty().contains("duplicate", true) || exception.message.orEmpty().contains("unique", true)) {
+                                                    "You have already supported this report."
+                                                } else "Your support could not be saved. It may already be supported or the feature may be paused."
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !report.supportedByMe,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(if (report.supportedByMe) Icons.Outlined.CheckCircle else Icons.Outlined.ThumbUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(if (report.supportedByMe) "Supported" else "Support this report")
+                        }
                         if (report.latitude != null && report.longitude != null) {
                             OutlinedButton(onClick = {
                                 val uri = Uri.parse("geo:" + report.latitude + "," + report.longitude + "?q=" + report.latitude + "," + report.longitude + "(" + Uri.encode(report.title) + ")")
@@ -973,7 +1015,20 @@ private data class NativePublicReport(
     @SerialName("address_label") val addressLabel: String? = null,
     @SerialName("created_at") val createdAt: String = "",
     val latitude: Double? = null, val longitude: Double? = null,
-    val visibility: String = "public"
+    val visibility: String = "public",
+    val supportedByMe: Boolean = false
+)
+
+@Serializable
+private data class NativeReportVote(
+    @SerialName("report_id") val reportId: String,
+    @SerialName("user_id") val userId: String
+)
+
+@Serializable
+private data class NativeReportVoteInsert(
+    @SerialName("report_id") val reportId: String,
+    @SerialName("user_id") val userId: String
 )
 
 @Serializable
