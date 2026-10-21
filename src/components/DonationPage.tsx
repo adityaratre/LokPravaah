@@ -247,12 +247,19 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setPublicData({ settings: mergedSettings, total_raised_paise: Number(payload.total_raised_paise || 0), successful_donations: Number(payload.successful_donations || 0), top_donors: Array.isArray(payload.top_donors) ? payload.top_donors : [], recent_donations: Array.isArray(payload.recent_donations) ? payload.recent_donations : [], refreshed_at: payload.refreshed_at })
       try {
         const { data: checkoutConfig, error: checkoutConfigError } = await supabase.rpc('janwatch_get_public_donation_checkout_config')
-        if (!checkoutConfigError && checkoutConfig && typeof checkoutConfig === 'object') {
-          const config = checkoutConfig as { upi_vpa?: string | null; upi_payee_name?: string | null }
-          setUpiVpa(String(config.upi_vpa || '').trim())
-          setUpiPayeeName(String(config.upi_payee_name || 'LokPravaah').trim() || 'LokPravaah')
-        }
-      } catch { /* campaign totals remain available if the public UPI configuration is temporarily unavailable */ }
+        if (checkoutConfigError) throw checkoutConfigError
+        const config = checkoutConfig && typeof checkoutConfig === 'object'
+          ? checkoutConfig as { upi_vpa?: string | null; upi_payee_name?: string | null }
+          : {}
+        setUpiVpa(String(config.upi_vpa || '').trim())
+        setUpiPayeeName(String(config.upi_payee_name || 'LokPravaah').trim() || 'LokPravaah')
+      } catch {
+        // Never keep using a receiver from an earlier successful request when the current
+        // configuration fetch fails. Campaign totals can still render, but direct UPI fallback
+        // must stay disabled until the active receiver can be fetched again.
+        setUpiVpa('')
+        setUpiPayeeName('LokPravaah')
+      }
       setFeedError('')
     } catch (error) {
       setFeedError(error instanceof Error ? error.message : 'Live donation activity is temporarily unavailable.')
