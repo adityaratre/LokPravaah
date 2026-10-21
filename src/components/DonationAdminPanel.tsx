@@ -172,7 +172,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     setBusy('settings'); setError('')
     actionLocksRef.current.add('save-settings');
     const payload = { ...settings, gateway_portal_url: portal, gateway_api_url: api, gateway_merchant_key: settings.gateway_merchant_key?.trim() || null, min_amount_paise: min, max_amount_paise: max, campaign_goal_paise: goal, suggested_amounts: suggested }
-    const { data, error: saveError } = await Promise.resolve(supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload }).finally(() => actionLocksRef.current.delete('save-settings'))
+    const { data, error: saveError } = await Promise.resolve(supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload })).finally(() => actionLocksRef.current.delete('save-settings'))
     setBusy('')
     if (saveError) { setError(`Donation settings could not be saved: ${saveError.message || 'check database permissions and values.'}`); return }
     const response = data as { status?: string; message?: string } | null
@@ -187,7 +187,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if (!window.confirm(`${approve ? 'Approve and apply' : 'Reject'} this major donation settings change?`)) return
     setBusy(request.id); setError('')
     actionLocksRef.current.add(`settings-request:${request.id}`);
-    const { data, error: reviewError } = await Promise.resolve(supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null }).finally(() => actionLocksRef.current.delete(`settings-request:${request.id}`))
+    const { data, error: reviewError } = await Promise.resolve(supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null })).finally(() => actionLocksRef.current.delete(`settings-request:${request.id}`))
     setBusy('')
     if (reviewError) { setError(`Could not ${action} the request: ${reviewError.message || 'check permissions and refresh.'}`); return }
     notify((data as { message?: string } | null)?.message || `Donation settings request ${action}d.`)
@@ -218,7 +218,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     const { data, error: saveError } = await Promise.resolve(supabase.rpc('janwatch_admin_set_upi_receiver_settings', {
       p_receiving_vpa: receivingVpa,
       p_payee_name: payeeName,
-    }).finally(() => actionLocksRef.current.delete('save-receiver'))
+    })).finally(() => actionLocksRef.current.delete('save-receiver'))
     setReceiverBusy('')
     if (saveError) { setReceiverError(`Receiving-account settings could not be saved: ${saveError.message || 'check your role and try again.'}`); return }
     const result = data as { status?: string; message?: string } | null
@@ -238,7 +238,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       p_request_id: request.id,
       p_approve: approve,
       p_note: receiverNotes[request.id]?.trim() || null,
-    }).finally(() => actionLocksRef.current.delete(`receiver-request:${request.id}`))
+    })).finally(() => actionLocksRef.current.delete(`receiver-request:${request.id}`))
     setReceiverBusy('')
     if (reviewError) { setReceiverError(`Could not ${action} the receiving-account request: ${reviewError.message || 'please refresh and retry.'}`); return }
     const result = data as { message?: string } | null
@@ -271,7 +271,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       p_action: action,
       p_note: note,
       p_verified_utr: action === 'confirm' ? verifiedUtr : null,
-    }).finally(() => actionLocksRef.current.delete(`manual-review:${claim.id}`))
+    })).finally(() => actionLocksRef.current.delete(`manual-review:${claim.id}`))
     setBusy('')
     if (reviewError) { setError(`Could not ${action} this donation: ${reviewError.message || 'refresh and try again.'}`); return }
     const result = data as { message?: string } | null
@@ -305,7 +305,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       p_show_on_leaderboard: manualLeaderboard,
       p_show_message_publicly: manualPublicMessage,
       p_admin_note: manualAuditNote.trim(),
-    }).finally(() => actionLocksRef.current.delete('manual-donation'))
+    })).finally(() => actionLocksRef.current.delete('manual-donation'))
     setBusy('')
     if (createError) { setError(`Offline donation could not be recorded: ${createError.message || 'check the SQL migration and administrator role.'}`); return }
     const result = data as { order_id?: string; message?: string } | null
