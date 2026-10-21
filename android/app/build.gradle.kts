@@ -18,8 +18,8 @@ android {
         applicationId = "online.lokpravaah.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.0"
+        versionCode = 7
+        versionName = "1.2.1"
 
         // Only the public Supabase publishable/anon key may be bundled in a client app.
         // The service-role key and provider secrets must stay on trusted servers.
