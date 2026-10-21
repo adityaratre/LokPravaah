@@ -362,3 +362,38 @@ test('legacy six-argument SQL RPC remains compatible when receiver settings use 
   assert.equal(body.paymentId, sampleDbPayment.id);
   assert.equal(new URL(body.upiUri).searchParams.get('pa'), defaultEnv.UPI_VPA);
 });
+
+
+test('payment status uses the beneficiary snapshot even if admin receiver settings later change', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const storedPayment = {
+    ...sampleDbPayment,
+    receiver_vpa: 'original.receiver@upi',
+    receiver_name: 'Original Approved Receiver',
+  };
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/rpc/upi_gateway_tick')) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/rpc/upi_gateway_get_receiver_settings')) {
+      return new Response(JSON.stringify({
+        receivingVpa: 'new.receiver@upi',
+        payeeName: 'New Admin Receiver',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/upi_gateway_payments')) {
+      assert.match(url.searchParams.get('select') || '', /receiver_vpa,receiver_name/);
+      return new Response(JSON.stringify([storedPayment]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+
+  const response = await worker.fetch(req(`/api/v1/payments/${sampleDbPayment.id}`), defaultEnv, {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const upi = new URL(body.upiUri);
+  assert.equal(upi.searchParams.get('pa'), 'original.receiver@upi');
+  assert.equal(upi.searchParams.get('pn'), 'Original Approved Receiver');
+});
