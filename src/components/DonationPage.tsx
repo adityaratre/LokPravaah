@@ -749,8 +749,10 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         setProofFile(null)
         setProofNotice(null)
         void loadMyDonations()
+        // The manual UPI fallback must use the same focused checkout dialog as hosted checkout.
+        // Opening an inline session below the form made QR and proof controls appear as a long page.
+        setCheckoutModalOpen(true)
         setLaunching(false)
-        window.setTimeout(() => document.getElementById('active-payment-checkout')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
         return
       }
       setNotice({ tone: 'info', title: 'Opening secure UPI checkout…', body: `Reference: ${orderId}. The contribution will appear in the live totals after the server verifies it.` })
