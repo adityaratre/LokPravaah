@@ -793,6 +793,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     // Restoring this state is not proof of payment and never marks a donation successful.
     var activeUpiUri by rememberSaveable(userId) { mutableStateOf("") }
     var showProofForm by rememberSaveable(userId) { mutableStateOf(false) }
+    var showPaymentDialog by rememberSaveable(userId) { mutableStateOf(false) }
     var title by remember { mutableStateOf("Build a stronger civic community") }
     var description by remember { mutableStateOf("Your contribution helps keep LokPravaah available, accessible and improving.") }
     var goal by remember { mutableStateOf(0L) }
@@ -1075,10 +1076,11 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                             activeAmountPaise = value
                                             activeUpiUri = upiUri
                                             showProofForm = false
+                                            showPaymentDialog = true
                                             claimedAmountText = String.format(Locale.ROOT, "%.2f", value / 100.0)
                                             claimedUtr = ""
                                             proofUri = null
-                                            paymentMessage = "Your UPI QR is ready below. Scan it using your UPI app, or tap Open UPI app. After payment, tap I paid to submit your UTR and receipt. Reference: " + orderId
+                                            paymentMessage = "Your UPI QR is ready in the payment popup. Scan it using your UPI app, or tap Open UPI app. After payment, submit your UTR and receipt. Reference: " + orderId
                                             showProofForm = false
                                             refresh++
                                         } catch (exception: Exception) {
@@ -1113,13 +1115,14 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                     }
                 }
 
-                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && visibleHistory.none { row ->
+                if (showPaymentDialog && activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && visibleHistory.none { row ->
                     row.orderId == activeOrderId && (
                         row.status.lowercase(Locale.ROOT) in setOf("succeeded", "failed", "cancelled", "canceled", "expired", "suspicious") ||
                             row.claimStatus in listOf("pending_review", "confirmed", "rejected")
                     )
                 }) {
                     item {
+                        androidx.compose.ui.window.Dialog(onDismissRequest = { showPaymentDialog = false }) {
                         Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(
                                 Modifier.fillMaxWidth().padding(16.dp),
@@ -1162,7 +1165,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                     Text("Open UPI app", fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
-                                    onClick = { showProofForm = !showProofForm; proofMessage = "" },
+                                    onClick = { showProofForm = !showProofForm; showPaymentDialog = false; proofMessage = "" },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(Icons.Outlined.CheckCircle, contentDescription = null)
@@ -1171,13 +1174,15 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                 }
                             }
                         }
+                        }
                     }
                 }
 
                 if (activeOrderId.isNotBlank() && showProofForm) {
                     item {
+                        androidx.compose.ui.window.Dialog(onDismissRequest = { showProofForm = false }) {
                         Surface(color = FxSurface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Column(Modifier.padding(15.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                                 Text("Submit payment proof", color = FxText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Text("Reference: " + activeOrderId, color = FxMint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 Text(
@@ -1264,6 +1269,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                                 }
                                 if (proofMessage.isNotBlank()) Text(proofMessage, color = FxMint, fontSize = 11.sp, lineHeight = 16.sp)
                             }
+                        }
                         }
                     }
                 }
