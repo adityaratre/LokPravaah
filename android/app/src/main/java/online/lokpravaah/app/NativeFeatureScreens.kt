@@ -339,13 +339,6 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
             error = "Public reports could not be loaded. Check your connection and database permissions."
         } finally { loading = false }
     }
-    LaunchedEffect(userId) {
-        while (true) {
-            kotlinx.coroutines.delay(15_000)
-            refresh++
-        }
-    }
-
     val visible = reports.filter { filter == "All" || it.status.equals(filter, ignoreCase = true) }
     val locatedReports = visible.filter { it.latitude != null && it.longitude != null }
     Column(Modifier.fillMaxSize().background(FxNavy)) {
@@ -394,15 +387,17 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                                             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                             setOnMarkerClickListener { _, _ ->
                                                 selectedMapReport = report
+                                                centeredReportId = ""
                                                 true
                                             }
                                         }
                                         mapView.overlays.add(marker)
                                     }
-                                    val first = locatedReports.firstOrNull()
-                                    if (first != null && centeredReportId != first.id) {
-                                        mapView.controller.setCenter(GeoPoint(first.latitude!!, first.longitude!!))
-                                        centeredReportId = first.id
+                                    val centerTarget = selectedMapReport?.takeIf { it in locatedReports }
+                                        ?: locatedReports.firstOrNull()
+                                    if (centerTarget != null && centeredReportId != centerTarget.id) {
+                                        mapView.controller.animateTo(GeoPoint(centerTarget.latitude!!, centerTarget.longitude!!))
+                                        centeredReportId = centerTarget.id
                                     }
                                     mapView.invalidate()
                                 }
@@ -481,8 +476,8 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                         }
                         if (report.latitude != null && report.longitude != null) {
                             OutlinedButton(onClick = {
-                                val uri = Uri.parse("geo:" + report.latitude + "," + report.longitude + "?q=" + report.latitude + "," + report.longitude + "(" + Uri.encode(report.title) + ")")
-                                try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { error = "No map application is available on this device." }
+                                selectedMapReport = report
+                                centeredReportId = ""
                             }) {
                                 Icon(Icons.Outlined.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(5.dp))
@@ -584,7 +579,16 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                                             status = result.data.trim('"')
                                             message = if (status == "active") "Worker access is active." else "Application saved. You can check this page for its review status."
                                             refresh++
-                                        } catch (exception: Exception) { message = "Application could not be saved. Review your details and retry." }
+                                        } catch (exception: Exception) {
+                                            val detail = exception.message.orEmpty()
+                                                .replace(Regex("\\s+"), " ")
+                                                .take(180)
+                                            message = if (detail.isBlank()) {
+                                                "Application could not be saved. Check your connection and try again."
+                                            } else {
+                                                "Application failed: $detail"
+                                            }
+                                        }
                                         finally { busy = false }
                                     }
                                 },
