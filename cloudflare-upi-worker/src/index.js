@@ -164,8 +164,11 @@ function isValidReceiver(receiver) {
     && String(receiver.payeeName).trim().length <= 99);
 }
 function buildUpiUri(payment, env, receiver = null) {
-  const vpa = String(receiver?.receivingVpa || env.UPI_VPA || '').trim();
-  const payee = String(receiver?.payeeName || env.UPI_PAYEE_NAME || '').trim();
+  // When a receiver settings object is supplied, treat it as authoritative.
+  // Never mix a partial admin-configured beneficiary with Worker env values:
+  // the SQL payment row snapshots this same receiver and must match the QR/intent.
+  const vpa = String(receiver ? receiver.receivingVpa || '' : env.UPI_VPA || '').trim();
+  const payee = String(receiver ? receiver.payeeName || '' : env.UPI_PAYEE_NAME || '').trim();
   // UPI app parsers vary. Reject malformed receiver config before showing a QR.
   if (!/^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test(vpa) || !payee || payee.length > 99) return null;
 

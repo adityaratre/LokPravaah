@@ -293,3 +293,29 @@ test('checkout SDK closes without sending a cancellation request and supports ma
   assert.match(sdkSource, /Submit for review/);
   assert.doesNotMatch(sdkSource, /this\.close\(\);\s*}\s*else if \(event === 'youpi\.payment_success'/);
 });
+
+
+test('partial admin receiver settings never mix with Worker environment beneficiary values', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let calls = 0;
+  globalThis.fetch = async input => {
+    calls += 1;
+    assert.match(String(input), /\/rest\/v1\/rpc\/upi_gateway_get_receiver_settings$/);
+    return new Response(JSON.stringify({
+      receivingVpa: 'admin.receiver@upi',
+      payeeName: '',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const response = await worker.fetch(req('/api/v1/payments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
+    body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 251, currency: 'INR' }),
+  }), defaultEnv, {});
+
+  assert.equal(response.status, 503);
+  assert.equal(calls, 1, 'must reject incomplete DB receiver settings before creating a payment row');
+  const body = await response.json();
+  assert.match(body.error, /UPI VPA and payee name are not configured/);
+});
