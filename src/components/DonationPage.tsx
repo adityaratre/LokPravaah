@@ -195,6 +195,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   currentUserIdRef.current = userId
   const skipNextDonationPersistRef = useRef(false)
   const [proofOpen, setProofOpen] = useState(false)
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false)
   const [proofUtr, setProofUtr] = useState('')
   const [proofAmountText, setProofAmountText] = useState('')
   const [proofTime, setProofTime] = useState('')
@@ -460,6 +461,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   }
 
   async function reopenActivePayment() {
+    setCheckoutModalOpen(true)
     const session = activeDonation
     if (session?.upiUri) {
       document.getElementById('active-payment-checkout')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -782,6 +784,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const paymentId = String(checkout?.options?.paymentId || '')
       if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
       setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
+      setCheckoutModalOpen(true)
       void loadMyDonations()
       setProofOpen(false)
       setProofUtr('')
@@ -865,10 +868,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
         </form>
-        {activeDonation && <section className="donation-active-payment" id="active-payment-checkout" aria-live="polite">
+        {activeDonation && checkoutModalOpen && <div className="donation-checkout-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !proofBusy) setCheckoutModalOpen(false) }}><section className="donation-active-payment donation-checkout-dialog" id="active-payment-checkout" role="dialog" aria-modal="true" aria-labelledby="donation-checkout-title" aria-live="polite">
+          <button type="button" className="donation-checkout-close" aria-label="Close donation checkout" onClick={() => { if (!proofBusy) setCheckoutModalOpen(false) }}>×</button>
           <div className="donation-active-payment-head">
             <div className="donation-active-payment-icon"><Wallet size={20}/></div>
-            <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3>{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
+            <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3 id="donation-checkout-title">{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
           </div>
           {activeDonation.upiUri && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && <div className="donation-upi-checkout">
             <div className="donation-section-kicker">PAY WITH ANY UPI APP</div>
@@ -891,7 +895,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                 : null}
           <div className="donation-active-actions">
             {activeDonation.status !== 'SUCCESS' && (Boolean(activeDonation.paymentId) || Boolean(activeDonation.upiUri)) && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && !['confirmed', 'pending_review', 'rejected'].includes(String(activeDonation.claimStatus || '')) && <button className="donation-active-primary" type="button" disabled={launching} onClick={() => void reopenActivePayment()}><RefreshCw size={15} className={launching ? 'donation-spin' : ''}/>{activeDonation.upiUri ? 'Show my UPI QR' : ['ACTIVE', 'PROCESSING', 'QUEUED'].includes(activeDonation.status) ? 'Open the same QR again' : 'View original payment status'}</button>}
-            {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => proofOpen ? setProofOpen(false) : openManualProofForm()}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
+            {activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <button className="donation-active-secondary" type="button" onClick={() => { setCheckoutModalOpen(true); proofOpen ? setProofOpen(false) : openManualProofForm() }}><Upload size={15}/>{proofOpen ? 'Hide confirmation form' : 'I have paid — confirm payment'}</button>}
             {(activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed') && <button className="donation-active-secondary" type="button" onClick={() => { setActiveDonation(null); setProofOpen(false); setProofNotice(null) }}>Dismiss confirmed session</button>}
           </div>
           {proofOpen && activeDonation.status !== 'SUCCESS' && activeDonation.claimStatus !== 'confirmed' && activeDonation.claimStatus !== 'pending_review' && <form className="donation-manual-proof-form" id="manual-payment-confirmation" onSubmit={submitManualPaymentProof}>
@@ -904,7 +908,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <button className="donation-submit" type="submit" disabled={proofBusy}>{proofBusy ? <><LoaderCircle size={16} className="donation-spin"/> Sending receipt privately…</> : <><Upload size={16}/> Submit UTR & payment screenshot <ArrowRight size={15}/></>}</button>
           </form>}
           {proofNotice && <div className={`donation-proof-notice proof-${proofNotice.tone}`} role="status"><b>{proofNotice.title}</b><p>{proofNotice.body}</p></div>}
-        </section>}
+        </section></div>}
         <section className="donation-history-panel" aria-labelledby="donation-history-title">
           <div className="donation-history-heading">
             <div><span className="donation-section-kicker">PRIVATE ACCOUNT AREA</span><h3 id="donation-history-title">My donations</h3><p>Track pending attempts, manual reviews and successful contributions. This history is private to your account.</p></div>
