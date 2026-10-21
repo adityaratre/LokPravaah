@@ -32,6 +32,36 @@ function detectResponseLanguage(question: string): ResponseLanguage {
   return markerCount >= 2 || (markerCount >= 1 && ratio >= 0.12) ? 'hinglish' : 'english'
 }
 
+async function copyAnswerText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Continue to the selection-based fallback below; clipboard permission may be denied.
+  }
+
+  const field = document.createElement('textarea')
+  field.value = text
+  field.setAttribute('readonly', '')
+  field.style.position = 'fixed'
+  field.style.opacity = '0'
+  field.style.pointerEvents = 'none'
+  document.body.appendChild(field)
+  field.select()
+  field.setSelectionRange(0, field.value.length)
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  } finally {
+    field.remove()
+  }
+  return copied
+}
+
 async function friendlyInvokeFailure(error: unknown): Promise<string> {
   const value = error as { context?: unknown; message?: unknown } | null
   const response = value?.context instanceof Response ? value.context : null
@@ -116,7 +146,7 @@ export default function JanwatchAI() {
     <div className="ai-mode-grid" role="tablist" aria-label="Choose AI mode">{MODES.map(item => { const Icon = item.icon; return <button key={item.id} type="button" role="tab" aria-selected={mode === item.id} className={`ai-mode-card ${mode === item.id ? 'selected' : ''}`} onClick={() => { setMode(item.id); setAnswer(''); setAnswerMode(null); setError(''); setUnavailable(false) }}><Icon size={18}/><span><b>{item.label}</b><small>{item.description}</small></span></button> })}</div>
     <div className="ai-mode-intro"><b>{activeMode.label}</b><span>{activeMode.description}</span></div>
     <div className="ai-safety-note"><ShieldCheck size={18}/><span>AI can make mistakes. Check important facts and official procedures before acting. This assistant does not submit complaints or replace professional advice.</span></div>
-    {(activeMessages.length > 0 || busyMode === mode) && <div className="ai-chat-history" aria-label={`Recent ${activeMode.label} conversation`} aria-live="polite">{activeMessages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><span>{message.role === 'user' ? 'You' : 'LokPravaah AI'}{message.role === 'assistant' && message.provider ? <small className="ai-provider-tag">via {message.provider}</small> : null}</span><p>{message.text}</p>{message.role === 'assistant' && <button type="button" className="btn btn-quiet ai-copy-message" onClick={() => { void navigator.clipboard?.writeText(message.text).then(() => setError('Answer copied to clipboard.')).catch(() => setError('Copy failed. Please select the answer text and copy it manually.')) }}><Copy size={13}/> Copy answer</button>}</article>)}{busyMode === mode && <div className="ai-typing-indicator" role="status"><span/><span/><span/> LokPravaah AI is thinking…</div>}</div>}
+    {(activeMessages.length > 0 || busyMode === mode) && <div className="ai-chat-history" aria-label={`Recent ${activeMode.label} conversation`} aria-live="polite">{activeMessages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><span>{message.role === 'user' ? 'You' : 'LokPravaah AI'}{message.role === 'assistant' && message.provider ? <small className="ai-provider-tag">via {message.provider}</small> : null}</span><p>{message.text}</p>{message.role === 'assistant' && <button type="button" className="btn btn-quiet ai-copy-message" onClick={() => { void copyAnswerText(message.text).then(copied => setError(copied ? 'Answer copied to clipboard.' : 'Copy failed. Please select the answer text and copy it manually.')).catch(() => setError('Copy failed. Please select the answer text and copy it manually.')) }}><Copy size={13}/> Copy answer</button>}</article>)}{busyMode === mode && <div className="ai-typing-indicator" role="status"><span/><span/><span/> LokPravaah AI is thinking…</div>}</div>}
     <div className="ai-starters">{activeMode.starters.map(item => <button key={item} type="button" className="ai-starter" disabled={busy} onClick={() => { setPrompt(item); void askAI(item) }}>{item}</button>)}</div>
     <form className="ai-prompt-form" onSubmit={e => { e.preventDefault(); void askAI() }}><label htmlFor="lokpravaah-ai-prompt">Your question</label><textarea id="lokpravaah-ai-prompt" value={prompt} onChange={e => { setPrompt(e.target.value); if (error) setError('') }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void askAI() } }} maxLength={4000} rows={5} placeholder="Describe the issue. Press Enter to send or Shift+Enter for a new line. Avoid sharing sensitive personal information." aria-describedby="lokpravaah-ai-enter-hint"/><div className="ai-prompt-footer"><span id="lokpravaah-ai-enter-hint">{prompt.length}/4000 characters · Reply language: {prompt.trim() ? ({ english: 'English', hindi: 'Hindi', hinglish: 'Hinglish' } as const)[detectResponseLanguage(prompt)] : 'auto-detected'} · Enter to send</span><button className="btn btn-primary" type="submit" disabled={busy || !prompt.trim()}>{busy ? <><LoaderCircle size={16} className="spin"/> Preparing response…</> : <><Send size={15}/> Ask LokPravaah AI</>}</button></div></form>
     {error && <div className="ai-error" role="alert"><AlertCircle size={16}/><span>{error}</span></div>}
