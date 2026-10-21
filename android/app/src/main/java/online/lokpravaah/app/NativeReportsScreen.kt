@@ -1,6 +1,14 @@
 package online.lokpravaah.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.LocationManager
+import android.os.Build
+import android.os.CancellationSignal
+import java.util.Locale
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -20,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -294,6 +304,65 @@ private fun ReportCreatePage(
     var longitude by remember { mutableStateOf("") }
     var evidence by remember { mutableStateOf<NativePickedEvidence?>(null) }
     var pickerMessage by remember { mutableStateOf("") }
+    var locationLoading by remember { mutableStateOf(false) }
+    val requestLocationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            locationLoading = true
+            pickerMessage = ""
+            val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            try {
+                val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                val lastKnown = providers.asSequence()
+                    .filter { manager.isProviderEnabled(it) }
+                    .mapNotNull { provider ->
+                        try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null }
+                    }
+                    .maxByOrNull { it.time }
+                if (lastKnown != null) {
+                    latitude = lastKnown.latitude.toString()
+                    longitude = lastKnown.longitude.toString()
+                    try {
+                        val geocoder = Geocoder(context, Locale.getDefault())
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            geocoder.getFromLocation(lastKnown.latitude, lastKnown.longitude, 1) { addresses ->
+                                addresses.firstOrNull()?.let { address ->
+                                    val label = address.getAddressLine(0)
+                                        ?: listOfNotNull(address.subLocality, address.locality, address.adminArea).joinToString(", ")
+                                    if (label.isNotBlank()) area = label.take(300)
+                                }
+                                locationLoading = false
+                            }
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val address = geocoder.getFromLocation(lastKnown.latitude, lastKnown.longitude, 1)?.firstOrNull()
+                            val label = address?.getAddressLine(0)
+                                ?: listOfNotNull(address?.subLocality, address?.locality, address?.adminArea).joinToString(", ")
+                            if (label.isNotBlank()) area = label.take(300)
+                            locationLoading = false
+                        }
+                    } catch (_: Exception) {
+                        locationLoading = false
+                        pickerMessage = "Coordinates captured. Enter or verify the street/landmark manually."
+                    }
+                } else {
+                    locationLoading = false
+                    pickerMessage = "No recent device location is available. Turn on Location and try again, or enter coordinates manually."
+                }
+            } catch (_: SecurityException) {
+                locationLoading = false
+                pickerMessage = "Location permission is required to capture coordinates."
+            } catch (_: Exception) {
+                locationLoading = false
+                pickerMessage = "Could not read device location. Check Location settings and try again."
+            }
+        } else {
+            pickerMessage = "Allow location permission to use your current location, or enter the location manually."
+        }
+    }
     val pickEvidence = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
@@ -343,7 +412,28 @@ private fun ReportCreatePage(
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Area, street or landmark") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
             Spacer(Modifier.height(12.dp))
-            Text("Coordinates (optional)", color = ReportsMuted, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("Device location", color = ReportsMint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                OutlinedButton(
+                    onClick = {
+                        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        if (fine || coarse) {
+                            requestLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        } else {
+                            requestLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        }
+                    },
+                    enabled = !saving && !locationLoading
+                ) {
+                    if (locationLoading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Text("Use my current location", color = ReportsMint, fontSize = 12.sp)
+                }
+            }
+            if (latitude.isNotBlank() && longitude.isNotBlank()) {
+                Text("Coordinates captured: $latitude, $longitude", color = ReportsMuted, fontSize = 11.sp)
+            }
+            Text("Coordinates (required for accurate map pin)", color = ReportsMuted, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(value = latitude, onValueChange = { latitude = it.take(15) }, label = { Text("Latitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
                 OutlinedTextField(value = longitude, onValueChange = { longitude = it.take(15) }, label = { Text("Longitude") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f), enabled = !saving)
@@ -373,6 +463,7 @@ private fun ReportCreatePage(
                 when {
                     title.trim().length !in 6..160 -> pickerMessage = "Report title must be between 6 and 160 characters."
                     area.trim().length < 3 -> pickerMessage = "Enter an area, street or landmark."
+                    lat == null || lon == null -> pickerMessage = "Capture your current location or enter both latitude and longitude before submitting."
                     latitude.isNotBlank() && lat == null -> pickerMessage = "Enter a valid latitude."
                     longitude.isNotBlank() && lon == null -> pickerMessage = "Enter a valid longitude."
                     (latitude.isBlank()) != (longitude.isBlank()) -> pickerMessage = "Enter both coordinates or leave both empty."
