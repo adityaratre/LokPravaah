@@ -205,6 +205,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [proofSubmission, setProofSubmission] = useState<{ orderId: string; amountPaise: number; submittedAt: string } | null>(null)
   const manualProofSubmittedRef = useRef(false)
   const [myDonations, setMyDonations] = useState<MyDonationRow[]>([])
+  // Prevent the previous account's history from rendering during auth transitions.
+  const [myDonationsOwner, setMyDonationsOwner] = useState<string | null>(null)
   const [myDonationsLoading, setMyDonationsLoading] = useState(false)
   const [myDonationsError, setMyDonationsError] = useState('')
   const [donationHistoryFilter, setDonationHistoryFilter] = useState<'all' | 'pending' | 'successful'>('all')
@@ -261,6 +263,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const loadMyDonations = useCallback(async () => {
     if (!supabase || !userId || !isSupabaseConfigured) {
       setMyDonations([])
+      setMyDonationsOwner(null)
       setMyDonationsLoading(false)
       setMyDonationsError(userId ? 'Donation history is temporarily unavailable.' : 'Sign in to view your donation history.')
       return
@@ -275,6 +278,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const result = data as { donations?: MyDonationRow[] } | null
       const rows = Array.isArray(result?.donations) ? result!.donations! : []
       setMyDonations(rows)
+      setMyDonationsOwner(userId)
       setActiveDonation(current => {
         if (!current) return current
         const row = rows.find(item => item.order_id === current.orderId)
@@ -335,6 +339,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (activeDonationOwnerRef.current === userId) return
     activeDonationOwnerRef.current = userId
     skipNextDonationPersistRef.current = true
+    // Hide old-account donation history immediately; the new account gets its own
+    // history only after its authenticated RPC request resolves.
+    setMyDonations([])
+    setMyDonationsOwner(null)
+    setMyDonationsError('')
     setActiveDonation(readSavedDonation(userId))
   }, [userId])
 
@@ -772,14 +781,15 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   const topThree = publicData?.top_donors.slice(0, 3) ?? []
   const remainingLeaders = publicData?.top_donors.slice(3) ?? []
-  const filteredMyDonations = myDonations.filter(item => {
+  const accountDonations = myDonationsOwner === userId ? myDonations : []
+  const filteredMyDonations = accountDonations.filter(item => {
     const successful = item.status === 'succeeded' || item.claim_status === 'confirmed'
     if (donationHistoryFilter === 'successful') return successful
     if (donationHistoryFilter === 'pending') return !successful
     return true
   })
-  const pendingDonationCount = myDonations.filter(item => item.status !== 'succeeded' && item.claim_status !== 'confirmed').length
-  const successfulDonationCount = myDonations.filter(item => item.status === 'succeeded' || item.claim_status === 'confirmed').length
+  const pendingDonationCount = accountDonations.filter(item => item.status !== 'succeeded' && item.claim_status !== 'confirmed').length
+  const successfulDonationCount = accountDonations.filter(item => item.status === 'succeeded' || item.claim_status === 'confirmed').length
 
   if (proofSubmission) {
     return <div className="donation-page donation-thankyou-page">
@@ -886,15 +896,15 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <button type="button" className="donation-history-refresh" onClick={() => { void loadMyDonations(); void loadPublicData() }} disabled={myDonationsLoading}><RefreshCw size={14} className={myDonationsLoading ? 'donation-spin' : ''}/> Refresh</button>
           </div>
           {!userId && <div className="donation-history-empty"><LockKeyhole size={18}/><span>Sign in to view donation history or submit payment proof.</span></div>}
-          {myDonationsLoading && !myDonations.length && <div className="donation-history-empty"><LoaderCircle size={17} className="donation-spin"/><span>Loading your donation history…</span></div>}
+          {myDonationsLoading && !accountDonations.length && <div className="donation-history-empty"><LoaderCircle size={17} className="donation-spin"/><span>Loading your donation history…</span></div>}
           {myDonationsError && <div className="donation-history-error" role="alert"><CircleAlert size={16}/><span>{myDonationsError}</span><button type="button" onClick={() => void loadMyDonations()}>Try again</button></div>}
-          {!myDonationsLoading && !myDonationsError && userId && !myDonations.length && <div className="donation-history-empty"><HeartHandshake size={20}/><span>No donation records yet. Your new contribution will appear here after checkout creates its reference.</span></div>}
+          {!myDonationsLoading && !myDonationsError && userId && !accountDonations.length && <div className="donation-history-empty"><HeartHandshake size={20}/><span>No donation records yet. Your new contribution will appear here after checkout creates its reference.</span></div>}
           <div className="donation-history-filters" role="tablist" aria-label="Filter donation history">
-            <button type="button" role="tab" aria-selected={donationHistoryFilter === 'all'} className={'donation-history-filter' + (donationHistoryFilter === 'all' ? ' active' : '')} onClick={() => setDonationHistoryFilter('all')}>All <span>{myDonations.length}</span></button>
+            <button type="button" role="tab" aria-selected={donationHistoryFilter === 'all'} className={'donation-history-filter' + (donationHistoryFilter === 'all' ? ' active' : '')} onClick={() => setDonationHistoryFilter('all')}>All <span>{accountDonations.length}</span></button>
             <button type="button" role="tab" aria-selected={donationHistoryFilter === 'pending'} className={'donation-history-filter' + (donationHistoryFilter === 'pending' ? ' active' : '')} onClick={() => setDonationHistoryFilter('pending')}>Pending / review <span>{pendingDonationCount}</span></button>
             <button type="button" role="tab" aria-selected={donationHistoryFilter === 'successful'} className={'donation-history-filter' + (donationHistoryFilter === 'successful' ? ' active' : '')} onClick={() => setDonationHistoryFilter('successful')}>Successful <span>{successfulDonationCount}</span></button>
           </div>
-          {myDonations.length > 0 && filteredMyDonations.length === 0 && <div className="donation-history-empty"><HeartHandshake size={19}/><span>{donationHistoryFilter === 'successful' ? 'No successful donations yet. Verified payments will appear here after admin approval.' : 'No pending donations or reviews. You are all caught up.'}</span></div>}
+          {accountDonations.length > 0 && filteredMyDonations.length === 0 && <div className="donation-history-empty"><HeartHandshake size={19}/><span>{donationHistoryFilter === 'successful' ? 'No successful donations yet. Verified payments will appear here after admin approval.' : 'No pending donations or reviews. You are all caught up.'}</span></div>}
           <div className="donation-history-list">
             {filteredMyDonations.map(item => {
               const label = donationStatusLabel(item)
