@@ -555,7 +555,7 @@
       ].join('');
       const stylesheet = document.createElement('style');
       stylesheet.textContent = [
-        '.youpi-manual-proof-panel{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;overflow:auto;background:radial-gradient(ellipse at 85% 0%,#55d8a112,transparent 42%),linear-gradient(145deg,#101d25,#0b1218);color:#edf4f5;padding:clamp(20px,4vw,34px);padding-top:56px;font:14px/1.5 'DM Sans',Inter,system-ui,-apple-system,Segoe UI,sans-serif;overscroll-behavior:contain}',
+        '.youpi-manual-proof-panel{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;overflow:auto;background:radial-gradient(ellipse at 85% 0%,#55d8a112,transparent 42%),linear-gradient(145deg,#101d25,#0b1218);color:#edf4f5;padding:clamp(20px,4vw,34px);padding-top:56px;font:14px/1.5 "DM Sans",Inter,system-ui,-apple-system,Segoe UI,sans-serif;overscroll-behavior:contain}',
         '.youpi-manual-proof-head{padding:0 0 16px;border-bottom:1px solid #29434a}',
         '.youpi-manual-proof-kicker{font-size:10px;font-weight:850;letter-spacing:.13em;color:#8be8c4}',
         '.youpi-manual-proof-head h2{font-size:25px;line-height:1.15;margin:8px 0;color:#f4fbf8;letter-spacing:-.6px}',
