@@ -88,6 +88,12 @@ test('CORS grants browser access only to the configured frontend origin', async 
   assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), null);
 });
 
+test('hosted checkout launches UPI deep links from the top-level browsing context', async () => {
+  const workerUrl = new URL('../src/index.js', import.meta.url);
+  const source = await readFile(workerUrl, 'utf8');
+  assert.match(source, /openUpi\.href=s\.upiUri;openUpi\.target='_top';openUpi\.hidden=false;/);
+});
+
 test('standalone /admin page is not exposed', async () => {
   const response = await worker.fetch(req('/admin'), defaultEnv, {});
   assert.equal(response.status, 404);
