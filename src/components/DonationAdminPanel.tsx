@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AlertCircle, CheckCircle2, Eye, EyeOff, ExternalLink, HeartHandshake, LoaderCircle, RefreshCw, Save, ShieldCheck, Wallet, XCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './DonationAdminPanel.css'
@@ -76,6 +76,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
+  // Synchronous locks prevent duplicate admin mutations before React updates disabled buttons.
+  const actionLocksRef = useRef(new Set<string>())
   const [error, setError] = useState('')
   const [lastLoaded, setLastLoaded] = useState('')
   const [receiverForm, setReceiverForm] = useState({ receivingVpa: '', payeeName: '' })
@@ -150,6 +152,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }, [load])
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    if (actionLocksRef.current.has(save-settings)) return;
     event.preventDefault()
     if (!supabase) return
     const suggested = presetText.split(',').map(x => Number(x.trim())).filter(x => Number.isFinite(x))
@@ -167,8 +170,9 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if ((portal && !/^https:\/\//i.test(portal)) || (api && !/^https:\/\//i.test(api))) { setError('Payment portal and API URLs must use HTTPS.'); return }
     if (!window.confirm(role === 'super_admin' ? 'Save donation configuration? Payment-related changes will apply immediately.' : 'Save donation configuration? Major payment-related changes will be sent to the super administrator for approval.')) return
     setBusy('settings'); setError('')
+    actionLocksRef.current.add(save-settings);
     const payload = { ...settings, gateway_portal_url: portal, gateway_api_url: api, gateway_merchant_key: settings.gateway_merchant_key?.trim() || null, min_amount_paise: min, max_amount_paise: max, campaign_goal_paise: goal, suggested_amounts: suggested }
-    const { data, error: saveError } = await supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload })
+    const { data, error: saveError } = await supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload }).finally(() => actionLocksRef.current.delete(save-settings))
     setBusy('')
     if (saveError) { setError(`Donation settings could not be saved: ${saveError.message || 'check database permissions and values.'}`); return }
     const response = data as { status?: string; message?: string } | null
@@ -177,11 +181,13 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function reviewRequest(request: ChangeRequest, approve: boolean) {
+    if (actionLocksRef.current.has(`settings-request:${request.id}`)) return;
     if (!supabase || role !== 'super_admin') return
     const action = approve ? 'approve' : 'reject'
     if (!window.confirm(`${approve ? 'Approve and apply' : 'Reject'} this major donation settings change?`)) return
     setBusy(request.id); setError('')
-    const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null })
+    actionLocksRef.current.add(`settings-request:${request.id}`);
+    const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null }).finally(() => actionLocksRef.current.delete(`settings-request:${request.id}`))
     setBusy('')
     if (reviewError) { setError(`Could not ${action} the request: ${reviewError.message || 'check permissions and refresh.'}`); return }
     notify((data as { message?: string } | null)?.message || `Donation settings request ${action}d.`)
@@ -190,6 +196,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
 
 
   async function saveReceiverSettings(event: FormEvent<HTMLFormElement>) {
+    if (actionLocksRef.current.has(save-receiver)) return;
     event.preventDefault()
     if (!supabase) return
     const receivingVpa = receiverForm.receivingVpa.trim().toLowerCase()
@@ -207,10 +214,11 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       : `Submit ${receivingVpa} / ${payeeName} for super-admin approval? Current checkout settings will remain active until approval.`
     if (!window.confirm(prompt)) return
     setReceiverBusy('save'); setReceiverError(''); setReceiverNotice('')
+    actionLocksRef.current.add(save-receiver);
     const { data, error: saveError } = await supabase.rpc('janwatch_admin_set_upi_receiver_settings', {
       p_receiving_vpa: receivingVpa,
       p_payee_name: payeeName,
-    })
+    }).finally(() => actionLocksRef.current.delete(save-receiver))
     setReceiverBusy('')
     if (saveError) { setReceiverError(`Receiving-account settings could not be saved: ${saveError.message || 'check your role and try again.'}`); return }
     const result = data as { status?: string; message?: string } | null
@@ -220,15 +228,17 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function reviewReceiverRequest(request: ReceiverRequest, approve: boolean) {
+    if (actionLocksRef.current.has(`receiver-request:${request.id}`)) return;
     if (!supabase || role !== 'super_admin') return
     const action = approve ? 'approve' : 'reject'
     if (!window.confirm(`${approve ? 'Approve and activate' : 'Reject'} receiving account ${request.receiving_vpa} / ${request.payee_name}?`)) return
     setReceiverBusy(request.id); setReceiverError(''); setReceiverNotice('')
+    actionLocksRef.current.add(`receiver-request:${request.id}`);
     const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_upi_receiver_request', {
       p_request_id: request.id,
       p_approve: approve,
       p_note: receiverNotes[request.id]?.trim() || null,
-    })
+    }).finally(() => actionLocksRef.current.delete(`receiver-request:${request.id}`))
     setReceiverBusy('')
     if (reviewError) { setReceiverError(`Could not ${action} the receiving-account request: ${reviewError.message || 'please refresh and retry.'}`); return }
     const result = data as { message?: string } | null
@@ -238,6 +248,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function reviewManualDonation(claim: ManualReview, action: 'confirm' | 'reject') {
+    if (actionLocksRef.current.has(`manual-review:${claim.id}`)) return;
     const client = supabase
     if (!client || !['admin', 'super_admin'].includes(role)) return
     const verifiedUtr = String(verifiedUtrs[claim.id] || '').trim()
@@ -254,12 +265,13 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       ? 'Confirm this donation only after matching the UTR with the receiving-bank statement?'
       : 'Reject this payment-proof claim?')) return
     setBusy(claim.id); setError('')
+    actionLocksRef.current.add(`manual-review:${claim.id}`);
     const { data, error: reviewError } = await client.rpc('janwatch_admin_review_manual_donation', {
       p_claim_id: claim.id,
       p_action: action,
       p_note: note,
       p_verified_utr: action === 'confirm' ? verifiedUtr : null,
-    })
+    }).finally(() => actionLocksRef.current.delete(`manual-review:${claim.id}`))
     setBusy('')
     if (reviewError) { setError(`Could not ${action} this donation: ${reviewError.message || 'refresh and try again.'}`); return }
     const result = data as { message?: string } | null
@@ -268,6 +280,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function addManualDonation(event: FormEvent<HTMLFormElement>) {
+    if (actionLocksRef.current.has(manual-donation)) return;
     event.preventDefault()
     if (!supabase) return
     const rawAmount = manualAmount.trim()
@@ -280,7 +293,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if (!window.confirm('Record this as money already received outside online checkout? The public fundraising total and enabled leaderboard will update.')) return
 
     setBusy('manual-donation'); setError('')
-    const { data, error: createError } = await supabase.rpc('janwatch_admin_create_manual_donation', {
+    actionLocksRef.current.add(manual-donation);
+    const { data, error: createError } = await supabase.rpc('janwatch_admin_create_manual_donation', {.finally(() => actionLocksRef.current.delete(manual-donation))
       p_amount_paise: amountPaise,
       p_donor_name: manualAnonymous ? null : (manualDonorName.trim() || null),
       p_donor_email: manualAnonymous ? null : (manualDonorEmail.trim() || null),
