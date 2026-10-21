@@ -152,8 +152,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }, [load])
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
-    if (actionLocksRef.current.has('save-settings')) return;
     event.preventDefault()
+    if (actionLocksRef.current.has('save-settings')) return;
     if (!supabase) return
     const suggested = presetText.split(',').map(x => Number(x.trim())).filter(x => Number.isFinite(x))
     if (!suggested.length || suggested.length > 8 || suggested.some(v => !Number.isInteger(v) || v < Number(settings.min_amount_paise) / 100 || v > Number(settings.max_amount_paise) / 100)) {
@@ -196,8 +196,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
 
 
   async function saveReceiverSettings(event: FormEvent<HTMLFormElement>) {
-    if (actionLocksRef.current.has('save-receiver')) return;
     event.preventDefault()
+    if (actionLocksRef.current.has('save-receiver')) return;
     if (!supabase) return
     const receivingVpa = receiverForm.receivingVpa.trim().toLowerCase()
     const payeeName = receiverForm.payeeName.trim()
@@ -280,8 +280,8 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   }
 
   async function addManualDonation(event: FormEvent<HTMLFormElement>) {
-    if (actionLocksRef.current.has('manual-donation')) return;
     event.preventDefault()
+    if (actionLocksRef.current.has('manual-donation')) return;
     if (!supabase) return
     const rawAmount = manualAmount.trim()
     if (!/^\d{1,6}(?:\.\d{1,2})?$/.test(rawAmount)) { setError('Enter an amount from ₹1 to ₹100,000 with at most 2 decimal places.'); return }
