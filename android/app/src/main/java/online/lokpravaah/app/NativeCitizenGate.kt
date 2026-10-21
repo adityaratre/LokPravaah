@@ -56,6 +56,9 @@ fun NativeCitizenGate(
     val client = NativeSupabaseClientProvider.client
     var authenticated by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
+    // Once the first session state is known, a transient refresh must not unmount the
+    // citizen shell. Unmounting it resets navigation to Home when returning from UPI/maps.
+    var sessionStatusResolved by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -74,10 +77,22 @@ fun NativeCitizenGate(
         } else {
             client.auth.sessionStatus.collect { status ->
                 when (status) {
-                    is SessionStatus.Authenticated -> { authenticated = true; checking = false }
-                    is SessionStatus.NotAuthenticated -> { authenticated = false; checking = false }
-                    is SessionStatus.Initializing -> checking = true
-                    else -> checking = false
+                    is SessionStatus.Authenticated -> {
+                        authenticated = true
+                        checking = false
+                        sessionStatusResolved = true
+                    }
+                    is SessionStatus.NotAuthenticated -> {
+                        authenticated = false
+                        checking = false
+                        sessionStatusResolved = true
+                    }
+                    is SessionStatus.Initializing -> {
+                        // Only block the UI during the initial restore. Keep the current
+                        // screen mounted during later token/session refreshes.
+                        if (!sessionStatusResolved) checking = true
+                    }
+                    else -> if (!sessionStatusResolved) checking = false
                 }
             }
         }
