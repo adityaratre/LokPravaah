@@ -189,6 +189,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; title: string; body: string } | null>(null)
   const [lastOrderId, setLastOrderId] = useState('')
   const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(() => readSavedDonation(userId))
+  const activeDonationOwnerRef = useRef<string | null>(userId)
+  const skipNextDonationPersistRef = useRef(false)
   const [proofOpen, setProofOpen] = useState(false)
   const [proofUtr, setProofUtr] = useState('')
   const [proofAmountText, setProofAmountText] = useState('')
@@ -318,9 +320,24 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     }
   }, [loadPublicData])
 
+  // Restore the matching user's pending checkout when auth finishes or the account changes.
+  // Skip one persistence pass so the previous account's in-memory session is never written
+  // into the newly authenticated account's storage key.
+  useEffect(() => {
+    if (activeDonationOwnerRef.current === userId) return
+    activeDonationOwnerRef.current = userId
+    skipNextDonationPersistRef.current = true
+    setActiveDonation(readSavedDonation(userId))
+  }, [userId])
+
   // Persist the payment ID—not donor details—so the same session can be reopened.
   useEffect(() => {
     if (!userId) return
+    if (skipNextDonationPersistRef.current) {
+      skipNextDonationPersistRef.current = false
+      return
+    }
+    if (activeDonationOwnerRef.current !== userId) return
     try {
       if (activeDonation) window.localStorage.setItem(activeDonationStorageKey(userId), JSON.stringify(activeDonation))
       else window.localStorage.removeItem(activeDonationStorageKey(userId))
