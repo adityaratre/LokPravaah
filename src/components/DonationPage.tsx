@@ -541,12 +541,16 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     setProofBusy(true)
     setProofNotice({ tone: 'info', title: 'Submitting payment proof…', body: 'Your receipt is stored privately for review. This does not mark the donation paid automatically.' })
     let uploadedPath = ''
+    let claimRpcAttempted = false
     try {
       uploadedPath = `${userId}/${session.orderId}-${Date.now()}-${evidenceFileName(proofFile.name)}`
       const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, proofFile, {
         cacheControl: '3600', contentType: proofFile.type, upsert: false,
       })
       if (uploadError) throw uploadError
+      // Once the RPC starts, its response can be lost after the database commits.
+      // Keep the receipt on ambiguous errors so a saved claim never loses its evidence.
+      claimRpcAttempted = true
       const { data, error: submitError } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
         p_order_id: session.orderId,
         p_screenshot_path: uploadedPath,
@@ -555,10 +559,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         p_payment_timestamp: proofTime ? new Date(proofTime).toISOString() : null,
         p_user_note: proofNote.trim() || null,
       })
-      if (submitError) {
-        await supabase.storage.from('donation-payment-evidence').remove([uploadedPath])
-        throw submitError
-      }
+      if (submitError) throw submitError
       const response = data as { status?: ManualClaimStatus; message?: string } | null
       setActiveDonation(current => current?.orderId === session.orderId
         ? { ...current, claimStatus: response?.status || 'pending_review', claimedUtr: utr, adminReviewNote: null }
@@ -570,6 +571,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       setNotice({ tone: 'info', title: 'Payment proof submitted', body: response?.message || `The receipt for ${session.orderId} is waiting for payment review.` })
       void loadMyDonations(); void loadPublicData()
     } catch (error) {
+      if (uploadedPath && !claimRpcAttempted) await supabase.storage.from('donation-payment-evidence').remove([uploadedPath]).catch(() => undefined)
       setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: error instanceof Error ? error.message : 'Please check your connection and try again.' })
     } finally { setProofBusy(false) }
   }
@@ -598,12 +600,16 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     setProofBusy(true)
     setProofNotice({ tone: 'info', title: 'Submitting payment proof', body: 'Uploading the receipt privately. Your donation remains unverified until the bank record is checked.' })
     let uploadedPath = ''
+    let claimRpcAttempted = false
     try {
       uploadedPath = userId + '/' + orderId + '-' + Date.now() + '-' + evidenceFileName(evidenceFile.name)
       const { error: uploadError } = await supabase.storage.from('donation-payment-evidence').upload(uploadedPath, evidenceFile, {
         cacheControl: '3600', contentType: evidenceFile.type, upsert: false,
       })
       if (uploadError) throw new Error('Receipt upload failed: ' + uploadError.message)
+      // Once the RPC starts, its response can be lost after the database commits.
+      // Retain the uploaded receipt on ambiguous errors for safe retry/reconciliation.
+      claimRpcAttempted = true
       const { data, error: claimError } = await supabase.rpc('janwatch_submit_manual_donation_claim', {
         p_order_id: orderId,
         p_screenshot_path: uploadedPath,
@@ -632,7 +638,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       void loadPublicData()
       return { success: true, message: 'Your UTR and receipt were submitted privately. The donation becomes successful only after admin bank-statement verification.' }
     } catch (caught) {
-      if (uploadedPath) await supabase.storage.from('donation-payment-evidence').remove([uploadedPath]).catch(() => undefined)
+      if (uploadedPath && !claimRpcAttempted) await supabase.storage.from('donation-payment-evidence').remove([uploadedPath]).catch(() => undefined)
       const message = caught instanceof Error ? caught.message : 'Payment proof could not be submitted. Please retry.'
       setProofNotice({ tone: 'error', title: 'Could not submit payment proof', body: message })
       return { success: false, message }
