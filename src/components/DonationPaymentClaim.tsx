@@ -43,6 +43,7 @@ export default function DonationPaymentClaim({ orderId, amountPaise, initialStat
 
     setBusy(true); setError(''); setSuccess('')
     const uploadedPaths: string[] = []
+    let claimRpcAttempted = false
     try {
       const { data: userResult, error: authError } = await supabase.auth.getUser()
       const user = userResult.user
@@ -60,6 +61,9 @@ export default function DonationPaymentClaim({ orderId, amountPaise, initialStat
         if (uploadError) throw new Error(`Screenshot upload failed: ${uploadError.message}`)
         uploadedPaths.push(path)
       }
+      // Once the RPC starts, a network error may mean the database committed but
+      // the response was lost. Keep the files so a saved claim never loses evidence.
+      claimRpcAttempted = true
       const { data, error: rpcError } = await supabase.rpc('janwatch_submit_donation_payment_claim', {
         p_order_id: orderId,
         p_amount_paise: amountPaise,
@@ -73,7 +77,7 @@ export default function DonationPaymentClaim({ orderId, amountPaise, initialStat
       setFiles([]); setReference(''); setNote('')
       onSubmitted?.()
     } catch (caught) {
-      if (uploadedPaths.length) await supabase.storage.from('donation-payment-evidence').remove(uploadedPaths).catch(() => undefined)
+      if (uploadedPaths.length && !claimRpcAttempted) await supabase.storage.from('donation-payment-evidence').remove(uploadedPaths).catch(() => undefined)
       setError(caught instanceof Error ? caught.message : 'Payment proof could not be submitted. Please retry.')
     } finally { setBusy(false) }
   }
