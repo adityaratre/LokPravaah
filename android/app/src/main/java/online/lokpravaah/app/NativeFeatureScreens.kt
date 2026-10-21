@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -785,8 +786,10 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var gatewayEnabled by remember { mutableStateOf(false) }
     var upiVpa by remember { mutableStateOf("") }
     var upiPayeeName by remember { mutableStateOf("LokPravaah") }
-    var activeUpiUri by remember { mutableStateOf("") }
-    var showProofForm by remember { mutableStateOf(false) }
+    // Save checkout UI across Activity recreation when the user returns from a UPI app.
+    // Restoring this state is not proof of payment and never marks a donation successful.
+    var activeUpiUri by rememberSaveable(userId) { mutableStateOf("") }
+    var showProofForm by rememberSaveable(userId) { mutableStateOf(false) }
     var title by remember { mutableStateOf("Build a stronger civic community") }
     var description by remember { mutableStateOf("Your contribution helps keep LokPravaah available, accessible and improving.") }
     var goal by remember { mutableStateOf(0L) }
@@ -802,10 +805,10 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var showOnLeaderboard by remember { mutableStateOf(false) }
     var showMessagePublicly by remember { mutableStateOf(false) }
     var donorMessage by remember { mutableStateOf("") }
-    var activeOrderId by remember { mutableStateOf("") }
-    var activeAmountPaise by remember { mutableStateOf(0L) }
-    var claimedUtr by remember { mutableStateOf("") }
-    var claimedAmountText by remember { mutableStateOf("") }
+    var activeOrderId by rememberSaveable(userId) { mutableStateOf("") }
+    var activeAmountPaise by rememberSaveable(userId) { mutableStateOf(0L) }
+    var claimedUtr by rememberSaveable(userId) { mutableStateOf("") }
+    var claimedAmountText by rememberSaveable(userId) { mutableStateOf("") }
     var proofNote by remember { mutableStateOf("I completed the UPI transfer. Please check the transaction reference.") }
     var proofUri by remember { mutableStateOf<Uri?>(null) }
     var history by remember { mutableStateOf<List<NativeDonationHistoryRow>>(emptyList()) }
