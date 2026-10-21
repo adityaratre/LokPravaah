@@ -146,3 +146,12 @@
 .donation-upi-checkout .donation-upi-amount{color:var(--mint-strong);font-size:22px}
 .donation-upi-checkout>p{max-width:420px;text-align:center;margin:0;color:var(--muted);font-size:11px;line-height:1.65}
 .donation-upi-checkout>a{width:100%;max-width:330px;text-decoration:none}
+
+
+/* Focused checkout overlay: QR and manual proof stay in the same gateway-like view. */
+.donation-checkout-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:clamp(12px,3vw,28px);background:rgba(2,10,15,.78);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);overflow-y:auto;overscroll-behavior:contain}
+.donation-checkout-dialog{position:relative;width:min(640px,100%);max-height:min(90dvh,900px);overflow-y:auto;margin:auto;padding:clamp(18px,4vw,28px);box-sizing:border-box;box-shadow:0 24px 90px #0008;animation:donation-rise .22s ease both}
+.donation-checkout-close{position:sticky;top:0;float:right;z-index:2;display:grid;place-items:center;width:38px;height:38px;margin:-5px -5px 0 10px;border:1px solid var(--border);border-radius:12px;background:var(--panel2);color:var(--text);font-size:25px;line-height:1;cursor:pointer}
+.donation-checkout-dialog .donation-upi-qr{width:min(248px,68vw);min-height:0;aspect-ratio:1}
+@media(max-width:600px){.donation-checkout-overlay{align-items:end;padding:0}.donation-checkout-dialog{width:100%;max-height:92dvh;border-radius:24px 24px 0 0;padding:18px 16px calc(20px + env(safe-area-inset-bottom));border-bottom:0}.donation-checkout-dialog .donation-upi-checkout{padding:15px 10px}}
+@media(prefers-reduced-motion:reduce){.donation-checkout-dialog{animation:none}}
