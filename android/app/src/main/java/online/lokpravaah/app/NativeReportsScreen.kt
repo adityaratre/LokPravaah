@@ -461,22 +461,51 @@ private fun ReportCreatePage(
                             controller.setZoom(16.0)
                             val point = GeoPoint(pinLat, pinLon)
                             controller.setCenter(point)
-                            overlays.add(Marker(this).apply {
+                            val draggablePin = Marker(this).apply {
                                 position = point
                                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                title = "Report location"
-                            })
+                                title = "Drag pin to exact issue location"
+                                isDraggable = true
+                                setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                                    override fun onMarkerDrag(marker: Marker) = Unit
+                                    override fun onMarkerDragStart(marker: Marker) = Unit
+                                    override fun onMarkerDragEnd(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                        controller.animateTo(selected)
+                                    }
+                                })
+                            }
+                            overlays.add(draggablePin)
                         }
                     },
                     update = { map ->
                         val point = GeoPoint(pinLat, pinLon)
-                        map.overlays.clear()
-                        map.controller.setCenter(point)
-                        map.overlays.add(Marker(map).apply {
-                            position = point
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            title = "Report location"
-                        })
+                        val marker = map.overlays.filterIsInstance<Marker>().firstOrNull()
+                        if (marker == null) {
+                            map.overlays.add(Marker(map).apply {
+                                position = point
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Drag pin to exact issue location"
+                                isDraggable = true
+                                setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                                    override fun onMarkerDrag(marker: Marker) = Unit
+                                    override fun onMarkerDragStart(marker: Marker) = Unit
+                                    override fun onMarkerDragEnd(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                        map.controller.animateTo(selected)
+                                    }
+                                })
+                            })
+                            map.controller.setCenter(point)
+                        } else if (kotlin.math.abs(marker.position.latitude - pinLat) > 0.000001 ||
+                            kotlin.math.abs(marker.position.longitude - pinLon) > 0.000001) {
+                            marker.position = point
+                            map.controller.setCenter(point)
+                        }
                         map.invalidate()
                     }
                 )
