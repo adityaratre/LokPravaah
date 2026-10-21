@@ -636,19 +636,31 @@ async function handler(request, env) {
     try {
       const paymentId = crypto.randomUUID();
       const idempotencyKey = (request.headers.get('Idempotency-Key') || body.idempotencyKey || '').slice(0, 150) || null;
-      const result = await rpc(env, 'upi_gateway_create_payment', {
+      const createArgs = {
         p_payment_id: paymentId,
         p_order_id: String(body.orderId).trim(),
         p_amount_paise: amountPaise,
         p_merchant_id: expectedMerchantId,
         p_idempotency_key: idempotencyKey,
         p_session_minutes: Math.max(5, Math.min(30, Number(env.PAYMENT_SESSION_MINUTES || 15))),
-        // Use the receiver-aware SQL overload so the payment row snapshots the
-        // same approved VPA/name used to produce its UPI URI. A legacy 6-arg
-        // overload still exists in some databases and otherwise gets selected.
         p_receiver_vpa: receiver.receivingVpa,
         p_receiver_name: receiver.payeeName,
-      });
+      };
+      let result;
+      try {
+        result = await rpc(env, 'upi_gateway_create_payment', createArgs);
+      } catch (error) {
+        // Existing Supabase projects may still have only the original 6-argument
+        // SQL function. PostgREST returns PGRST202/404 for the 8-argument call.
+        // Keep legacy installs working only when the receiver came from Worker
+        // environment variables; admin-selected receiver settings must fail closed
+        // until the receiver-aware SQL overload is installed.
+        const missingReceiverOverload = error.status === 404
+          && /PGRST202|could not find the function|schema cache/i.test(String(error.details || ''));
+        if (!missingReceiverOverload || receiver.source !== 'worker_environment') throw error;
+        const { p_receiver_vpa, p_receiver_name, ...legacyArgs } = createArgs;
+        result = await rpc(env, 'upi_gateway_create_payment', legacyArgs);
+      }
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
       if (!payment) return json(request, env, { error: 'Payment session could not be loaded' }, 500);
