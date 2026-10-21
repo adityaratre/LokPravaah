@@ -422,74 +422,26 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!gatewayConfigured) { setGatewayState('not-configured'); return }
     if (!/^https:\/\//i.test(gatewayPortalUrl) || !/^https:\/\//i.test(gatewayApiUrl)) { setGatewayState('error'); return }
 
-    // Keep the project's original Youpi SDK as the only hosted checkout implementation.
-    // Accept either public SDK alias; an old partially initialized script must not block checkout.
-    const getCheckoutSdk = () => {
-      const sdk = window.Youpi?.pay ? window.Youpi : window.YoupiCheckout?.pay ? window.YoupiCheckout : null
-      if (sdk && !window.Youpi?.pay) window.Youpi = sdk
-      return sdk
-    }
-    if (getCheckoutSdk()) { setGatewayState('ready'); return }
-
     let disposed = false
-    let attempt = 0
-    let script: HTMLScriptElement | null = null
-    let loadTimer: number | null = null
-    const selector = 'script[data-lokpravaah-donation-sdk="true"]'
-    const cleanupScript = (node: HTMLScriptElement | null) => {
-      if (loadTimer !== null) { window.clearTimeout(loadTimer); loadTimer = null }
-      if (!node) return
-      node.removeEventListener('load', onLoad)
-      node.removeEventListener('error', onError)
-      node.remove()
-    }
-    const onLoad = () => {
-      if (loadTimer !== null) { window.clearTimeout(loadTimer); loadTimer = null }
-      if (disposed) return
-      if (getCheckoutSdk()) { setGatewayState('ready'); return }
-      retryOrFail()
-    }
-    const onError = () => { if (!disposed) retryOrFail() }
-    const retryOrFail = () => {
-      if (disposed) return
-      cleanupScript(script)
-      if (attempt < 2) {
-        // Clear a stale initialization guard and bypass browser/CDN cache on each retry.
-        // Re-request the same first-party Youpi SDK; never replace it with a different checkout.
-        window.__YOUPI_SDK_INITIALIZED__ = false
-        attempt += 1
-        loadScript()
-      } else {
-        setGatewayState('error')
-      }
-    }
-    const loadScript = () => {
-      if (disposed) return
-      script = document.createElement('script')
-      script.src = `${gatewayPortalUrl}/youpi.js?lp_sdk_retry=${Date.now()}-${attempt}`
-      script.async = true
-      script.dataset.lokpravaahDonationSdk = 'true'
-      script.dataset.youpiKey = merchantKey
-      script.dataset.apiUrl = gatewayApiUrl
-      script.dataset.portalUrl = gatewayPortalUrl
-      script.dataset.currency = 'INR'
-      script.dataset.name = 'LokPravaah'
-      script.dataset.themeColor = '#55d8a1'
-      script.addEventListener('load', onLoad, { once: true })
-      script.addEventListener('error', onError, { once: true })
-      document.head.appendChild(script)
-      // Do not leave checkout stuck forever if a mobile browser or cached script stalls.
-      loadTimer = window.setTimeout(() => { if (!disposed) retryOrFail() }, 8000)
-    }
-
-    // Remove an old tag that may already have fired its load event without exporting the SDK.
-    const staleScript = document.querySelector<HTMLScriptElement>(selector)
-    if (staleScript) cleanupScript(staleScript)
-    loadScript()
-    return () => {
-      disposed = true
-      cleanupScript(script)
-    }
+    setGatewayState('loading')
+    // Load the exact original Youpi SDK source into the app's own versioned Vite chunk.
+    // This avoids the mobile browser's flaky dynamic script-tag/cache path while keeping the
+    // existing Youpi.pay instant modal implementation as the single hosted checkout.
+    void import('../../cloudflare-upi-worker/public/youpi.js')
+      .then(() => {
+        if (disposed) return
+        const sdk = window.Youpi?.pay ? window.Youpi : window.YoupiCheckout?.pay ? window.YoupiCheckout : null
+        if (sdk) {
+          if (!window.Youpi?.pay) window.Youpi = sdk
+          setGatewayState('ready')
+        } else {
+          setGatewayState('error')
+        }
+      })
+      .catch(() => {
+        if (!disposed) setGatewayState('error')
+      })
+    return () => { disposed = true }
   }, [feedLoading, gatewayConfigured, gatewayPortalUrl, gatewayApiUrl, merchantKey])
 
   function selectPreset(value: number) { setSelectedPreset(value); setAmountText(String(value)); setNotice(null) }
@@ -917,7 +869,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {gatewayState === 'not-configured' && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout is unavailable. You can still generate a UPI QR using the verified receiving details below.</span></div>}
           {gatewayState === 'not-configured' && !upiVpa && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI payment details are temporarily unavailable. No payment will start until the receiving account is configured.</span></div>}
           {gatewayState === 'loading' && <div className="donation-gateway-state"><LoaderCircle size={15} className="donation-spin"/> Connecting to UPI checkout…</div>}
-          {gatewayState === 'error' && !window.Youpi?.pay && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout could not initialize. You can still use the manual UPI checkout below.</span></div>}
+          {gatewayState === 'error' && !window.Youpi?.pay && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The original hosted checkout could not initialize. You can still open the manual UPI checkout by pressing Donate.</span></div>}
           {gatewayState === 'error' && !upiVpa && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI checkout is temporarily unavailable and no receiving UPI ID is configured. No payment has been started.</span></div>}
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
