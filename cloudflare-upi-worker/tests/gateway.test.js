@@ -71,6 +71,23 @@ test('health verifies configuration and Supabase table reachability', async t =>
   assert.equal(body.checks.receivingVpa, true);
 });
 
+test('CORS grants browser access only to the configured frontend origin', async () => {
+  const allowed = await worker.fetch(req('/admin'), defaultEnv, {});
+  assert.equal(allowed.headers.get('Access-Control-Allow-Origin'), 'https://lokpravaah.online');
+
+  const untrusted = await worker.fetch(req('/admin', {
+    headers: { Origin: 'https://attacker.example' },
+  }), defaultEnv, {});
+  assert.equal(untrusted.headers.get('Access-Control-Allow-Origin'), null);
+
+  const preflight = await worker.fetch(req('/api/v1/payments', {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://attacker.example', 'Access-Control-Request-Method': 'POST' },
+  }), defaultEnv, {});
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), null);
+});
+
 test('standalone /admin page is not exposed', async () => {
   const response = await worker.fetch(req('/admin'), defaultEnv, {});
   assert.equal(response.status, 404);
