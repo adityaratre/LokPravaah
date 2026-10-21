@@ -319,3 +319,46 @@ test('partial admin receiver settings never mix with Worker environment benefici
   const body = await response.json();
   assert.match(body.error, /UPI VPA and payee name are not configured/);
 });
+
+
+test('legacy six-argument SQL RPC remains compatible when receiver settings use Worker env', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let createAttempts = 0;
+  let legacyArgs = null;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/rpc/upi_gateway_get_receiver_settings')) {
+      return new Response(JSON.stringify({ code: 'PGRST202', message: 'Could not find the function public.upi_gateway_get_receiver_settings in the schema cache' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/rpc/upi_gateway_create_payment')) {
+      createAttempts += 1;
+      const args = JSON.parse(String(init.body || '{}'));
+      if (createAttempts === 1) {
+        assert.ok('p_receiver_vpa' in args, 'first attempt uses receiver-aware RPC');
+        return new Response(JSON.stringify({ code: 'PGRST202', message: 'Could not find the function public.upi_gateway_create_payment with receiver arguments in the schema cache' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      legacyArgs = args;
+      assert.ok(!('p_receiver_vpa' in args));
+      assert.ok(!('p_receiver_name' in args));
+      return new Response(JSON.stringify({ paymentId: sampleDbPayment.id }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname.endsWith('/upi_gateway_payments')) {
+      return new Response(JSON.stringify([sampleDbPayment]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    throw new Error(`Unexpected test fetch: ${url.pathname}`);
+  };
+
+  const response = await worker.fetch(req('/api/v1/payments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Merchant-Id': defaultEnv.MERCHANT_ID },
+    body: JSON.stringify({ orderId: sampleDbPayment.order_id, amount: 251, currency: 'INR' }),
+  }), defaultEnv, {});
+
+  assert.equal(response.status, 201);
+  assert.equal(createAttempts, 2, 'must retry exactly once with the legacy signature');
+  assert.ok(legacyArgs);
+  const body = await response.json();
+  assert.equal(body.paymentId, sampleDbPayment.id);
+  assert.equal(new URL(body.upiUri).searchParams.get('pa'), defaultEnv.UPI_VPA);
+});
