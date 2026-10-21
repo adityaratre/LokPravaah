@@ -458,7 +458,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     const loadScript = () => {
       if (disposed) return
       script = document.createElement('script')
-      script.src = `${gatewayPortalUrl}/youpi.js?lp_sdk_attempt=${attempt}`
+      script.src = `${gatewayPortalUrl}/youpi.js`
       script.async = true
       script.dataset.lokpravaahDonationSdk = 'true'
       script.dataset.youpiKey = merchantKey
