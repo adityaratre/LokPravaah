@@ -101,6 +101,13 @@ enum class CitizenTab(val label: String) {
 
 @Composable
 fun NativeAppShell(client: SupabaseClient, userId: String) {
+    val appContext = LocalContext.current
+    var startupSoundEnabled by remember {
+        mutableStateOf(
+            appContext.getSharedPreferences("lokpravaah_preferences", android.content.Context.MODE_PRIVATE)
+                .getBoolean("startup_sound_enabled", true)
+        )
+    }
     var selectedTab by rememberSaveable(userId) { mutableStateOf(CitizenTab.HOME) }
     var showBottomNav by rememberSaveable(userId) { mutableStateOf(true) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
@@ -164,6 +171,16 @@ fun NativeAppShell(client: SupabaseClient, userId: String) {
                             onClick = { accountMenuExpanded = false; selectedTab = CitizenTab.PROFILE; showBottomNav = true }
                         )
                         DropdownMenuItem(
+                            text = { Text("Startup sound: " + if (startupSoundEnabled) "On" else "Off") },
+                            leadingIcon = { Icon(Icons.Outlined.Campaign, contentDescription = null) },
+                            onClick = {
+                                startupSoundEnabled = !startupSoundEnabled
+                                appContext.getSharedPreferences("lokpravaah_preferences", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("startup_sound_enabled", startupSoundEnabled).apply()
+                                accountMenuExpanded = false
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text(if (signingOut) "Signing out..." else "Log out") },
                             leadingIcon = { Icon(Icons.Outlined.Logout, contentDescription = null) },
                             enabled = !signingOut,
@@ -212,7 +229,7 @@ fun NativeAppShell(client: SupabaseClient, userId: String) {
                     CitizenTab.EXPLORE_MAP -> NativeExploreScreen(client, userId)
                     CitizenTab.WORKER_HUB -> NativeWorkerScreen(client, userId)
                     CitizenTab.REFERRALS -> NativeReferralScreen(client, userId)
-                    CitizenTab.DONATE -> NativeDonateScreen(client, userId)
+                    CitizenTab.DONATE -> NativeDonationWebCheckoutScreen()
                     CitizenTab.SUPPORT -> NativeSupportTicketsScreen(client, userId)
                     CitizenTab.PROFILE -> NativeProfileScreen(
                         client, userId,
