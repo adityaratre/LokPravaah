@@ -1,6 +1,6 @@
 # LokPravaah Android app
 
-This Android app provides a native animated launch experience and a secure Android WebView shell for the existing LokPravaah web application. The web app remains the source of truth for accounts, reports, AI, rewards, and other data; the admin console is intentionally not implemented as a separate native screen and remains website-only.
+This Android app provides a native Compose citizen experience for login, reports, AI, community, rewards, referrals, support, profile, downloads and navigation. The donation screen intentionally loads the production donation route inside the app so it uses the exact original bundled Youpi checkout/modal and manual UTR/receipt review flow rather than a separate native UPI implementation. Admin management remains website-only.
 
 ## Requirements
 - Android Studio (current stable)
@@ -20,7 +20,9 @@ Or open the `android` directory in Android Studio and build the app. The APK is 
 - JavaScript, DOM storage, and cookies are used by the existing web app.
 - Location and camera permissions are requested only when a web feature asks for them.
 - File uploads use Android's system document picker rather than broad storage access.
-- External web links open outside the app.
+- External web links are handled by the native screens or opened outside the app as appropriate.
+- The startup sound can be toggled on the splash screen and from the account menu; the preference persists across launches.
+- The debug APK uses a pinned development signing identity so successive debug builds can update each other. This key is only for development/test APKs and must never be reused for a Play Store release.
 - The Android admin panel is deliberately omitted; admin management remains on the website.
 
 ## Native Supabase authentication foundation
