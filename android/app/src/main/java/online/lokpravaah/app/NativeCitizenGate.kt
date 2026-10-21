@@ -59,6 +59,7 @@ fun NativeCitizenGate(
     // Once the first session state is known, a transient refresh must not unmount the
     // citizen shell. Unmounting it resets navigation to Home when returning from UPI/maps.
     var sessionStatusResolved by remember { mutableStateOf(false) }
+    var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -191,6 +192,21 @@ fun NativeCitizenGate(
                                     color = AuthMuted, fontSize = 12.sp, lineHeight = 18.sp
                                 )
 
+                                if (createAccount && !resetMode) {
+                                    OutlinedTextField(
+                                        value = fullName,
+                                        onValueChange = { fullName = it.take(120); message = "" },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Full name") },
+                                        placeholder = { Text("Enter your full name") },
+                                        singleLine = true,
+                                        enabled = !busy,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+                                        shape = RoundedCornerShape(15.dp),
+                                        colors = authFieldColors()
+                                    )
+                                }
+
                                 OutlinedTextField(
                                     value = email,
                                     onValueChange = { email = it; message = "" },
@@ -248,7 +264,7 @@ fun NativeCitizenGate(
                                                         isError = false
                                                     }
                                                     createAccount -> {
-                                                        auth.createAccount(email, password)
+                                                        auth.createAccount(email, password, fullName)
                                                         message = "Your account request was received. Check your email if confirmation is required."
                                                         isError = false
                                                     }
@@ -264,7 +280,7 @@ fun NativeCitizenGate(
                                             } finally { busy = false }
                                         }
                                     },
-                                    enabled = !busy && client != null && email.isNotBlank() && (resetMode || password.isNotEmpty()),
+                                    enabled = !busy && client != null && email.isNotBlank() && (resetMode || (password.isNotEmpty() && (!createAccount || fullName.trim().length >= 2))),
                                     modifier = Modifier.fillMaxWidth().height(54.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = AuthMint, contentColor = AuthNavy, disabledContainerColor = Color(0xFF315347), disabledContentColor = Color(0xFF8CA99C))
