@@ -5,7 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-
 fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
@@ -18,11 +17,9 @@ android {
         applicationId = "online.lokpravaah.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.2.2"
+        versionCode = 9
+        versionName = "1.2.3"
 
-        // Only the public Supabase publishable/anon key may be bundled in a client app.
-        // The service-role key and provider secrets must stay on trusted servers.
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL")
             .orElse(providers.environmentVariable("SUPABASE_URL")).getOrElse("")
         val supabaseAnonKey = providers.gradleProperty("SUPABASE_ANON_KEY")
@@ -41,7 +38,14 @@ android {
     }
 
     buildTypes {
-        debug { signingConfig = signingConfigs.getByName("debug") }
+        debug {
+            // Install test builds beside any existing production/previous test app even if
+            // that app was signed with a different certificate. This avoids package/signature
+            // conflicts during QA without replacing the user's existing installation.
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -76,7 +80,6 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    // Shared Supabase identity/session for the native Android client.
     implementation(platform("io.github.jan-tennert.supabase:bom:3.5.0"))
     implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
