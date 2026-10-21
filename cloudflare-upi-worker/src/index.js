@@ -708,7 +708,9 @@ async function handler(request, env) {
       const payment = await getPayment(env, stateMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
       const receiver = await getReceiverSettings(env);
-      return json(request, env, publicPayment(payment, env, receiver));
+      return json(request, env, publicPayment(payment, env, payment.receiver_vpa && payment.receiver_name
+        ? { receivingVpa: payment.receiver_vpa, payeeName: payment.receiver_name, source: 'payment_snapshot' }
+        : receiver));
     } catch { return json(request, env, { error: 'Payment status unavailable' }, 503); }
   }
   const qrMatch = path.match(/^\/checkout\/([a-f0-9-]{36})\/qr\.svg$/i);
