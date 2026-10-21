@@ -417,7 +417,16 @@ private fun ReportCreatePage(
             Spacer(Modifier.height(6.dp))
             Text("Use accurate details. Reports are saved to your existing LokPravaah account.", color = ReportsMuted, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
-            OutlinedTextField(value = title, onValueChange = { title = it.take(160) }, label = { Text("What’s the issue?") }, placeholder = { Text("e.g. Broken streetlight near the park", color = Color(0xFF8199A4), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            Text("What’s the issue?", color = ReportsMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(160) },
+                placeholder = { Text("e.g. Broken streetlight near the park", color = Color(0xFF8199A4), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            )
             Spacer(Modifier.height(12.dp))
             Box {
                 OutlinedButton(onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth(), enabled = !saving) {
@@ -431,7 +440,16 @@ private fun ReportCreatePage(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Where is it?") }, placeholder = { Text("Area, street or landmark", color = Color(0xFF8199A4), fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            Text("Where is it?", color = ReportsMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = area,
+                onValueChange = { area = it.take(300) },
+                placeholder = { Text("Area, street or landmark", color = Color(0xFF8199A4), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            )
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Surface(color = ReportsPanel, shape = RoundedCornerShape(50.dp)) {
