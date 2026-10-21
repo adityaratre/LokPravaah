@@ -172,7 +172,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     setBusy('settings'); setError('')
     actionLocksRef.current.add('save-settings');
     const payload = { ...settings, gateway_portal_url: portal, gateway_api_url: api, gateway_merchant_key: settings.gateway_merchant_key?.trim() || null, min_amount_paise: min, max_amount_paise: max, campaign_goal_paise: goal, suggested_amounts: suggested }
-    const { data, error: saveError } = await supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload }).finally(() => actionLocksRef.current.delete('save-settings'))
+    const { data, error: saveError } = await Promise.resolve(supabase.rpc('janwatch_admin_update_donation_settings', { p_settings: payload }).finally(() => actionLocksRef.current.delete('save-settings'))
     setBusy('')
     if (saveError) { setError(`Donation settings could not be saved: ${saveError.message || 'check database permissions and values.'}`); return }
     const response = data as { status?: string; message?: string } | null
@@ -187,7 +187,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if (!window.confirm(`${approve ? 'Approve and apply' : 'Reject'} this major donation settings change?`)) return
     setBusy(request.id); setError('')
     actionLocksRef.current.add(`settings-request:${request.id}`);
-    const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null }).finally(() => actionLocksRef.current.delete(`settings-request:${request.id}`))
+    const { data, error: reviewError } = await Promise.resolve(supabase.rpc('janwatch_super_admin_review_donation_settings', { p_request_id: request.id, p_approve: approve, p_note: notes[request.id]?.trim() || null }).finally(() => actionLocksRef.current.delete(`settings-request:${request.id}`))
     setBusy('')
     if (reviewError) { setError(`Could not ${action} the request: ${reviewError.message || 'check permissions and refresh.'}`); return }
     notify((data as { message?: string } | null)?.message || `Donation settings request ${action}d.`)
@@ -215,7 +215,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if (!window.confirm(prompt)) return
     setReceiverBusy('save'); setReceiverError(''); setReceiverNotice('')
     actionLocksRef.current.add('save-receiver');
-    const { data, error: saveError } = await supabase.rpc('janwatch_admin_set_upi_receiver_settings', {
+    const { data, error: saveError } = await Promise.resolve(supabase.rpc('janwatch_admin_set_upi_receiver_settings', {
       p_receiving_vpa: receivingVpa,
       p_payee_name: payeeName,
     }).finally(() => actionLocksRef.current.delete('save-receiver'))
@@ -234,7 +234,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     if (!window.confirm(`${approve ? 'Approve and activate' : 'Reject'} receiving account ${request.receiving_vpa} / ${request.payee_name}?`)) return
     setReceiverBusy(request.id); setReceiverError(''); setReceiverNotice('')
     actionLocksRef.current.add(`receiver-request:${request.id}`);
-    const { data, error: reviewError } = await supabase.rpc('janwatch_super_admin_review_upi_receiver_request', {
+    const { data, error: reviewError } = await Promise.resolve(supabase.rpc('janwatch_super_admin_review_upi_receiver_request', {
       p_request_id: request.id,
       p_approve: approve,
       p_note: receiverNotes[request.id]?.trim() || null,
@@ -266,7 +266,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       : 'Reject this payment-proof claim?')) return
     setBusy(claim.id); setError('')
     actionLocksRef.current.add(`manual-review:${claim.id}`);
-    const { data, error: reviewError } = await client.rpc('janwatch_admin_review_manual_donation', {
+    const { data, error: reviewError } = await Promise.resolve(client.rpc('janwatch_admin_review_manual_donation', {
       p_claim_id: claim.id,
       p_action: action,
       p_note: note,
@@ -294,7 +294,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
 
     setBusy('manual-donation'); setError('')
     actionLocksRef.current.add('manual-donation');
-    const { data, error: createError } = await supabase.rpc('janwatch_admin_create_manual_donation', {
+    const { data, error: createError } = await Promise.resolve(supabase.rpc('janwatch_admin_create_manual_donation', {
       p_amount_paise: amountPaise,
       p_donor_name: manualAnonymous ? null : (manualDonorName.trim() || null),
       p_donor_email: manualAnonymous ? null : (manualDonorEmail.trim() || null),
@@ -335,7 +335,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
           : 'Archive this unsuccessful/pending checkout record from the active history? The original record remains auditable.')
       : 'Restore this donation record to active history and public totals where applicable?')) return
     setBusy(donation.id); setError('')
-    const { data, error: removeError } = await supabase.rpc('janwatch_admin_set_donation_removed', {
+    const { data, error: removeError } = await Promise.resolve(supabase.rpc('janwatch_admin_set_donation_removed', {
       p_donation_id: donation.id, p_removed: nextRemoved, p_note: note || null,
     })
     setBusy('')
@@ -350,7 +350,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     const nextHidden = !donation.admin_hidden
     if (!window.confirm(`${nextHidden ? 'Hide this verified donation from public activity?' : 'Restore this donation to public activity if the donor opted in?'}`)) return
     setBusy(donation.id); setError('')
-    const { error: visibilityError } = await client.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
+    const { error: visibilityError } = await Promise.resolve(client.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
     setBusy('')
     if (visibilityError) { setError(`Donation visibility could not be changed: ${visibilityError.message || 'please try again.'}`); return }
     notify(nextHidden ? 'Donation hidden from the public feed.' : 'Donation visibility restored; donor opt-in settings are still respected.')
