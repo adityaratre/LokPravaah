@@ -73,10 +73,13 @@ class MainActivity : ComponentActivity() {
     private var showIntro by mutableStateOf(true)
     private var passwordRecoveryPending by mutableStateOf(false)
     private var startupAudioTrack: AudioTrack? = null
+    private var startupSoundEnabled by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleNativeAuthCallback(intent)
+        startupSoundEnabled = getSharedPreferences("lokpravaah_preferences", MODE_PRIVATE)
+            .getBoolean("startup_sound_enabled", true)
         window.statusBarColor = android.graphics.Color.rgb(6, 17, 31)
         window.navigationBarColor = android.graphics.Color.rgb(6, 17, 31)
         window.decorView.systemUiVisibility = 0
@@ -95,13 +98,23 @@ class MainActivity : ComponentActivity() {
             ) {
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(180)
-                    playStartupChime()
+                    if (startupSoundEnabled) playStartupChime()
                     kotlinx.coroutines.delay(1540)
                     showIntro = false
                 }
                 Surface(Modifier.fillMaxSize(), color = AppNavy) {
                     if (showIntro) {
-                        IntroScreen()
+                        IntroScreen(
+                            soundEnabled = startupSoundEnabled,
+                            onToggleSound = {
+                                startupSoundEnabled = !startupSoundEnabled
+                                getSharedPreferences("lokpravaah_preferences", MODE_PRIVATE)
+                                    .edit().putBoolean("startup_sound_enabled", startupSoundEnabled).apply()
+                                if (!startupSoundEnabled) {
+                                    try { startupAudioTrack?.pause(); startupAudioTrack?.flush() } catch (_: Exception) { }
+                                }
+                            }
+                        )
                     } else {
                         NativeCitizenGate(
                             passwordRecoveryPending = passwordRecoveryPending,
@@ -198,7 +211,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun IntroScreen() {
+private fun IntroScreen(soundEnabled: Boolean, onToggleSound: () -> Unit) {
     val progress = androidx.compose.runtime.remember { Animatable(0f) }
     val transition = rememberInfiniteTransition(label = "nativeBrandMotion")
     val pulse by transition.animateFloat(
@@ -342,6 +355,13 @@ private fun IntroScreen() {
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Text("CITIZEN POWERED CHANGE", color = Color(0xFF7893AC), fontSize = 9.sp, letterSpacing = 2.3.sp, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onToggleSound) {
+                Text(
+                    if (soundEnabled) "Startup sound: On · Tap to mute" else "Startup sound: Off · Tap to enable",
+                    color = AppMuted,
+                    fontSize = 11.sp
+                )
+            }
         }
     }
 }
