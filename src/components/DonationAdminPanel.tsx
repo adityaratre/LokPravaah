@@ -335,7 +335,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
           : 'Archive this unsuccessful/pending checkout record from the active history? The original record remains auditable.')
       : 'Restore this donation record to active history and public totals where applicable?')) return
     setBusy(donation.id); setError('')
-    const { data, error: removeError } = await Promise.resolve(supabase.rpc('janwatch_admin_set_donation_removed', {
+    const { data, error: removeError } = await supabase.rpc('janwatch_admin_set_donation_removed', {
       p_donation_id: donation.id, p_removed: nextRemoved, p_note: note || null,
     })
     setBusy('')
@@ -350,7 +350,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
     const nextHidden = !donation.admin_hidden
     if (!window.confirm(`${nextHidden ? 'Hide this verified donation from public activity?' : 'Restore this donation to public activity if the donor opted in?'}`)) return
     setBusy(donation.id); setError('')
-    const { error: visibilityError } = await Promise.resolve(client.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
+    const { error: visibilityError } = await client.rpc('janwatch_admin_set_donation_visibility', { p_donation_id: donation.id, p_hidden: nextHidden })
     setBusy('')
     if (visibilityError) { setError(`Donation visibility could not be changed: ${visibilityError.message || 'please try again.'}`); return }
     notify(nextHidden ? 'Donation hidden from the public feed.' : 'Donation visibility restored; donor opt-in settings are still respected.')
