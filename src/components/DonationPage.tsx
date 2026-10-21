@@ -190,6 +190,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   const [lastOrderId, setLastOrderId] = useState('')
   const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(() => readSavedDonation(userId))
   const activeDonationOwnerRef = useRef<string | null>(userId)
+  // Ignore donation-history responses started under a previous signed-in account.
+  const currentUserIdRef = useRef(userId)
+  currentUserIdRef.current = userId
   const skipNextDonationPersistRef = useRef(false)
   const [proofOpen, setProofOpen] = useState(false)
   const [proofUtr, setProofUtr] = useState('')
@@ -266,6 +269,9 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     try {
       const { data, error } = await supabase.rpc('janwatch_get_my_donations')
       if (error) throw error
+      // A request can finish after sign-out/account switching. Never let the previous
+      // account's donation history or status update the currently visible account.
+      if (currentUserIdRef.current !== userId) return
       const result = data as { donations?: MyDonationRow[] } | null
       const rows = Array.isArray(result?.donations) ? result!.donations! : []
       setMyDonations(rows)
@@ -286,9 +292,11 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       })
       setMyDonationsError('')
     } catch (caught) {
-      setMyDonationsError(caught instanceof Error ? caught.message : 'Could not load your donation history. Please refresh.')
+      if (currentUserIdRef.current === userId) {
+        setMyDonationsError(caught instanceof Error ? caught.message : 'Could not load your donation history. Please refresh.')
+      }
     } finally {
-      setMyDonationsLoading(false)
+      if (currentUserIdRef.current === userId) setMyDonationsLoading(false)
     }
   }, [userId])
 
