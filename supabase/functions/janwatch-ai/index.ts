@@ -27,15 +27,16 @@ function limitRequest(userId: string): boolean {
   const recent = (hits.get(userId) ?? []).filter(t => t > windowStart)
   if (recent.length >= 12) { hits.set(userId, recent); return false }
 
-  // The map is per Edge Function isolate. Prune stale user buckets periodically so
-  // a stream of one-off authenticated users cannot grow it without a bound.
-  if (hits.size >= 5_000) {
+  // The map is per Edge Function isolate. Prune stale user buckets periodically.
+  // If all buckets are still active, reject new IDs rather than allowing memory growth.
+  if (hits.size >= 5_000 && !hits.has(userId)) {
     for (const [key, timestamps] of hits) {
       const active = timestamps.filter(t => t > windowStart)
       if (active.length) hits.set(key, active)
       else hits.delete(key)
       if (hits.size < 4_000) break
     }
+    if (hits.size >= 5_000 && !hits.has(userId)) return false
   }
 
   recent.push(now)
