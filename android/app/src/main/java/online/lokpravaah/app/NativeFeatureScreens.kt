@@ -815,6 +815,9 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var proofNote by remember { mutableStateOf("I completed the UPI transfer. Please check the transaction reference.") }
     var proofUri by remember { mutableStateOf<Uri?>(null) }
     var history by remember { mutableStateOf<List<NativeDonationHistoryRow>>(emptyList()) }
+    // Keep loaded private history tied to the account that fetched it. A userId change
+    // hides old rows synchronously, before the replacement request has completed.
+    var historyOwnerId by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
     var leftAppWhileCheckoutVisible by remember(userId) { mutableStateOf(false) }
@@ -842,6 +845,10 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     }
 
     LaunchedEffect(userId, refresh) {
+        if (historyOwnerId != userId) {
+            history = emptyList()
+            historyOwnerId = ""
+        }
         loading = true
         error = ""
         try {
@@ -882,14 +889,25 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
         }
 
         try {
+            check(client.auth.currentUserOrNull()?.id == userId) { "Please sign in again." }
             val response = client.postgrest.rpc("janwatch_get_my_donations")
             val parsed = Json.decodeFromString<NativeDonationHistoryEnvelope>(response.data)
-            history = parsed.donations
+            // A request from a previous account must never populate the current account's UI.
+            if (client.auth.currentUserOrNull()?.id == userId) {
+                history = parsed.donations
+                historyOwnerId = userId
+            }
         } catch (_: Exception) {
-            history = emptyList()
+            if (client.auth.currentUserOrNull()?.id == userId) {
+                history = emptyList()
+                historyOwnerId = userId
+            }
         }
     }
 
+    val visibleHistory = if (
+        historyOwnerId == userId && client.auth.currentUserOrNull()?.id == userId
+    ) history else emptyList()
     val raised = total / 100.0
     val goalInRupees = goal / 100.0
     val progress = if (goal > 0L) (total.toDouble() / goal.toDouble()).coerceIn(0.0, 1.0).toFloat() else 0f
@@ -1095,7 +1113,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                     }
                 }
 
-                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && history.none { row ->
+                if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && visibleHistory.none { row ->
                     row.orderId == activeOrderId && (
                         row.status.lowercase(Locale.ROOT) in setOf("succeeded", "failed", "cancelled", "canceled", "expired", "suspicious") ||
                             row.claimStatus in listOf("pending_review", "confirmed", "rejected")
@@ -1253,7 +1271,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                 item {
                     Text("Your contributions", color = FxText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                if (history.isEmpty()) {
+                if (visibleHistory.isEmpty()) {
                     item {
                         FxEmptyCard(
                             "No contributions yet",
@@ -1261,7 +1279,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                         )
                     }
                 } else {
-                    items(history.take(20), key = { it.id }) { donation ->
+                    items(visibleHistory.take(20), key = { it.id }) { donation ->
                         Surface(color = FxSurface, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
