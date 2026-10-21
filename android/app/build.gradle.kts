@@ -16,6 +16,8 @@ android {
 
     defaultConfig {
         applicationId = "online.lokpravaah.app"
+        // Side-by-side test builds avoid update conflicts with a differently signed installed APK.
+        // Keep release applicationId unchanged for the production Play Store identity.
         minSdk = 26
         targetSdk = 35
         versionCode = 8
@@ -41,7 +43,11 @@ android {
     }
 
     buildTypes {
-        debug { signingConfig = signingConfigs.getByName("debug") }
+        debug {
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

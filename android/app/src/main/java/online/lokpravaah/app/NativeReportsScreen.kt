@@ -27,11 +27,18 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
@@ -410,7 +417,16 @@ private fun ReportCreatePage(
             Spacer(Modifier.height(6.dp))
             Text("Use accurate details. Reports are saved to your existing LokPravaah account.", color = ReportsMuted, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
-            OutlinedTextField(value = title, onValueChange = { title = it.take(160) }, label = { Text("Title (6–160 characters)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            Text("What’s the issue?", color = ReportsMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(160) },
+                placeholder = { Text("e.g. Broken streetlight near the park", color = Color(0xFF8199A4), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            )
             Spacer(Modifier.height(12.dp))
             Box {
                 OutlinedButton(onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth(), enabled = !saving) {
@@ -424,15 +440,111 @@ private fun ReportCreatePage(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = description, onValueChange = { description = it.take(5000) }, label = { Text("Description (optional)") }, minLines = 3, maxLines = 6, modifier = Modifier.fillMaxWidth(), enabled = !saving)
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Area, street or landmark") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            Text("Where is it?", color = ReportsMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = area,
+                onValueChange = { area = it.take(300) },
+                placeholder = { Text("Area, street or landmark", color = Color(0xFF8199A4), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(color = ReportsPanel, shape = RoundedCornerShape(50.dp)) {
+                    Text("Normal priority suggestion", color = ReportsMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp))
+                }
+                Text("Priority is only a suggestion. It is not an emergency assessment or an official risk rating.", color = ReportsMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+            }
             Spacer(Modifier.height(12.dp))
             Text(
-                if (latitude.isNotBlank() && longitude.isNotBlank()) "Device location captured · required for submission" else "Current device location is required to submit a report.",
+                if (latitude.isNotBlank() && longitude.isNotBlank()) "Device location captured · required for submission" else "Allow device location so the report is pinned to where you are. Coordinates are captured automatically, never typed manually.",
                 color = if (latitude.isNotBlank() && longitude.isNotBlank()) ReportsMint else ReportsMuted,
                 fontSize = 12.sp
             )
+            val pinLat = latitude.toDoubleOrNull()
+            val pinLon = longitude.toDoubleOrNull()
+            if (pinLat != null && pinLon != null && pinLat in -90.0..90.0 && pinLon in -180.0..180.0) {
+                Spacer(Modifier.height(10.dp))
+                Text("Location pin preview", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(Modifier.height(6.dp))
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(16.dp)),
+                    factory = { ctx ->
+                        Configuration.getInstance().userAgentValue = ctx.packageName
+                        MapView(ctx).apply {
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            setMultiTouchControls(true)
+                            isTilesScaledToDpi = true
+                            controller.setZoom(17.0)
+                            val point = GeoPoint(pinLat, pinLon)
+                            controller.setCenter(point)
+                            val draggablePin = Marker(this).apply {
+                                position = point
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Drag pin to exact issue location"
+                                isDraggable = true
+                                setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                                    override fun onMarkerDrag(marker: Marker) {
+                                        // Keep the selected coordinates in sync while the pin moves.
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                    }
+                                    override fun onMarkerDragStart(marker: Marker) {
+                                        marker.showInfoWindow()
+                                    }
+                                    override fun onMarkerDragEnd(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                        controller.animateTo(selected)
+                                        invalidate()
+                                    }
+                                })
+                            }
+                            overlays.add(draggablePin)
+                        }
+                    },
+                    update = { map ->
+                        val point = GeoPoint(pinLat, pinLon)
+                        val marker = map.overlays.filterIsInstance<Marker>().firstOrNull()
+                        if (marker == null) {
+                            map.overlays.add(Marker(map).apply {
+                                position = point
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Drag pin to exact issue location"
+                                isDraggable = true
+                                setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                                    override fun onMarkerDrag(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                    }
+                                    override fun onMarkerDragStart(marker: Marker) {
+                                        marker.showInfoWindow()
+                                    }
+                                    override fun onMarkerDragEnd(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                        map.controller.animateTo(selected)
+                                        map.invalidate()
+                                    }
+                                })
+                            })
+                            map.controller.setCenter(point)
+                        } else if (kotlin.math.abs(marker.position.latitude - pinLat) > 0.000001 ||
+                            kotlin.math.abs(marker.position.longitude - pinLon) > 0.000001) {
+                            marker.position = point
+                            map.controller.setCenter(point)
+                        }
+                        map.invalidate()
+                    }
+                )
+                Text("Check that the pin marks the issue location before submitting.", color = ReportsMuted, fontSize = 12.sp)
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
@@ -444,6 +556,17 @@ private fun ReportCreatePage(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !saving
             ) { Text("Use my current location", color = ReportsMint) }
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it.take(5000) },
+                label = { Text("Additional details (optional)") },
+                placeholder = { Text("What happened? When did you notice it? Avoid including private personal information.") },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving
+            )
             Spacer(Modifier.height(12.dp))
             Surface(color = ReportsPanel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
@@ -455,12 +578,26 @@ private fun ReportCreatePage(
                         Text(if (evidence == null) "Choose evidence file" else "Choose a different file", color = Color.White)
                     }
                     if (evidence != null) Text(evidence!!.displayName + " · " + formatFileSize(evidence!!.sizeBytes), color = ReportsMint, fontSize = 12.sp)
-                    if (pickerMessage.isNotBlank()) Text(pickerMessage, color = Color(0xFFFFCDD2), fontSize = 12.sp)
+                    if (pickerMessage.isNotBlank()) {
+                        val isProblem = listOf("could not", "denied", "permission", "invalid", "turn on", "must be", "required", "choose a", "50 MB").any { pickerMessage.contains(it, ignoreCase = true) }
+                        Surface(color = if (isProblem) Color(0xFF35252B) else Color(0xFF17352F), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(pickerMessage, color = if (isProblem) Color(0xFFFFCDD2) else ReportsMint, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+                        }
+                    }
                 }
             }
             if (message.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(message, color = Color(0xFFFFCDD2), fontSize = 13.sp)
+                Surface(color = Color(0xFF35252B), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(message, color = Color(0xFFFFCDD2), fontSize = 13.sp, modifier = Modifier.padding(12.dp))
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Surface(color = ReportsPanel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("✓", color = ReportsMint, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("This sends your report to LokPravaah, not directly to a government department. For emergencies, contact local emergency services.", color = ReportsMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                }
             }
             Spacer(Modifier.height(18.dp))
             Button(onClick = {
