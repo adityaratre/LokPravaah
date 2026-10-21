@@ -294,16 +294,28 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     void loadMyDonations()
     const interval = window.setInterval(() => void loadMyDonations(), 30_000)
     const onFocus = () => void loadMyDonations()
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') void loadMyDonations() }
     window.addEventListener('focus', onFocus)
-    return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [loadMyDonations])
 
   useEffect(() => {
     void loadPublicData()
     const interval = window.setInterval(() => void loadPublicData(), 15_000)
     const onFocus = () => void loadPublicData()
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') void loadPublicData() }
     window.addEventListener('focus', onFocus)
-    return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [loadPublicData])
 
   // Persist the payment ID—not donor details—so the same session can be reopened.
