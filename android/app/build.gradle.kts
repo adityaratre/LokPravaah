@@ -31,7 +31,17 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(supabaseAnonKey))
     }
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("debug-signing.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug { signingConfig = signingConfigs.getByName("debug") }
         release {
             isMinifyEnabled = false
             proguardFiles(
