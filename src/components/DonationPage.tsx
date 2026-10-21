@@ -478,12 +478,12 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         apiUrl: gatewayApiUrl,
         theme: { color: '#55d8a1' },
         metadata: { purpose: 'lokpravaah_donation', order_id: session.orderId, amount_paise: session.amountPaise },
-        handler: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'Checkout reported a payment response. The donation is confirmed only after the receiving-bank record is verified.' }) },
-        onSuccess: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'The donation is not marked successful until the bank record has been verified.' }); void loadPublicData(); void loadMyDonations() },
-        onFailed: () => { handlePaymentStatus(session.orderId, 'FAILED'); setLaunching(false) },
-        onSuspicious: () => { handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false) },
-        onExpired: () => { handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
-        onCancelled: () => { handlePaymentStatus(session.orderId, 'CANCELLED'); setLaunching(false) },
+        handler: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'Checkout reported a payment response. The donation is confirmed only after the receiving-bank record is verified.' }) },
+        onSuccess: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false); setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: 'The donation is not marked successful until the bank record has been verified.' }); void loadPublicData(); void loadMyDonations() },
+        onFailed: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'FAILED'); setLaunching(false) },
+        onSuspicious: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'PENDING_REVIEW'); setLaunching(false) },
+        onExpired: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'EXPIRED'); setLaunching(false) },
+        onCancelled: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(session.orderId, 'CANCELLED'); setLaunching(false) },
         onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId: session.orderId, amountPaise: session.amountPaise }),
         onClose: () => setLaunching(false),
       })
@@ -745,19 +745,21 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         customer: anonymous ? undefined : { name: donorName.trim().slice(0, 80), email: donorEmail.trim().slice(0, 254) },
         metadata: { purpose: 'lokpravaah_donation', order_id: orderId, amount_paise: parsedAmount }, portalUrl: gatewayPortalUrl, apiUrl: gatewayApiUrl, theme: { color: '#55d8a1' },
         handler: () => {
+          if (manualProofSubmittedRef.current) return
           handlePaymentStatus(orderId, 'PENDING_REVIEW')
           setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
           setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
         onSuccess: () => {
+          if (manualProofSubmittedRef.current) return
           handlePaymentStatus(orderId, 'PENDING_REVIEW')
           setNotice({ tone: 'warning', title: 'Awaiting bank-record review', body: `Checkout reported a payment response for ${orderId}. The donation is not successful until an administrator verifies the amount and UTR against the receiving-bank statement.` })
           setLaunching(false); void loadPublicData(); void loadMyDonations()
         },
-        onFailed: result => { handlePaymentStatus(orderId, 'FAILED'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
-        onSuspicious: () => { handlePaymentStatus(orderId, 'SUSPICIOUS'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not retry until it is checked.` }); setLaunching(false) },
-        onExpired: () => { handlePaymentStatus(orderId, 'EXPIRED'); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. You can still submit the UTR and payment receipt for review.` }); setLaunching(false) },
-        onCancelled: () => { handlePaymentStatus(orderId, 'CANCELLED'); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
+        onFailed: result => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(orderId, 'FAILED'); setNotice({ tone: 'error', title: 'Payment was not confirmed', body: `${result.reason || result.error || 'The checkout could not confirm this payment.'} If money was debited, check your bank statement and contact support with reference ${orderId} before trying again.` }); setLaunching(false) },
+        onSuspicious: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(orderId, 'SUSPICIOUS'); setNotice({ tone: 'warning', title: 'Payment needs review', body: `Reference ${orderId} has been flagged for review. Do not retry until it is checked.` }); setLaunching(false) },
+        onExpired: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(orderId, 'EXPIRED'); setNotice({ tone: 'warning', title: 'Checkout session expired', body: `Reference ${orderId} expired before confirmation. You can still submit the UTR and payment receipt for review.` }); setLaunching(false) },
+        onCancelled: () => { if (manualProofSubmittedRef.current) return; handlePaymentStatus(orderId, 'CANCELLED'); setNotice({ tone: 'info', title: 'Checkout cancelled', body: `Reference ${orderId} was cancelled in checkout. If you approved a transfer in your UPI app, check your bank statement before retrying.` }); setLaunching(false) },
         onManualPaymentRequest: result => submitManualPaymentFromModal(result, { orderId, amountPaise: parsedAmount }),
         onClose: () => setLaunching(false),
       })
