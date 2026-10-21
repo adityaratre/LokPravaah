@@ -29,26 +29,16 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      # GitHub-hosted runners are ephemeral. Cache the Android debug signing key so
-      # successive debug APKs can update the installed app instead of conflicting.
-      - name: Restore stable debug signing identity
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: lokpravaah-android-debug-signing-v1
-      - name: Ensure stable debug signing key exists
+      # This is a development/debug signing key only. Release signing must use a private GitHub secret.
+      # Pin the identity in the repository so successive test APKs don't randomly conflict on update.
+      - name: Restore pinned debug signing identity
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -noprompt \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          base64 --decode android/debug-signing.keystore.base64 > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
       - name: Run Android unit tests and build debug APK
         env:
           SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
