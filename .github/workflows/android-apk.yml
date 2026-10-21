@@ -36,9 +36,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.android"
-          base64 --decode android/debug-signing.keystore.base64 > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"
+          base64 --decode android/debug-signing.keystore.base64 > android/debug-signing.keystore
+          chmod 600 android/debug-signing.keystore
+          keytool -list -v -keystore android/debug-signing.keystore -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"
       - name: Run Android unit tests and build debug APK
         env:
           SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
