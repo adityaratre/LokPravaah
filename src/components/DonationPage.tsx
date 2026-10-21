@@ -929,11 +929,12 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
               const label = donationStatusLabel(item)
               const ticketClosed = ['resolved','closed','rejected'].includes(String(item.ticket_status || ''))
               const canRaiseTicket = !item.ticket_number || ticketClosed
-              return <article className="donation-history-item" key={item.id}>
-                <div className="donation-history-item-top">
+              return <details className="donation-history-item donation-history-collapsible" key={item.id}>
+                <summary className="donation-history-item-top donation-history-summary">
                   <div><strong>{money(item.amount_paise)}</strong><span className={'donation-history-status status-' + donationStatusClass(item)}>{label}</span></div>
                   <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</time>
-                </div>
+                  <span className="donation-history-chevron" aria-hidden="true">⌄</span>
+                </summary>
                 <div className="donation-history-reference"><span>Reference</span><code>{item.order_id}</code></div>
                 <div className="donation-history-meta">
                   <span>Source: {item.record_source === 'manual_cash' ? 'Offline cash' : item.record_source === 'manual_bank' ? 'Direct bank transfer' : item.record_source === 'manual_upi' ? 'Direct UPI' : item.record_source === 'manual_other' ? 'Other offline source' : 'UPI checkout'}</span>
@@ -953,7 +954,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                     <div><button type="button" className="donation-history-refresh" onClick={() => setTicketDraftId(null)} disabled={ticketBusy}>Cancel</button><button type="submit" className="donation-history-primary" disabled={ticketBusy}>{ticketBusy ? <><LoaderCircle size={14} className="donation-spin"/> Creating ticket…</> : <><Ticket size={14}/> Create support ticket</>}</button></div>
                   </form> : <button type="button" className="donation-history-secondary" onClick={() => { setTicketDraftId(item.id); setTicketSubject('Donation issue: ' + item.order_id); setTicketDescription('Please help me with donation ' + item.order_id + '. Current status: ' + label + '.'); setTicketNotice(null) }}><Ticket size={14}/>{ticketClosed ? 'Raise another ticket' : 'Raise a ticket'}</button>)}
                 </div>
-              </article>
+              </details>
             })}
           </div>
           {ticketNotice && <div className={'donation-history-ticket-notice ' + ticketNotice.tone} role="status">{ticketNotice.text}</div>}
