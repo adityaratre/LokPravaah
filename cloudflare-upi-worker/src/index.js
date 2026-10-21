@@ -18,7 +18,9 @@ function corsHeaders(request, env) {
   const origin = request.headers.get('Origin');
   const allowed = originFor(request, env);
   return {
-    'Access-Control-Allow-Origin': origin === allowed ? allowed : allowed,
+    // Never grant browser read access to responses requested by an untrusted origin.
+    // Requests without an Origin (for example, native clients) do not need CORS.
+    ...(origin && origin === allowed ? { 'Access-Control-Allow-Origin': allowed } : {}),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Merchant-Id, X-Device-Id, X-Timestamp, X-Signature',
     'Access-Control-Max-Age': '86400',
