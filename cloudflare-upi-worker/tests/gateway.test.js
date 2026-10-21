@@ -431,3 +431,33 @@ test('payment status uses the beneficiary snapshot even if admin receiver settin
   assert.equal(upi.searchParams.get('pa'), 'original.receiver@upi');
   assert.equal(upi.searchParams.get('pn'), 'Original Approved Receiver');
 });
+
+
+test('scheduled cleanup ticks payment-session expiry without a browser request', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const calls = [];
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    calls.push(url.pathname);
+    if (url.pathname.endsWith('/rpc/upi_gateway_tick')) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    throw new Error(`Unexpected scheduled cleanup request: ${url.pathname}`);
+  };
+  let waited = Promise.resolve();
+  const ctx = { waitUntil(promise) { waited = promise; } };
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, defaultEnv, ctx);
+  await waited;
+  assert.deepEqual(calls, ['/rest/v1/rpc/upi_gateway_tick']);
+});
+
+test('scheduled cleanup does not throw when the database is unavailable', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => new Response('database unavailable', { status: 503 });
+  let waited = Promise.resolve();
+  const ctx = { waitUntil(promise) { waited = promise; } };
+  await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, defaultEnv, ctx);
+  await assert.doesNotReject(() => waited);
+});
