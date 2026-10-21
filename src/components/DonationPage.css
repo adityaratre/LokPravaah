@@ -155,3 +155,17 @@
 .donation-checkout-dialog .donation-upi-qr{width:min(248px,68vw);min-height:0;aspect-ratio:1}
 @media(max-width:600px){.donation-checkout-overlay{align-items:end;padding:0}.donation-checkout-dialog{width:100%;max-height:92dvh;border-radius:24px 24px 0 0;padding:18px 16px calc(20px + env(safe-area-inset-bottom));border-bottom:0}.donation-checkout-dialog .donation-upi-checkout{padding:15px 10px}}
 @media(prefers-reduced-motion:reduce){.donation-checkout-dialog{animation:none}}
+
+
+/* Compact history rows: show status/amount first, expand transaction metadata on demand. */
+.donation-history-collapsible{padding:0;overflow:hidden}
+.donation-history-summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;padding:15px 16px}
+.donation-history-summary::-webkit-details-marker{display:none}
+.donation-history-summary>div{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.donation-history-summary>time{margin-left:auto;text-align:right;font-size:11px;color:var(--muted);white-space:normal}
+.donation-history-chevron{display:grid;place-items:center;flex:0 0 27px;width:27px;height:27px;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-size:18px;transition:transform .18s ease,background .18s ease}
+.donation-history-collapsible[open] .donation-history-chevron{transform:rotate(180deg);background:var(--panel2)}
+.donation-history-collapsible[open] .donation-history-summary{border-bottom:1px solid var(--border)}
+.donation-history-collapsible>.donation-history-reference,.donation-history-collapsible>.donation-history-meta,.donation-history-collapsible>.donation-history-review-note,.donation-history-collapsible>.donation-history-action-note,.donation-history-collapsible>.donation-history-success-note,.donation-history-collapsible>.donation-history-ticket,.donation-history-collapsible>.donation-history-actions{margin-left:15px;margin-right:15px}
+.donation-history-collapsible>.donation-history-actions{margin-bottom:15px}
+@media(max-width:520px){.donation-history-summary{gap:8px;padding:13px 11px}.donation-history-summary>time{max-width:95px;font-size:10px}.donation-history-summary>div>strong{font-size:16px}.donation-history-chevron{flex-basis:25px;width:25px;height:25px}}
