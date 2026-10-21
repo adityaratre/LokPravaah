@@ -13,6 +13,7 @@ begin
   if tg_table_name = 'donation_intents' then
     v_reference := nullif(lower(btrim(new.utr)), '');
     if v_reference is null then return new; end if;
+    perform pg_advisory_xact_lock(hashtextextended(v_reference, 0));
 
     if exists (
       select 1 from public.upi_gateway_payments p
@@ -24,6 +25,7 @@ begin
   elsif tg_table_name = 'upi_gateway_payments' then
     v_reference := nullif(lower(btrim(new.bank_reference_number)), '');
     if v_reference is null then return new; end if;
+    perform pg_advisory_xact_lock(hashtextextended(v_reference, 0));
 
     if exists (
       select 1 from public.donation_intents d
