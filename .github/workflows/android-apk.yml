@@ -55,12 +55,24 @@ jobs:
           # Publishable/anon client key only. Never provide a service-role key to this workflow.
           SUPABASE_ANON_KEY: sb_publishable_lcKMw3ukzSeGhUW6THNsLw_JMsATwJX
         run: gradle --no-daemon -p android :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify APK and record signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee android/app/build/outputs/apk/debug/SIGNING-CERTIFICATE.txt
+          echo
+          echo "Certificate fingerprint report saved with the APK artifact."
       - name: Rename installable APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/LokPravaah.apk
-      - name: Upload APK artifact
+      - name: Upload APK and signing diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: lokpravaah-android-apk
-          path: android/app/build/outputs/apk/debug/LokPravaah.apk
+          path: |
+            android/app/build/outputs/apk/debug/LokPravaah.apk
+            android/app/build/outputs/apk/debug/SIGNING-CERTIFICATE.txt
           if-no-files-found: error
           retention-days: 14
