@@ -70,6 +70,8 @@ type MyDonationRow = {
 declare global {
   interface Window {
     Youpi?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> }
+    YoupiCheckout?: { pay: (options: CheckoutOptions) => Promise<CheckoutHandle> }
+    __YOUPI_SDK_INITIALIZED__?: boolean
     QRCode?: new (element: HTMLElement, options: { text: string; width: number; height: number; colorDark?: string; colorLight?: string }) => unknown
   }
 }
@@ -414,18 +416,49 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (feedLoading) return
     if (!gatewayConfigured) { setGatewayState('not-configured'); return }
     if (!/^https:\/\//i.test(gatewayPortalUrl) || !/^https:\/\//i.test(gatewayApiUrl)) { setGatewayState('error'); return }
-    if (window.Youpi?.pay) { setGatewayState('ready'); return }
+
+    // Keep the project's original Youpi SDK as the only hosted checkout implementation.
+    // Accept either public SDK alias; an old partially initialized script must not block checkout.
+    const getCheckoutSdk = () => {
+      const sdk = window.Youpi?.pay ? window.Youpi : window.YoupiCheckout?.pay ? window.YoupiCheckout : null
+      if (sdk && !window.Youpi?.pay) window.Youpi = sdk
+      return sdk
+    }
+    if (getCheckoutSdk()) { setGatewayState('ready'); return }
+
     let disposed = false
+    let attempt = 0
+    let script: HTMLScriptElement | null = null
     const selector = 'script[data-lokpravaah-donation-sdk="true"]'
-    let script = document.querySelector<HTMLScriptElement>(selector)
-    const onLoad = () => { if (!disposed) setGatewayState(window.Youpi?.pay ? 'ready' : 'error') }
-    const onError = () => { if (!disposed) setGatewayState('error') }
-    if (script) {
-      script.addEventListener('load', onLoad); script.addEventListener('error', onError)
-      if (window.Youpi?.pay) setGatewayState('ready')
-    } else {
+    const cleanupScript = (node: HTMLScriptElement | null) => {
+      if (!node) return
+      node.removeEventListener('load', onLoad)
+      node.removeEventListener('error', onError)
+      node.remove()
+    }
+    const onLoad = () => {
+      if (disposed) return
+      if (getCheckoutSdk()) { setGatewayState('ready'); return }
+      retryOrFail()
+    }
+    const onError = () => { if (!disposed) retryOrFail() }
+    const retryOrFail = () => {
+      if (disposed) return
+      cleanupScript(script)
+      if (attempt < 2) {
+        // A stale script may have set the SDK guard before failing. Clear only that stale
+        // guard and retry the same official /youpi.js asset once with a fresh URL.
+        window.__YOUPI_SDK_INITIALIZED__ = false
+        attempt += 1
+        loadScript()
+      } else {
+        setGatewayState('error')
+      }
+    }
+    const loadScript = () => {
+      if (disposed) return
       script = document.createElement('script')
-      script.src = `${gatewayPortalUrl}/youpi.js`
+      script.src = `${gatewayPortalUrl}/youpi.js?lp_sdk_attempt=${attempt}`
       script.async = true
       script.dataset.lokpravaahDonationSdk = 'true'
       script.dataset.youpiKey = merchantKey
@@ -434,10 +467,19 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       script.dataset.currency = 'INR'
       script.dataset.name = 'LokPravaah'
       script.dataset.themeColor = '#55d8a1'
-      script.addEventListener('load', onLoad); script.addEventListener('error', onError)
+      script.addEventListener('load', onLoad, { once: true })
+      script.addEventListener('error', onError, { once: true })
       document.head.appendChild(script)
     }
-    return () => { disposed = true; script?.removeEventListener('load', onLoad); script?.removeEventListener('error', onError) }
+
+    // Remove an old tag that may already have fired its load event without exporting the SDK.
+    const staleScript = document.querySelector<HTMLScriptElement>(selector)
+    if (staleScript) cleanupScript(staleScript)
+    loadScript()
+    return () => {
+      disposed = true
+      cleanupScript(script)
+    }
   }, [feedLoading, gatewayConfigured, gatewayPortalUrl, gatewayApiUrl, merchantKey])
 
   function selectPreset(value: number) { setSelectedPreset(value); setAmountText(String(value)); setNotice(null) }
