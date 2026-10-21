@@ -837,7 +837,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <div className="donation-active-payment-icon"><Wallet size={20}/></div>
             <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3>{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
           </div>
-          {activeDonation.upiUri && <div className="donation-upi-checkout">
+          {activeDonation.upiUri && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && <div className="donation-upi-checkout">
             <div className="donation-section-kicker">PAY WITH ANY UPI APP</div>
             <div className="donation-upi-qr" ref={upiQrRef} aria-label="Donation UPI QR code" />
             <strong>{activeDonation.payeeName || 'LokPravaah'}</strong>
@@ -846,6 +846,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <p>Check the payee and exact amount in your UPI app before approving. QR scanning or returning to this screen does not verify payment.</p>
             <a className="donation-active-primary" href={activeDonation.upiUri}>Open UPI app <ArrowRight size={15}/></a>
           </div>}
+          {activeDonation.upiUri && TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && activeDonation.status !== 'SUCCESS' && <div className="donation-proof-message proof-pending"><CircleAlert size={17}/><span>This QR session is marked {activeDonation.status.toLowerCase()}. Do not pay through this QR again. If your bank shows money was debited, submit the UTR and receipt below so the team can review it.</span></div>}
           <div className="donation-active-reference"><span>Donation reference</span><code>{activeDonation.orderId}</code></div>
           <p className="donation-active-help">Closing the QR window will not cancel this session. Reopen the same QR here while it is active. If PhonePe does not auto-confirm after you actually paid, submit the UTR and receipt below. A screenshot alone does not verify payment.</p>
           {activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed'
