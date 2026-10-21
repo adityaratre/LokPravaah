@@ -427,6 +427,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     // Load the exact original Youpi SDK source into the app's own versioned Vite chunk.
     // This avoids the mobile browser's flaky dynamic script-tag/cache path while keeping the
     // existing Youpi.pay instant modal implementation as the single hosted checkout.
+    // @ts-expect-error The original browser IIFE exposes its API on window rather than as ES module exports.
     void import('../../cloudflare-upi-worker/public/youpi.js')
       .then(() => {
         if (disposed) return
