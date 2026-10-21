@@ -170,7 +170,10 @@ Deno.serve(async (req) => {
   const geminiKey = env('GEMINI_API_KEY')
   if (Date.now() < deadlineMs && enabled('AI_ENABLE_GEMINI_BACKUP', true) && geminiKey) {
     // If an old/invalid model name was saved in Secrets, retry with a known current model.
-    const configuredGeminiModel = env('GEMINI_MODEL')
+    // Accept both API model IDs ("gemini-2.5-flash") and copied REST paths
+    // ("models/gemini-2.5-flash"). The latter must be normalized before URL encoding;
+    // encoding the slash produces a 404 for an otherwise valid model.
+    const configuredGeminiModel = env('GEMINI_MODEL').replace(/^models\\//i, '').trim()
     const geminiModels = [...new Set([configuredGeminiModel, 'gemini-2.5-flash'].filter(Boolean))]
     for (const model of geminiModels) {
       if (Date.now() >= deadlineMs) break
