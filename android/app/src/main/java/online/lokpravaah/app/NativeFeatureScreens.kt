@@ -1097,7 +1097,7 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
 
                 if (activeOrderId.isNotBlank() && activeUpiUri.isNotBlank() && history.none { row ->
                     row.orderId == activeOrderId && (
-                        row.status.equals("succeeded", ignoreCase = true) ||
+                        row.status.lowercase(Locale.ROOT) in setOf("succeeded", "failed", "cancelled", "canceled", "expired", "suspicious") ||
                             row.claimStatus in listOf("pending_review", "confirmed", "rejected")
                     )
                 }) {
