@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
     // Accept both API model IDs ("gemini-2.5-flash") and copied REST paths
     // ("models/gemini-2.5-flash"). The latter must be normalized before URL encoding;
     // encoding the slash produces a 404 for an otherwise valid model.
-    const configuredGeminiModel = env('GEMINI_MODEL').replace(/^models\\//i, '').trim()
+    const configuredGeminiModel = env('GEMINI_MODEL').replace(/^models\//i, '').trim()
     const geminiModels = [...new Set([configuredGeminiModel, 'gemini-2.5-flash'].filter(Boolean))]
     for (const model of geminiModels) {
       if (Date.now() >= deadlineMs) break
