@@ -23,9 +23,23 @@ function env(name: string, fallback = '') { return (Deno.env.get(name) ?? fallba
 function enabled(name: string, defaultValue = false) { const v = env(name).toLowerCase(); return v ? ['1','true','yes','on'].includes(v) : defaultValue }
 function limitRequest(userId: string): boolean {
   const now = Date.now()
-  const recent = (hits.get(userId) ?? []).filter(t => now - t < 60_000)
+  const windowStart = now - 60_000
+  const recent = (hits.get(userId) ?? []).filter(t => t > windowStart)
   if (recent.length >= 12) { hits.set(userId, recent); return false }
-  recent.push(now); hits.set(userId, recent)
+
+  // The map is per Edge Function isolate. Prune stale user buckets periodically so
+  // a stream of one-off authenticated users cannot grow it without a bound.
+  if (hits.size >= 5_000) {
+    for (const [key, timestamps] of hits) {
+      const active = timestamps.filter(t => t > windowStart)
+      if (active.length) hits.set(key, active)
+      else hits.delete(key)
+      if (hits.size < 4_000) break
+    }
+  }
+
+  recent.push(now)
+  hits.set(userId, recent)
   return true
 }
 function systemPrompt(task: string, responseLanguage: string) {
