@@ -187,8 +187,13 @@ fun NativeAppShell(client: SupabaseClient, userId: String) {
             if (accountError.isNotBlank()) {
                 Text(accountError, color = ShellRose, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().background(ShellNavy).padding(horizontal = 18.dp, vertical = 5.dp))
             }
+            // Tab-local state can contain private account data (donation references,
+            // worker applications, reports, profile fields). Recreate the selected screen
+            // when the authenticated account changes so one account's in-memory UI state
+            // is never shown to another account on the same app instance.
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (selectedTab) {
+                key(userId) {
+                    when (selectedTab) {
                     CitizenTab.HOME -> NativeHomeScreen(
                         client = client, userId = userId,
                         onOpenReports = { selectedTab = CitizenTab.REPORTS },
@@ -219,6 +224,7 @@ fun NativeAppShell(client: SupabaseClient, userId: String) {
                     )
                     CitizenTab.BLOG -> NativeBlogScreen(client)
                     CitizenTab.DOWNLOADS -> NativeDownloadsScreen(client)
+                    }
                 }
             }
             if (showBottomNav) {
