@@ -6,6 +6,8 @@ import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native auth operations use the existing Supabase Auth project and identities.
@@ -24,12 +26,17 @@ class NativeAuthRepository(
         }
     }
 
-    suspend fun createAccount(email: String, password: String) {
+    suspend fun createAccount(email: String, password: String, fullName: String) {
         requireValidCredentials(email, password)
         require(password.length >= 8) { "Use a password with at least 8 characters." }
+        require(fullName.trim().length >= 2) { "Enter your full name." }
         supabase.auth.signUpWith(Email) {
             this.email = email.trim()
             this.password = password
+            data = buildJsonObject {
+                put("display_name", fullName.trim())
+                put("full_name", fullName.trim())
+            }
         }
         // If email confirmation is enabled, the caller should tell the user to check email.
         // The repository does not assume that registration automatically authenticates the user.
