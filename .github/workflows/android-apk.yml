@@ -38,13 +38,13 @@ jobs:
           mkdir -p "$HOME/.android"
           base64 --decode android/debug-signing.keystore.base64 > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"
       - name: Run Android unit tests and build debug APK
         env:
           SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
           # Publishable/anon client key only. Never provide a service-role key to this workflow.
           SUPABASE_ANON_KEY: sb_publishable_lcKMw3ukzSeGhUW6THNsLw_JMsATwJX
-        run: gradle --no-daemon -p android :app:testDebugUnitTest :app:assembleDebug
+        run: gradle --no-daemon --no-build-cache -p android clean :app:testDebugUnitTest :app:assembleDebug
       - name: Verify APK and record signing certificate
         shell: bash
         run: |
