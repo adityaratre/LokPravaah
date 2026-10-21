@@ -32,6 +32,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.launch
@@ -433,6 +439,43 @@ private fun ReportCreatePage(
                 color = if (latitude.isNotBlank() && longitude.isNotBlank()) ReportsMint else ReportsMuted,
                 fontSize = 12.sp
             )
+            val pinLat = latitude.toDoubleOrNull()
+            val pinLon = longitude.toDoubleOrNull()
+            if (pinLat != null && pinLon != null && pinLat in -90.0..90.0 && pinLon in -180.0..180.0) {
+                Spacer(Modifier.height(10.dp))
+                Text("Location pin preview", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(Modifier.height(6.dp))
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(190.dp),
+                    factory = { ctx ->
+                        Configuration.getInstance().userAgentValue = ctx.packageName
+                        MapView(ctx).apply {
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            setMultiTouchControls(true)
+                            controller.setZoom(16.0)
+                            val point = GeoPoint(pinLat, pinLon)
+                            controller.setCenter(point)
+                            overlays.add(Marker(this).apply {
+                                position = point
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Report location"
+                            })
+                        }
+                    },
+                    update = { map ->
+                        val point = GeoPoint(pinLat, pinLon)
+                        map.overlays.clear()
+                        map.controller.setCenter(point)
+                        map.overlays.add(Marker(map).apply {
+                            position = point
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            title = "Report location"
+                        })
+                        map.invalidate()
+                    }
+                )
+                Text("Check that the pin marks the issue location before submitting.", color = ReportsMuted, fontSize = 12.sp)
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
