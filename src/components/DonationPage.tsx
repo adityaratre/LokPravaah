@@ -746,7 +746,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!userId) { setNotice({ tone: 'warning', title: 'Sign in to donate', body: 'Sign in so your private donation history, manual payment review and support tickets stay linked to your account.' }); return }
     if (!settings.donations_enabled) { setNotice({ tone: 'warning', title: 'Donations are temporarily paused', body: 'The LokPravaah team has paused new contributions. Please check back later.' }); return }
     if (!settings.payment_gateway_enabled) { setNotice({ tone: 'warning', title: 'Online payments are temporarily paused', body: 'The payment service is temporarily unavailable. Please try again later.' }); return }
-    const useHostedCheckout = gatewayConfigured && gatewayState === 'ready' && Boolean(window.Youpi?.pay)
+    // Prefer the original Youpi modal if the SDK is available at click time, even after a transient loader error.
+    const useHostedCheckout = gatewayConfigured && Boolean(window.Youpi?.pay)
     if (!useHostedCheckout && !upiVpa) {
       setNotice({ tone: 'error', title: 'UPI details are unavailable', body: 'The configured receiving UPI ID could not be loaded. No payment was started. Please try again later or contact support.' }); return
     }
@@ -907,7 +908,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
           {gatewayState === 'not-configured' && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout is unavailable. You can still generate a UPI QR using the verified receiving details below.</span></div>}
           {gatewayState === 'not-configured' && !upiVpa && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI payment details are temporarily unavailable. No payment will start until the receiving account is configured.</span></div>}
           {gatewayState === 'loading' && <div className="donation-gateway-state"><LoaderCircle size={15} className="donation-spin"/> Connecting to UPI checkout…</div>}
-          {gatewayState === 'error' && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout is unavailable. You can still generate a UPI QR using the configured receiving details.</span></div>}
+          {gatewayState === 'error' && !window.Youpi?.pay && upiVpa && <div className="donation-gateway-state"><CircleAlert size={15}/><span>The hosted checkout could not initialize. You can still use the manual UPI checkout below.</span></div>}
           {gatewayState === 'error' && !upiVpa && <div className="donation-inline-warning"><CircleAlert size={16}/><span>UPI checkout is temporarily unavailable and no receiving UPI ID is configured. No payment has been started.</span></div>}
           {!feedLoading && feedError && <div className="donation-inline-warning"><CircleAlert size={16}/><span>Live activity is unavailable. Apply the donation SQL migration, then refresh this page.</span></div>}
           {notice && <div className={`donation-notice notice-${notice.tone}`} role="status"><div className="donation-notice-icon">{notice.tone === 'success' ? <CircleCheck size={19}/> : notice.tone === 'error' || notice.tone === 'warning' ? <CircleAlert size={19}/> : <BadgeCheck size={19}/>}</div><div><b>{notice.title}</b><p>{notice.body}</p>{lastOrderId && <code>Reference: {lastOrderId}</code>}</div></div>}
