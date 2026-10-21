@@ -155,10 +155,13 @@ function niceDate(value?: string): string {
 function amountLabel(paise: number): string { return money(paise) }
 
 const activeDonationStorageKey = (userId: string) => `lokpravaah.activeDonation.${userId}`
+const guestDonationStorageKey = 'lokpravaah.activeDonation.guest'
 function readSavedDonation(userId?: string | null): ActiveDonation | null {
-  if (!userId || typeof window === 'undefined') return null
+  if (typeof window === 'undefined') return null
   try {
-    const value = JSON.parse(window.localStorage.getItem(activeDonationStorageKey(userId)) || 'null') as ActiveDonation | null
+    const storage = userId ? window.localStorage : window.sessionStorage
+    const key = userId ? activeDonationStorageKey(userId) : guestDonationStorageKey
+    const value = JSON.parse(storage.getItem(key) || 'null') as ActiveDonation | null
     if (!value || typeof value.orderId !== 'string' || typeof value.paymentId !== 'string' || !Number.isFinite(Number(value.amountPaise))) return null
     const storedStatus = String(value.status || 'ACTIVE').toUpperCase()
     // A previous UI callback could mark the local session successful. Never trust local storage as payment evidence.
@@ -359,15 +362,17 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
 
   // Persist the payment ID—not donor details—so the same session can be reopened.
   useEffect(() => {
-    if (!userId) return
     if (skipNextDonationPersistRef.current) {
       skipNextDonationPersistRef.current = false
       return
     }
     if (activeDonationOwnerRef.current !== userId) return
     try {
-      if (activeDonation) window.localStorage.setItem(activeDonationStorageKey(userId), JSON.stringify(activeDonation))
-      else window.localStorage.removeItem(activeDonationStorageKey(userId))
+      // Keep guest checkout state only for this browser tab/session; account history remains per-user.
+      const storage = userId ? window.localStorage : window.sessionStorage
+      const key = userId ? activeDonationStorageKey(userId) : guestDonationStorageKey
+      if (activeDonation) storage.setItem(key, JSON.stringify(activeDonation))
+      else storage.removeItem(key)
     } catch { /* current session still works when storage is disabled */ }
   }, [activeDonation, userId])
 
@@ -743,7 +748,6 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     if (!amountValid || parsedAmount === null) {
       setNotice({ tone: 'error', title: 'Check the amount', body: `Enter an amount from ${money(settings.min_amount_paise)} to ${money(settings.max_amount_paise)}, with up to two decimal places.` }); return
     }
-    if (!userId) { setNotice({ tone: 'warning', title: 'Sign in to donate', body: 'Sign in so your private donation history, manual payment review and support tickets stay linked to your account.' }); return }
     if (!settings.donations_enabled) { setNotice({ tone: 'warning', title: 'Donations are temporarily paused', body: 'The LokPravaah team has paused new contributions. Please check back later.' }); return }
     if (!settings.payment_gateway_enabled) { setNotice({ tone: 'warning', title: 'Online payments are temporarily paused', body: 'The payment service is temporarily unavailable. Please try again later.' }); return }
     // Prefer the original Youpi modal if the SDK is available at click time, even after a transient loader error.
@@ -759,7 +763,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     const orderId = makeOrderId(); setLastOrderId(orderId)
     try {
       const { error } = await supabase.from('donation_intents').insert({
-        order_id: orderId, donor_user_id: userId, amount_paise: parsedAmount, currency: 'INR',
+        order_id: orderId, donor_user_id: userId || null, amount_paise: parsedAmount, currency: 'INR',
         donor_name: anonymous ? null : (donorName.trim().slice(0, 80) || null), donor_email: anonymous ? null : (donorEmail.trim().slice(0, 254) || null),
         is_anonymous: anonymous, show_on_leaderboard: !anonymous && showOnLeaderboard, show_message_publicly: !anonymous && showOnLeaderboard && showMessagePublicly && Boolean(message.trim()), message: message.trim().slice(0, 300) || null, status: 'pending',
       })
@@ -791,7 +795,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
         setProofAmountText((parsedAmount / 100).toFixed(2))
         setProofFile(null)
         setProofNotice(null)
-        void loadMyDonations()
+        if (userId) void loadMyDonations()
         // The manual UPI fallback must use the same focused checkout dialog as hosted checkout.
         // Opening an inline session below the form made QR and proof controls appear as a long page.
         setCheckoutModalOpen(true)
