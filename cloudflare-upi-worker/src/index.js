@@ -139,7 +139,7 @@ async function rpc(env, name, args) {
   return sbRequest(env, `rpc/${name}`, { method: 'POST', body: args });
 }
 async function getPayment(env, id) {
-  const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,created_at&limit=1`);
+  const rows = await sbRequest(env, `upi_gateway_payments?id=eq.${encodeURIComponent(id)}&select=id,merchant_id,order_id,amount_paise,currency,status,queue_position,expires_at,completed_at,bank_reference_number,receiver_vpa,receiver_name,created_at&limit=1`);
   return Array.isArray(rows) ? rows[0] || null : null;
 }
 async function getReceiverSettings(env) {
@@ -613,7 +613,9 @@ async function handler(request, env) {
       const payment = await getPayment(env, cancelMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
       const receiver = await getReceiverSettings(env);
-      const state = publicPayment(payment, env, receiver);
+      const state = publicPayment(payment, env, payment.receiver_vpa && payment.receiver_name
+        ? { receivingVpa: payment.receiver_vpa, payeeName: payment.receiver_name, source: 'payment_snapshot' }
+        : receiver);
       if (result.retainedForVerification) return json(request, env, { ...state, status: 'CANCELLED', retainedForVerification: true });
       return json(request, env, state);
     } catch { return json(request, env, { error: 'Could not cancel payment session' }, 409); }
@@ -664,7 +666,9 @@ async function handler(request, env) {
       if (!result?.paymentId) return json(request, env, { error: 'Unable to create payment session' }, 409);
       const payment = await getPayment(env, result.paymentId);
       if (!payment) return json(request, env, { error: 'Payment session could not be loaded' }, 500);
-      return json(request, env, { ...publicPayment(payment, env, receiver), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
+      return json(request, env, { ...publicPayment(payment, env, payment.receiver_vpa && payment.receiver_name
+        ? { receivingVpa: payment.receiver_vpa, payeeName: payment.receiver_name, source: 'payment_snapshot' }
+        : receiver), checkoutUrl: `${baseFor(request, env)}/checkout/${payment.id}` }, 201);
     } catch (error) {
       console.error('Payment session creation failed:', error.message, error.code || '', error.details || '');
       const diagnostic = String(error.details || error.message || '').toUpperCase();
@@ -689,7 +693,9 @@ async function handler(request, env) {
       const payment = await getPayment(env, paymentMatch[1]);
       if (!payment) return json(request, env, { error: 'Payment session not found' }, 404);
       const receiver = await getReceiverSettings(env);
-      return json(request, env, publicPayment(payment, env, receiver));
+      return json(request, env, publicPayment(payment, env, payment.receiver_vpa && payment.receiver_name
+        ? { receivingVpa: payment.receiver_vpa, payeeName: payment.receiver_name, source: 'payment_snapshot' }
+        : receiver));
     } catch (error) {
       console.error('Payment status lookup failed:', error.message);
       return json(request, env, { error: 'Payment status is temporarily unavailable' }, 503);
@@ -712,7 +718,9 @@ async function handler(request, env) {
       if (!payment) return text(request, env, 'Payment session not found', 404);
       if (payment.status !== 'ACTIVE') return text(request, env, 'QR is only available when this payment has the active queue slot.', 409);
       const receiver = await getReceiverSettings(env);
-      const uri = buildUpiUri(payment, env, receiver);
+      const uri = buildUpiUri(payment, env, payment.receiver_vpa && payment.receiver_name
+        ? { receivingVpa: payment.receiver_vpa, payeeName: payment.receiver_name, source: 'payment_snapshot' }
+        : receiver);
       if (!uri) return text(request, env, 'Receiver UPI details are not configured.', 503);
       return text(request, env, generateQrSvg(uri, 260), 200, 'image/svg+xml; charset=utf-8');
     } catch { return text(request, env, 'QR temporarily unavailable', 503); }
