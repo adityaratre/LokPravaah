@@ -11,6 +11,7 @@ on:
       - "vite.config.ts"
       - "scripts/**"
       - "supabase/migrations/**"
+      - "supabase/functions/janwatch-ai/**"
       - ".github/workflows/website-check.yml"
   push:
     branches: [main]
@@ -23,6 +24,7 @@ on:
       - "vite.config.ts"
       - "scripts/**"
       - "supabase/migrations/**"
+      - "supabase/functions/janwatch-ai/**"
       - ".github/workflows/website-check.yml"
 
 permissions:
@@ -43,3 +45,15 @@ jobs:
         run: npm ci
       - name: Check RPC contracts and build production website
         run: npm run build
+
+  edge-function-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check LokPravaah AI Edge Function
+        run: deno check supabase/functions/janwatch-ai/index.ts
