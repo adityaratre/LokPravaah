@@ -24,6 +24,7 @@ on:
       - "vite.config.ts"
       - "scripts/**"
       - "supabase/migrations/**"
+      - "supabase/functions/janwatch-ai/**"
       - ".github/workflows/website-check.yml"
 
 permissions:
