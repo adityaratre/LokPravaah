@@ -195,6 +195,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
   currentUserIdRef.current = userId
   const skipNextDonationPersistRef = useRef(false)
   const [proofOpen, setProofOpen] = useState(false)
+  const [sessionDetailsOpen, setSessionDetailsOpen] = useState(false)
   const [proofUtr, setProofUtr] = useState('')
   const [proofAmountText, setProofAmountText] = useState('')
   const [proofTime, setProofTime] = useState('')
@@ -782,6 +783,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       const paymentId = String(checkout?.options?.paymentId || '')
       if (!paymentId) throw new Error('Checkout opened, but its payment ID could not be saved. Keep the donation reference visible and do not start another payment if your bank shows a debit.')
       setActiveDonation({ orderId, paymentId, amountPaise: parsedAmount, status: 'ACTIVE' })
+      setSessionDetailsOpen(true)
       void loadMyDonations()
       setProofOpen(false)
       setProofUtr('')
@@ -870,6 +872,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <div className="donation-active-payment-icon"><Wallet size={20}/></div>
             <div><span className="donation-section-kicker">YOUR DONATION SESSION</span><h3>{activeDonation.status === 'SUCCESS' || activeDonation.claimStatus === 'confirmed' ? 'Payment confirmed' : activeDonation.claimStatus === 'pending_review' ? 'Payment proof sent for review' : 'Payment not confirmed yet'}</h3><p>{money(activeDonation.amountPaise)} · {activeDonation.status.replace(/_/g, ' ')}</p></div>
           </div>
+          <button type="button" className="donation-active-details-toggle" aria-expanded={sessionDetailsOpen} aria-controls="donation-session-details" onClick={() => setSessionDetailsOpen(open => !open)}>{sessionDetailsOpen ? 'Hide payment details' : 'Show payment details'} <span aria-hidden="true">{sessionDetailsOpen ? '−' : '+'}</span></button>
+          <div id="donation-session-details" hidden={!sessionDetailsOpen}>
           {activeDonation.upiUri && !TERMINAL_PAYMENT_STATUSES.has(activeDonation.status) && <div className="donation-upi-checkout">
             <div className="donation-section-kicker">PAY WITH ANY UPI APP</div>
             <div className="donation-upi-qr" ref={upiQrRef} aria-label="Donation UPI QR code" />
@@ -904,6 +908,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
             <button className="donation-submit" type="submit" disabled={proofBusy}>{proofBusy ? <><LoaderCircle size={16} className="donation-spin"/> Sending receipt privately…</> : <><Upload size={16}/> Submit UTR & payment screenshot <ArrowRight size={15}/></>}</button>
           </form>}
           {proofNotice && <div className={`donation-proof-notice proof-${proofNotice.tone}`} role="status"><b>{proofNotice.title}</b><p>{proofNotice.body}</p></div>}
+          </div>
         </section>}
         <section className="donation-history-panel" aria-labelledby="donation-history-title">
           <div className="donation-history-heading">
@@ -942,7 +947,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
                 {item.status === 'succeeded' && <div className="donation-history-success-note"><CircleCheck size={15}/><span>Payment verified. Thank you for supporting LokPravaah.</span></div>}
                 {item.ticket_number && <div className="donation-history-ticket"><Ticket size={14}/><span>Ticket #{item.ticket_number} · {String(item.ticket_status || 'open').replaceAll('_',' ')}</span><button type="button" onClick={() => onOpenSupportTickets?.()}>View ticket</button></div>}
                 <div className="donation-history-actions">
-                  {item.claim_status === 'rejected' && <button type="button" className="donation-history-primary" onClick={() => { setActiveDonation({ orderId:item.order_id, paymentId:'', amountPaise:item.amount_paise, status:item.status.toUpperCase(), claimStatus:'rejected', claimedUtr:item.claimed_utr || '', adminReviewNote:item.admin_review_note || null }); setProofNotice({tone:'error',title:'Review needs more information',body:item.admin_review_note || 'Please raise a ticket with the correct receipt and payment reference.'}); setTicketDraftId(item.id); setTicketSubject('Payment review follow-up: ' + item.order_id); setTicketDescription('Please review the manual payment claim for donation ' + item.order_id + '. Admin review note: ' + (item.admin_review_note || 'More information requested') + '.'); }}>Resolve issue</button>}
+                  {item.claim_status === 'rejected' && <button type="button" className="donation-history-primary" onClick={() => { setSessionDetailsOpen(true); setActiveDonation({ orderId:item.order_id, paymentId:'', amountPaise:item.amount_paise, status:item.status.toUpperCase(), claimStatus:'rejected', claimedUtr:item.claimed_utr || '', adminReviewNote:item.admin_review_note || null }); setProofNotice({tone:'error',title:'Review needs more information',body:item.admin_review_note || 'Please raise a ticket with the correct receipt and payment reference.'}); setTicketDraftId(item.id); setTicketSubject('Payment review follow-up: ' + item.order_id); setTicketDescription('Please review the manual payment claim for donation ' + item.order_id + '. Admin review note: ' + (item.admin_review_note || 'More information requested') + '.'); }}>Resolve issue</button>}
                   {canRaiseTicket && (ticketDraftId === item.id ? <form className="donation-history-ticket-form" onSubmit={e => { e.preventDefault(); void createDonationTicket(item) }}>
                     <label>Ticket subject<input maxLength={120} minLength={6} value={ticketSubject} onChange={e => setTicketSubject(e.target.value)} required/></label>
                     <label>Describe the issue<textarea rows={3} minLength={10} maxLength={5000} value={ticketDescription} onChange={e => setTicketDescription(e.target.value)} placeholder="Explain what happened and what help you need…" required/></label>
