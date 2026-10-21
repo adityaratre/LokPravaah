@@ -38,7 +38,7 @@ type ManualReview = {
   id: string; donation_intent_id: string; order_id: string; donation_amount_paise: number
   donation_status: string; donor_name: string | null; donor_email: string | null; user_id: string
   claimed_utr: string | null; claimed_amount_paise: number | null; payment_timestamp: string | null
-  user_note: string | null; screenshot_path: string; status: 'pending_review' | 'confirmed' | 'rejected'
+  user_note: string | null; screenshot_path: string; evidence_paths?: string[]; status: 'pending_review' | 'confirmed' | 'rejected'
   admin_review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string
 }
 type AdminData = { role: string; settings: Settings; donations: DonationRow[]; change_requests: ChangeRequest[]; manual_reviews?: ManualReview[] }
@@ -67,7 +67,7 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [donations, setDonations] = useState<DonationRow[]>([])
   const [manualReviews, setManualReviews] = useState<ManualReview[]>([])
-  const [manualScreenshotUrls, setManualScreenshotUrls] = useState<Record<string, string>>({})
+  const [manualScreenshotUrls, setManualScreenshotUrls] = useState<Record<string, { path: string; url: string }[]>>({})
   const [selectedEvidence, setSelectedEvidence] = useState<{ url: string; orderId: string; isImage: boolean } | null>(null)
   const [verifiedUtrs, setVerifiedUtrs] = useState<Record<string, string>>({})
   const [manualReviewNotes, setManualReviewNotes] = useState<Record<string, string>>({})
@@ -116,10 +116,17 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
       const claims = Array.isArray(result?.manual_reviews) ? result!.manual_reviews! : []
       setManualReviews(claims)
       const signedUrls = await Promise.all(claims.map(async claim => {
-        const { data, error: signedUrlError } = await client.storage.from('donation-payment-evidence').createSignedUrl(claim.screenshot_path, 600)
-        return !signedUrlError && data?.signedUrl ? [claim.id, data.signedUrl] as const : null
+        const paths = Array.isArray(claim.evidence_paths) && claim.evidence_paths.length
+          ? claim.evidence_paths
+          : claim.screenshot_path ? [claim.screenshot_path] : []
+        const urls = await Promise.all(paths.map(async path => {
+          const { data, error: signedUrlError } = await client.storage.from('donation-payment-evidence').createSignedUrl(path, 600)
+          return !signedUrlError && data?.signedUrl ? { path, url: data.signedUrl } : null
+        }))
+        const valid = urls.filter((entry): entry is { path: string; url: string } => Boolean(entry))
+        return valid.length ? [claim.id, valid] as const : null
       }))
-      setManualScreenshotUrls(Object.fromEntries(signedUrls.filter((entry): entry is readonly [string, string] => Boolean(entry))))
+      setManualScreenshotUrls(Object.fromEntries(signedUrls.filter((entry): entry is readonly [string, { path: string; url: string }[]] => Boolean(entry))))
       setLastLoaded(new Date().toISOString())
     }
     if (receiverResult.error) {
@@ -412,9 +419,15 @@ export default function DonationAdminPanel({ role, notify }: { role: string; not
         <div className="donation-admin-manual-head"><div><span className={`donation-admin-status status-${claim.status}`}>{claim.status.replace(/_/g, ' ')}</span><h4>{rupees(claim.donation_amount_paise)} · {claim.donor_name || 'Donor'}</h4><small>{dateText(claim.created_at)} · {claim.order_id}</small></div><b>Reported: {rupees(claim.claimed_amount_paise || 0)}</b></div>
         <div className="donation-admin-manual-details"><div><span>Claimed UTR</span><code>{claim.claimed_utr || 'Not provided'}</code></div><div><span>Payment time</span><b>{dateText(claim.payment_timestamp)}</b></div><div><span>Donation status</span><b>{claim.donation_status}</b></div><div><span>Donor account</span><code>{claim.user_id}</code></div></div>
         {claim.user_note && <p className="donation-admin-manual-note">{claim.user_note}</p>}
-        {claim.screenshot_path && <div className="donation-admin-manual-evidence">
-          {manualScreenshotUrls[claim.id] && /\.(jpe?g|png|webp)$/i.test(claim.screenshot_path) && <button type="button" className="donation-admin-evidence-preview" onClick={() => setSelectedEvidence({ url: manualScreenshotUrls[claim.id], orderId: claim.order_id, isImage: true })} aria-label={`Preview payment proof for ${claim.order_id}`}><img src={manualScreenshotUrls[claim.id]} alt={`Private payment proof for ${claim.order_id}`}/><span>Tap to enlarge</span></button>}
-          {manualScreenshotUrls[claim.id] ? <button type="button" className="donation-admin-evidence-open" onClick={() => setSelectedEvidence({ url: manualScreenshotUrls[claim.id], orderId: claim.order_id, isImage: /\.(jpe?g|png|webp)$/i.test(claim.screenshot_path) })}><ExternalLink size={14}/> Preview private receipt</button> : <span>Receipt URL unavailable; refresh the admin panel to generate a secure link.</span>}
+        {(claim.evidence_paths?.length || claim.screenshot_path) && <div className="donation-admin-manual-evidence">
+          {manualScreenshotUrls[claim.id]?.map((evidence, index) => {
+            const isImage = /\.(jpe?g|png|webp)$/i.test(evidence.path)
+            return <div className="donation-admin-evidence-item" key={evidence.path}>
+              {index === 0 && isImage && <button type="button" className="donation-admin-evidence-preview" onClick={() => setSelectedEvidence({ url: evidence.url, orderId: claim.order_id, isImage: true })} aria-label={`Preview payment proof for ${claim.order_id}`}><img src={evidence.url} alt={`Private payment proof for ${claim.order_id}`}/><span>Tap to enlarge</span></button>}
+              <button type="button" className="donation-admin-evidence-open" onClick={() => setSelectedEvidence({ url: evidence.url, orderId: claim.order_id, isImage })}><ExternalLink size={14}/> {isImage ? 'Preview' : 'Open PDF'} receipt {index + 1}</button>
+            </div>
+          })}
+          {!manualScreenshotUrls[claim.id]?.length && <span>Receipt URL unavailable; refresh the admin panel to generate a secure link.</span>}
         </div>}
         {claim.status === 'pending_review' ? <div className="donation-admin-manual-decision">
           <label>Verified bank UTR <small>(enter after checking the receiving-bank statement)</small><input value={verifiedUtrs[claim.id] ?? ''} onChange={e => setVerifiedUtrs(v => ({ ...v, [claim.id]: e.target.value }))} autoComplete="off" spellCheck={false} maxLength={80} placeholder="Bank-confirmed UTR / RRN"/></label>
