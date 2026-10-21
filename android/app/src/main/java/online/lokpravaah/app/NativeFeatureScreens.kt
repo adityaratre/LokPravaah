@@ -25,6 +25,9 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -813,6 +816,25 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var proofUri by remember { mutableStateOf<Uri?>(null) }
     var history by remember { mutableStateOf<List<NativeDonationHistoryRow>>(emptyList()) }
     var refresh by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var leftAppWhileCheckoutVisible by remember(userId) { mutableStateOf(false) }
+
+    // UPI apps often return to this Activity without recreating the Compose screen.
+    // Refresh campaign totals and donation history when the app resumes after leaving it.
+    DisposableEffect(lifecycleOwner, userId) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> leftAppWhileCheckoutVisible = true
+                Lifecycle.Event.ON_RESUME -> if (leftAppWhileCheckoutVisible) {
+                    leftAppWhileCheckoutVisible = false
+                    refresh++
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val proofPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         proofUri = uri
