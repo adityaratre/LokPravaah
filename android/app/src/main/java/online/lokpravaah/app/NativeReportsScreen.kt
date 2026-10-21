@@ -476,7 +476,8 @@ private fun ReportCreatePage(
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(16.0)
+                            isTilesScaledToDpi = true
+                            controller.setZoom(17.0)
                             val point = GeoPoint(pinLat, pinLon)
                             controller.setCenter(point)
                             val draggablePin = Marker(this).apply {
@@ -485,13 +486,21 @@ private fun ReportCreatePage(
                                 title = "Drag pin to exact issue location"
                                 isDraggable = true
                                 setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                                    override fun onMarkerDrag(marker: Marker) = Unit
-                                    override fun onMarkerDragStart(marker: Marker) = Unit
+                                    override fun onMarkerDrag(marker: Marker) {
+                                        // Keep the selected coordinates in sync while the pin moves.
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                    }
+                                    override fun onMarkerDragStart(marker: Marker) {
+                                        marker.showInfoWindow()
+                                    }
                                     override fun onMarkerDragEnd(marker: Marker) {
                                         val selected = marker.position
                                         latitude = selected.latitude.toString()
                                         longitude = selected.longitude.toString()
                                         controller.animateTo(selected)
+                                        invalidate()
                                     }
                                 })
                             }
@@ -508,13 +517,20 @@ private fun ReportCreatePage(
                                 title = "Drag pin to exact issue location"
                                 isDraggable = true
                                 setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                                    override fun onMarkerDrag(marker: Marker) = Unit
-                                    override fun onMarkerDragStart(marker: Marker) = Unit
+                                    override fun onMarkerDrag(marker: Marker) {
+                                        val selected = marker.position
+                                        latitude = selected.latitude.toString()
+                                        longitude = selected.longitude.toString()
+                                    }
+                                    override fun onMarkerDragStart(marker: Marker) {
+                                        marker.showInfoWindow()
+                                    }
                                     override fun onMarkerDragEnd(marker: Marker) {
                                         val selected = marker.position
                                         latitude = selected.latitude.toString()
                                         longitude = selected.longitude.toString()
                                         map.controller.animateTo(selected)
+                                        map.invalidate()
                                     }
                                 })
                             })
