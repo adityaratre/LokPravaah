@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -416,7 +417,7 @@ private fun ReportCreatePage(
             Spacer(Modifier.height(6.dp))
             Text("Use accurate details. Reports are saved to your existing LokPravaah account.", color = ReportsMuted, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
-            OutlinedTextField(value = title, onValueChange = { title = it.take(160) }, label = { Text("Title (6–160 characters)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            OutlinedTextField(value = title, onValueChange = { title = it.take(160) }, label = { Text("What’s the issue?") }, placeholder = { Text("e.g. Broken streetlight near the park") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
             Spacer(Modifier.height(12.dp))
             Box {
                 OutlinedButton(onClick = { categoryMenu = true }, modifier = Modifier.fillMaxWidth(), enabled = !saving) {
@@ -430,7 +431,7 @@ private fun ReportCreatePage(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Area, street or landmark") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
+            OutlinedTextField(value = area, onValueChange = { area = it.take(300) }, label = { Text("Where is it?") }, placeholder = { Text("e.g. Main Road, near the bus stop") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !saving)
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Surface(color = ReportsPanel, shape = RoundedCornerShape(50.dp)) {
@@ -451,7 +452,7 @@ private fun ReportCreatePage(
                 Text("Location pin preview", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Spacer(Modifier.height(6.dp))
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(190.dp),
+                    modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(16.dp)),
                     factory = { ctx ->
                         Configuration.getInstance().userAgentValue = ctx.packageName
                         MapView(ctx).apply {
@@ -514,12 +515,19 @@ private fun ReportCreatePage(
                         Text(if (evidence == null) "Choose evidence file" else "Choose a different file", color = Color.White)
                     }
                     if (evidence != null) Text(evidence!!.displayName + " · " + formatFileSize(evidence!!.sizeBytes), color = ReportsMint, fontSize = 12.sp)
-                    if (pickerMessage.isNotBlank()) Text(pickerMessage, color = Color(0xFFFFCDD2), fontSize = 12.sp)
+                    if (pickerMessage.isNotBlank()) {
+                        val isProblem = listOf("could not", "denied", "permission", "invalid", "turn on", "must be", "required", "choose a", "50 MB").any { pickerMessage.contains(it, ignoreCase = true) }
+                        Surface(color = if (isProblem) Color(0xFF35252B) else Color(0xFF17352F), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(pickerMessage, color = if (isProblem) Color(0xFFFFCDD2) else ReportsMint, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+                        }
+                    }
                 }
             }
             if (message.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(message, color = Color(0xFFFFCDD2), fontSize = 13.sp)
+                Surface(color = Color(0xFF35252B), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(message, color = Color(0xFFFFCDD2), fontSize = 13.sp, modifier = Modifier.padding(12.dp))
+                }
             }
             Spacer(Modifier.height(14.dp))
             Surface(color = ReportsPanel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
