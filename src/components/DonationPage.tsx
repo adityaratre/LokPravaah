@@ -434,14 +434,17 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     let disposed = false
     let attempt = 0
     let script: HTMLScriptElement | null = null
+    let loadTimer: number | null = null
     const selector = 'script[data-lokpravaah-donation-sdk="true"]'
     const cleanupScript = (node: HTMLScriptElement | null) => {
+      if (loadTimer !== null) { window.clearTimeout(loadTimer); loadTimer = null }
       if (!node) return
       node.removeEventListener('load', onLoad)
       node.removeEventListener('error', onError)
       node.remove()
     }
     const onLoad = () => {
+      if (loadTimer !== null) { window.clearTimeout(loadTimer); loadTimer = null }
       if (disposed) return
       if (getCheckoutSdk()) { setGatewayState('ready'); return }
       retryOrFail()
@@ -451,8 +454,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       if (disposed) return
       cleanupScript(script)
       if (attempt < 2) {
-        // A stale script may have set the SDK guard before failing. Clear only that stale
-        // guard and retry the same official /youpi.js asset once with a fresh URL.
+        // Clear a stale initialization guard and bypass browser/CDN cache on each retry.
+        // Re-request the same first-party Youpi SDK; never replace it with a different checkout.
         window.__YOUPI_SDK_INITIALIZED__ = false
         attempt += 1
         loadScript()
@@ -463,7 +466,7 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
     const loadScript = () => {
       if (disposed) return
       script = document.createElement('script')
-      script.src = `${gatewayPortalUrl}/youpi.js`
+      script.src = `${gatewayPortalUrl}/youpi.js?lp_sdk_retry=${Date.now()}-${attempt}`
       script.async = true
       script.dataset.lokpravaahDonationSdk = 'true'
       script.dataset.youpiKey = merchantKey
@@ -475,6 +478,8 @@ export default function DonationPage({ userId = null, userName = '', onOpenSuppo
       script.addEventListener('load', onLoad, { once: true })
       script.addEventListener('error', onError, { once: true })
       document.head.appendChild(script)
+      // Do not leave checkout stuck forever if a mobile browser or cached script stalls.
+      loadTimer = window.setTimeout(() => { if (!disposed) retryOrFail() }, 8000)
     }
 
     // Remove an old tag that may already have fired its load event without exporting the SDK.
