@@ -740,6 +740,17 @@ async function handler(request, env) {
 }
 
 export default {
+  async scheduled(controller, env, ctx) {
+    // Keep abandoned payment sessions reconciled even when nobody has the checkout page open.
+    // The database RPC expires timed-out ACTIVE sessions and advances any legacy QUEUED rows.
+    ctx.waitUntil((async () => {
+      try {
+        await rpc(env, 'upi_gateway_tick', {});
+      } catch (error) {
+        console.error('Scheduled payment-session cleanup failed:', String(error?.message || 'UNKNOWN').slice(0, 160));
+      }
+    })());
+  },
   async fetch(request, env) {
     try { return await handler(request, env); }
     catch (error) {
