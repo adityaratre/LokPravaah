@@ -169,17 +169,36 @@ fun NativeAiScreen(client: SupabaseClient, userId: String) {
                             modifier = Modifier.clickable(enabled = !busy) { mode = option; error = ""; notice = "" }
                         ) {
                             Column(Modifier.widthIn(min = 104.dp, max = 152.dp).padding(horizontal = 12.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Icon(
-                                    when (option) {
-                                        NativeAiMode.GENERAL -> Icons.Outlined.SmartToy
-                                        NativeAiMode.LEGAL -> Icons.Outlined.Gavel
-                                        NativeAiMode.CIVIC -> Icons.Outlined.Landscape
-                                        NativeAiMode.DOCUMENTS -> Icons.Outlined.FileCopy
-                                    },
-                                    contentDescription = null,
-                                    tint = if (selected) AiNavy else AiMint,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        when (option) {
+                                            NativeAiMode.GENERAL -> Icons.Outlined.SmartToy
+                                            NativeAiMode.LEGAL -> Icons.Outlined.Gavel
+                                            NativeAiMode.CIVIC -> Icons.Outlined.Landscape
+                                            NativeAiMode.DOCUMENTS -> Icons.Outlined.FileCopy
+                                        },
+                                        contentDescription = null,
+                                        tint = if (selected) AiNavy else AiMint,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Surface(
+                                        color = if (selected) AiNavy.copy(alpha = 0.10f) else AiMint.copy(alpha = 0.10f),
+                                        shape = RoundedCornerShape(5.dp)
+                                    ) {
+                                        Text(
+                                            "BETA",
+                                            color = if (selected) AiNavy else AiMint,
+                                            fontSize = 7.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 0.5.sp,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
                                 Text(option.label, color = if (selected) AiNavy else AiWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
