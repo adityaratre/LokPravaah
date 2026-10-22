@@ -483,7 +483,7 @@ private fun ReportCreatePage(
                             val draggablePin = Marker(this).apply {
                                 position = point
                                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                title = "Selected location"
+                                title = ""
                                 isDraggable = true
                                 setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
                                     override fun onMarkerDrag(marker: Marker) {
@@ -514,7 +514,7 @@ private fun ReportCreatePage(
                             map.overlays.add(Marker(map).apply {
                                 position = point
                                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                title = "Selected location"
+                                title = ""
                                 isDraggable = true
                                 setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
                                     override fun onMarkerDrag(marker: Marker) {
