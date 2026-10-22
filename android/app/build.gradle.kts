@@ -7,7 +7,7 @@ plugins {
 
 
 fun buildConfigString(value: String): String =
-    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    "\"" + value.replace("\\\\", "\\\\\\\\").replace("\"", "\\\\"") + "\""
 
 android {
     namespace = "online.lokpravaah.app"
@@ -15,13 +15,12 @@ android {
     compileSdk = 36
 
     defaultConfig {
+        // Permanent package identity: keep this unchanged for all future updates.
         applicationId = "online.lokpravaah.app"
-        // Side-by-side test builds avoid update conflicts with a differently signed installed APK.
-        // Keep release applicationId unchanged for the production Play Store identity.
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.2.2"
+        versionCode = 9
+        versionName = "1.2.3"
 
         // Only the public Supabase publishable/anon key may be bundled in a client app.
         // The service-role key and provider secrets must stay on trusted servers.
@@ -43,6 +42,7 @@ android {
     }
 
     buildTypes {
+        // Isolated test builds may coexist with the stable app but are never release downloads.
         debug {
             applicationIdSuffix = ".test"
             versionNameSuffix = "-test"
@@ -50,6 +50,10 @@ android {
         }
         release {
             isMinifyEnabled = false
+            // Keep the same signing identity as previous sideloaded CI builds for update compatibility.
+            // For a Play Store production release, replace this public development key with a private
+            // upload/release keystore stored in GitHub Secrets before publishing to Google Play.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
