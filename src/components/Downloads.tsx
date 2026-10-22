@@ -26,7 +26,7 @@ export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, prom
     const updateDevice = () => setIsMobile(mobileQuery.matches || mobileUserAgent)
     updateDevice()
     mobileQuery.addEventListener?.('change', updateDevice)
-    try { setPopupDismissed(localStorage.getItem('lokpravaah.appPromptDismissed') === '1') } catch { /* optional storage */ }
+    try { setPopupDismissed(sessionStorage.getItem('lokpravaah.appPromptDismissed') === '1') } catch { /* optional storage */ }
     return () => mobileQuery.removeEventListener?.('change', updateDevice)
   }, [])
   useEffect(() => {
@@ -37,7 +37,7 @@ export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, prom
   const dismissPopup = (remember = false) => {
     setPopupOpen(false)
     if (remember) {
-      try { localStorage.setItem('lokpravaah.appPromptDismissed', '1') } catch { /* optional storage */ }
+      try { sessionStorage.setItem('lokpravaah.appPromptDismissed', '1') } catch { /* optional storage */ }
       setPopupDismissed(true)
     }
   }
@@ -61,7 +61,7 @@ export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, prom
       <div className="public-download-grid">{rows.map(row => <article className="public-download-card" key={row.id}><div className="download-file-icon"><FileArchive size={22}/></div><div className="download-file-info"><div className="download-file-title">{row.title}</div>{row.description && <p>{row.description}</p>}<div className="download-file-meta">{row.version ? <span>v{row.version}</span> : null}<span>{readableSize(Number(row.file_size))}</span><span>{row.file_name.split('.').pop()?.toUpperCase() || 'FILE'}</span></div><a className="downloads-primary" href={getPublicUrl(row.storage_path)} download={row.file_name} target="_blank" rel="noreferrer" onClick={() => { const download = { title: row.title, fileName: row.file_name, href: getPublicUrl(row.storage_path) }; window.setTimeout(() => onDownloadStarted?.(download), 120) }}><Download size={15}/> Download file</a></div></article>)}</div>}
   </section>}
     {popupEnabled && !dedicatedPage && isMobile && <button type="button" className="mobile-app-fab" onClick={() => window.location.assign('/downloads/')}><Smartphone size={17}/> Get the app</button>}
-    {popupOpen && <div className="mobile-app-backdrop" role="presentation" onClick={() => dismissPopup()}><section className="mobile-app-popup" role="dialog" aria-modal="true" aria-labelledby="mobile-app-title" onClick={event => event.stopPropagation()}><button type="button" className="mobile-app-popup-close" aria-label="Close app prompt" onClick={() => dismissPopup()}><X size={18}/></button><div className="mobile-app-popup-icon"><Smartphone size={25}/></div><span className="downloads-kicker">LOKPRAVAAH FOR ANDROID</span><h2 id="mobile-app-title">Your community, closer.</h2><p>Get the LokPravaah Android app from the official download centre.</p><button type="button" className="downloads-primary" onClick={() => { dismissPopup(); window.location.assign('/downloads/') }}><Download size={16}/> Open download centre</button><button type="button" className="mobile-app-never" onClick={() => dismissPopup(true)}>Don’t show again</button></section></div>}
+    {popupOpen && <div className="mobile-app-backdrop" role="presentation" onClick={() => dismissPopup()}><section className="mobile-app-popup" role="dialog" aria-modal="true" aria-labelledby="mobile-app-title" onClick={event => event.stopPropagation()}><button type="button" className="mobile-app-popup-close" aria-label="Close app prompt" onClick={() => dismissPopup()}><X size={18}/></button><div className="mobile-app-popup-icon"><Smartphone size={25}/></div><span className="downloads-kicker">LOKPRAVAAH FOR ANDROID</span><h2 id="mobile-app-title">Your community, closer.</h2><p>Get the LokPravaah Android app from the official download centre.</p><button type="button" className="downloads-primary" onClick={() => { dismissPopup(); window.location.assign('/downloads/') }}><Download size={16}/> Open download centre</button><button type="button" className="mobile-app-never" onClick={() => dismissPopup(true)}>Not now</button></section></div>}
   </>
 }
 
