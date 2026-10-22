@@ -228,7 +228,12 @@ private fun ReportListPage(
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
-                Text("My reports", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("My reports", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Surface(color = ReportsMint.copy(alpha = 0.12f), shape = RoundedCornerShape(5.dp)) {
+                        Text("BETA", color = ReportsMint, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                    }
+                }
                 Text("Track the issues you have submitted.", color = ReportsMuted, fontSize = 12.sp)
             }
             TextButton(onClick = onRefresh, enabled = !loading) { Text("Refresh", color = ReportsMint) }
