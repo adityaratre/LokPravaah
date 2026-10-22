@@ -5,13 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-
 fun buildConfigString(value: String): String =
-    "\"" + value.replace("\\\\", "\\\\\\\\").replace("\"", "\\\\"") + "\""
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "online.lokpravaah.app"
-    // Supabase's Android Custom Tabs dependency requires API 36 at compile time.
     compileSdk = 36
 
     defaultConfig {
@@ -22,8 +20,6 @@ android {
         versionCode = 9
         versionName = "1.2.3"
 
-        // Only the public Supabase publishable/anon key may be bundled in a client app.
-        // The service-role key and provider secrets must stay on trusted servers.
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL")
             .orElse(providers.environmentVariable("SUPABASE_URL")).getOrElse("")
         val supabaseAnonKey = providers.gradleProperty("SUPABASE_ANON_KEY")
@@ -42,7 +38,7 @@ android {
     }
 
     buildTypes {
-        // Isolated test builds may coexist with the stable app but are never release downloads.
+        // Test builds are isolated and must never be published as the final app.
         debug {
             applicationIdSuffix = ".test"
             versionNameSuffix = "-test"
@@ -50,9 +46,8 @@ android {
         }
         release {
             isMinifyEnabled = false
-            // Keep the same signing identity as previous sideloaded CI builds for update compatibility.
-            // For a Play Store production release, replace this public development key with a private
-            // upload/release keystore stored in GitHub Secrets before publishing to Google Play.
+            // Preserve the existing sideloaded CI signing identity for same-package updates.
+            // Before Google Play publication, replace this development key with a private release key.
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -86,7 +81,6 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    // Shared Supabase identity/session for the native Android client.
     implementation(platform("io.github.jan-tennert.supabase:bom:3.5.0"))
     implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
