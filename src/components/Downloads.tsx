@@ -13,7 +13,7 @@ type DownloadRow = {
 const readableSize = (n: number) => n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`
 const getPublicUrl = (path: string) => supabase?.storage.from('app-downloads').getPublicUrl(path).data.publicUrl ?? '#'
 
-export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, promotionOnly = false }: { onDownloadStarted?: (download: PublicDownloadInfo) => void; dedicatedPage?: boolean; promotionOnly?: boolean } = {}) {
+export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, promotionOnly = false, popupEnabled = true }: { onDownloadStarted?: (download: PublicDownloadInfo) => void; dedicatedPage?: boolean; promotionOnly?: boolean; popupEnabled?: boolean } = {}) {
   const [rows, setRows] = useState<DownloadRow[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
@@ -30,10 +30,10 @@ export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, prom
     return () => mobileQuery.removeEventListener?.('change', updateDevice)
   }, [])
   useEffect(() => {
-    if (dedicatedPage || !isMobile || popupDismissed) return
+    if (!popupEnabled || dedicatedPage || !isMobile || popupDismissed) return
     const timer = window.setTimeout(() => setPopupOpen(true), 2500)
     return () => window.clearTimeout(timer)
-  }, [dedicatedPage, isMobile, popupDismissed])
+  }, [popupEnabled, dedicatedPage, isMobile, popupDismissed])
   const dismissPopup = (remember = false) => {
     setPopupOpen(false)
     if (remember) {
@@ -60,7 +60,7 @@ export function PublicDownloads({ onDownloadStarted, dedicatedPage = false, prom
       rows.length === 0 ? <div className="downloads-empty"><FileArchive size={25}/><div><b>Downloads are coming soon</b><span>Published apps and files will appear here.</span></div></div> :
       <div className="public-download-grid">{rows.map(row => <article className="public-download-card" key={row.id}><div className="download-file-icon"><FileArchive size={22}/></div><div className="download-file-info"><div className="download-file-title">{row.title}</div>{row.description && <p>{row.description}</p>}<div className="download-file-meta">{row.version ? <span>v{row.version}</span> : null}<span>{readableSize(Number(row.file_size))}</span><span>{row.file_name.split('.').pop()?.toUpperCase() || 'FILE'}</span></div><a className="downloads-primary" href={getPublicUrl(row.storage_path)} download={row.file_name} target="_blank" rel="noreferrer" onClick={() => { const download = { title: row.title, fileName: row.file_name, href: getPublicUrl(row.storage_path) }; window.setTimeout(() => onDownloadStarted?.(download), 120) }}><Download size={15}/> Download file</a></div></article>)}</div>}
   </section>}
-    {!dedicatedPage && isMobile && <button type="button" className="mobile-app-fab" onClick={() => window.location.assign('/downloads/')}><Smartphone size={17}/> Get the app</button>}
+    {popupEnabled && !dedicatedPage && isMobile && <button type="button" className="mobile-app-fab" onClick={() => window.location.assign('/downloads/')}><Smartphone size={17}/> Get the app</button>}
     {popupOpen && <div className="mobile-app-backdrop" role="presentation" onClick={() => dismissPopup()}><section className="mobile-app-popup" role="dialog" aria-modal="true" aria-labelledby="mobile-app-title" onClick={event => event.stopPropagation()}><button type="button" className="mobile-app-popup-close" aria-label="Close app prompt" onClick={() => dismissPopup()}><X size={18}/></button><div className="mobile-app-popup-icon"><Smartphone size={25}/></div><span className="downloads-kicker">LOKPRAVAAH FOR ANDROID</span><h2 id="mobile-app-title">Your community, closer.</h2><p>Get the LokPravaah Android app from the official download centre.</p><button type="button" className="downloads-primary" onClick={() => { dismissPopup(); window.location.assign('/downloads/') }}><Download size={16}/> Open download centre</button><button type="button" className="mobile-app-never" onClick={() => dismissPopup(true)}>Don’t show again</button></section></div>}
   </>
 }
