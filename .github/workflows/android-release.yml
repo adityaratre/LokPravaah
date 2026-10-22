@@ -35,10 +35,16 @@ jobs:
           base64 --decode android/debug-signing.keystore.base64 > android/debug-signing.keystore
           chmod 600 android/debug-signing.keystore
           keytool -list -v -keystore android/debug-signing.keystore -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"
+      - name: Reuse the public client key configured in the existing Android workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="$(sed -n 's/^[[:space:]]*SUPABASE_ANON_KEY: //p' .github/workflows/android-apk.yml | head -n 1)"
+          test -n "$KEY"
+          echo "SUPABASE_ANON_KEY=$KEY" >> "$GITHUB_ENV"
       - name: Run tests and build release APK
         env:
           SUPABASE_URL: https://zfcvfkchttpisuizndur.supabase.co
-          SUPABASE_ANON_KEY: \${{ vars.SUPABASE_ANON_KEY }}
         run: gradle --no-daemon --no-build-cache -p android clean :app:testDebugUnitTest :app:assembleRelease
       - name: Verify package, version and APK signature
         shell: bash
