@@ -39,10 +39,10 @@ type WorkTask = {
   completion_note: string | null
   evidence_urls: string[]
   created_at: string
-  report?: { id: string; public_code: string; title: string; description: string; category: string; address_label: string | null; status: string; created_at: string } | null
+  report?: { id: string; public_code: string; title: string; description: string; category: string; address_label: string | null; latitude?: number | null; longitude?: number | null; status: string; created_at: string } | null
 }
 type WorkerOption = WorkerProfile & { profile?: { display_name?: string | null; city?: string | null; ward?: string | null } | null }
-type PublicReport = { id: string; public_code: string; title: string; category: string; address_label: string | null; status: string; created_at: string }
+type PublicReport = { id: string; public_code: string; title: string; category: string; address_label: string | null; latitude?: number | null; longitude?: number | null; status: string; created_at: string }
 type ProgrammeSetting = { enabled: boolean; points: number }
 type ReferralSummary = {
   code: string
@@ -118,7 +118,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     setLoading(true); setPageError('')
     try {
       const workerQuery = client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at').eq('user_id', userId).maybeSingle()
-      const tasksQuery = client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,created_at,report:reports(id,public_code,title,description,category,address_label,status,created_at)').eq('worker_id', userId).order('created_at', { ascending: false }).limit(100)
+      const tasksQuery = client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,created_at,report:reports(id,public_code,title,description,category,address_label,latitude,longitude,status,created_at)').eq('worker_id', userId).order('created_at', { ascending: false }).limit(100)
       const [workerResult, taskResult] = await Promise.all([workerQuery, tasksQuery])
       if (workerResult.error) throw workerResult.error
       if (taskResult.error) throw taskResult.error
@@ -140,7 +140,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       if (isAdmin) {
         const [workersResult, reportsResult, assignmentsResult, reviewTasksResult, workerSettingsResult, referralSettingsResult] = await Promise.all([
           client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at,profile:profiles!worker_profiles_user_id_fkey(display_name,city,ward)').order('created_at', { ascending: false }).limit(200),
-          client.from('reports').select('id,public_code,title,category,address_label,status,created_at').eq('visibility', 'public').not('status', 'in', '(resolved,rejected)').order('created_at', { ascending: false }).limit(100),
+          client.from('reports').select('id,public_code,title,category,address_label,latitude,longitude,status,created_at').eq('visibility', 'public').not('status', 'in', '(resolved,rejected)').order('created_at', { ascending: false }).limit(100),
           client.from('work_assignments').select('report_id,worker_id,status').not('status', 'in', '(completed,cancelled)').limit(1000),
           client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,created_at,report:reports(id,public_code,title,description,category,address_label,status,created_at)').eq('status','submitted_for_review').order('updated_at', { ascending: false }).limit(100),
           client.from('worker_settings').select('enabled,points_per_approved_task').eq('id', true).maybeSingle(),
@@ -185,7 +185,17 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     try {
       const { data, error } = await client.rpc('janwatch_worker_apply', { p_city: cityValue.trim(), p_ward: wardValue.trim(), p_skills: skills, p_motivation: motivation.trim(), p_max_active_tasks: Number(taskLimit) })
       if (error) throw error
-      notify(data === 'active' ? 'Your approved worker profile has been updated.' : 'Worker application submitted. It will be reviewed by the operations team.')
+      const returnedStatus = typeof data === 'string' ? data : 'pending'
+      // Update the UI immediately after a successful RPC so the applicant sees the
+      // review state even if a subsequent refresh is temporarily unavailable.
+      setWorker(current => ({
+        user_id: userId,
+        status: (returnedStatus === 'active' || returnedStatus === 'pending' || returnedStatus === 'rejected' || returnedStatus === 'suspended' ? returnedStatus : 'pending') as WorkerProfile['status'],
+        city: cityValue.trim(), ward: wardValue.trim(), skills, motivation: motivation.trim(),
+        max_active_tasks: Number(taskLimit), available: returnedStatus === 'active',
+        admin_note: current?.admin_note || null, created_at: current?.created_at || new Date().toISOString()
+      }))
+      notify(returnedStatus === 'active' ? 'Your approved worker profile has been updated.' : 'Application submitted successfully. Status: In review.')
       await load()
     } catch (error) { notify(`Could not submit worker application: ${errorMessage(error)}`) }
     finally { setSaving(false) }
@@ -360,7 +370,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
             <div className="wr-task-top"><span className={`wr-status-pill wr-pill-${task.status}`}>{prettyStatus(task.status)}</span><small>{task.report?.public_code || 'Civic report'} · {formatDate(task.created_at)}</small></div>
             <h3>{task.report?.title || 'Report details unavailable'}</h3><p>{task.report?.description || 'No additional description was provided.'}</p>
             <div className="wr-task-meta"><span><MapPin size={14}/>{task.report?.address_label || 'Location not specified'}</span><span><ClipboardCheck size={14}/>{task.report?.category || 'Community task'}</span><span><CalendarClock size={14}/>Due: {formatDate(task.due_at)}</span></div>
-            {task.report?.address_label && <a className="btn btn-secondary wr-route-link" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(task.report.address_label)}`} target="_blank" rel="noopener noreferrer"><MapPin size={15}/> Open route in Google Maps <ExternalLink size={13}/></a>}
+            {task.report?.address_label && <a className="btn btn-secondary wr-route-link" href={`https://www.google.com/maps/dir/?api=1&destination=${task.report.latitude != null && task.report.longitude != null ? encodeURIComponent(`${task.report.latitude},${task.report.longitude}`) : encodeURIComponent(task.report.address_label)}`} target="_blank" rel="noopener noreferrer"><MapPin size={15}/> Open route in Google Maps <ExternalLink size={13}/></a>}
             {task.completion_note && <div className="wr-completion-note"><b>Previous submission</b><p>{task.completion_note}</p></div>}
             {task.evidence_urls?.length > 0 && <div className="wr-evidence-links">{task.evidence_urls.map((url, index) => <a href={url} target="_blank" rel="noreferrer" key={`${url}-${index}`}><ExternalLink size={13}/> Evidence link {index + 1}</a>)}</div>}
             {task.status === 'assigned' && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'accept')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <CheckCircle2 size={15}/>} Accept task</button></div>}
