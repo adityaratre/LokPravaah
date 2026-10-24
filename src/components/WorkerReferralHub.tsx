@@ -363,7 +363,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         Object.fromEntries(WORK_DIFFICULTIES.map(difficulty => [difficulty,
           Math.max(0, Math.min(100000, Math.trunc(Number(workerProgramme.categoryDifficultyPoints[category]?.[difficulty]) || 0)))
         ]))
-      ]))
+      ])) as CategoryDifficultyPoints
       const { error } = await client.from('worker_settings').update({
         enabled: workerProgramme.enabled,
         points_per_approved_task: points,
