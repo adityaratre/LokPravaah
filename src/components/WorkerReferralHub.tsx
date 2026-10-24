@@ -16,6 +16,7 @@ type HubProps = {
   city?: string | null
   ward?: string | null
   notify: Notice
+  adminOnly?: boolean
 }
 
 type WorkerProfile = {
@@ -84,7 +85,7 @@ function readCapturedCode(userMetadata?: Record<string, unknown>): string {
   return /^[A-Z0-9]{8}$/.test(fromMetadata) ? fromMetadata : ''
 }
 
-export default function WorkerReferralHub({ userId, displayName, isAdmin, city, ward, notify }: HubProps) {
+export default function WorkerReferralHub({ userId, displayName, isAdmin, city, ward, notify, adminOnly = false }: HubProps) {
   const client = supabase
   const [worker, setWorker] = useState<WorkerProfile | null>(null)
   const [tasks, setTasks] = useState<WorkTask[]>([])
@@ -335,6 +336,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
   const statusText = worker?.status === 'active' ? 'Approved volunteer' : worker?.status === 'pending' ? 'Application under review' : worker?.status === 'suspended' ? 'Access suspended' : 'Volunteer application'
 
   return <div className="wr-hub page-enter">
+    {!adminOnly && <>
     <section className="wr-hero">
       <div className="wr-hero-glow" aria-hidden="true" />
       <div className="wr-hero-copy"><div className="section-kicker"><HandHeart size={14}/> CITIZEN-POWERED ACTION</div><h1>Make change <span>happen.</span></h1><p>Good to have you here, {displayName || 'volunteer'}. Coordinate real community work, keep every hand-off visible, and recognise meaningful contributions.</p><div className="wr-hero-tags"><span><ShieldCheck size={14}/> Reviewed access</span><span><Activity size={14}/> Trackable tasks</span><span><Gift size={14}/> Contribution points</span></div></div>
@@ -388,7 +390,9 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       </aside>
     </div>
 
-    {isAdmin && <section className="wr-admin-zone">
+    </>}
+
+    {isAdmin && adminOnly && <section className="wr-admin-zone">
       <div className="wr-section-head"><div><div className="section-kicker">OPERATIONS CONSOLE</div><h2>Manage community work.</h2><p>Review volunteer applications and assign eligible public reports. Admin actions are audited.</p></div><span className="wr-admin-label"><ShieldCheck size={14}/> Admin tools</span></div>
       <div className="wr-tabs"><button className={activeTab === 'my-work' ? 'active' : ''} onClick={() => setActiveTab('my-work')}><Users size={15}/> Worker applications <span>{workers.filter(item => item.status === 'pending').length}</span></button><button className={activeTab === 'manage' ? 'active' : ''} onClick={() => setActiveTab('manage')}><ClipboardCheck size={15}/> Assign & review work</button></div>
       {activeTab === 'my-work' ? <div className="wr-worker-admin-list">{workers.length === 0 && !loading ? <div className="wr-empty"><h3>No volunteer applications yet</h3><p>New applications will appear here once citizens apply.</p></div> : workers.map(option => <article key={option.user_id} className="wr-worker-admin-card">
