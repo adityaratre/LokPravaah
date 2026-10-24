@@ -230,9 +230,6 @@ private fun ReportListPage(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("My reports", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Surface(color = ReportsMint.copy(alpha = 0.12f), shape = RoundedCornerShape(5.dp)) {
-                        Text("BETA", color = ReportsMint, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
-                    }
                 }
                 Text("Track the issues you have submitted.", color = ReportsMuted, fontSize = 12.sp)
             }
@@ -803,8 +800,15 @@ private fun nativeReportError(error: Throwable): String {
             "New report submissions are temporarily disabled by the administrator."
         lower.contains("evidence_upload") || lower.contains("evidence uploads") ->
             "Evidence upload is currently unavailable or disabled. Remove the file or try again later."
+        lower.contains("network") || lower.contains("timeout") || lower.contains("unable to resolve host") || lower.contains("failed to connect") ->
+            "Connection to LokPravaah failed. Check your internet connection and retry."
+        lower.contains("citizen-evidence") || lower.contains("storage") || lower.contains("bucket") ->
+            "Evidence storage failed. Check that the private citizen-evidence bucket exists and allows uploads to the signed-in user's own folder."
         lower.contains("50 mb") || lower.contains("must be between") || lower.contains("valid report category") || lower.contains("enter an area") || lower.contains("coordinates") || lower.contains("title") || lower.contains("description") ->
             raw
-        else -> "The report action failed. Check your connection and current Supabase permissions, then retry."
+        else -> {
+            val detail = raw.replace(Regex("\\s+"), " ").trim().take(220)
+            if (detail.isNotBlank()) "Report failed: $detail" else "Report failed without an error detail. Check your connection and Supabase reports/storage permissions, then retry."
+        }
     }
 }
