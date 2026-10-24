@@ -502,6 +502,7 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
 
 @Composable
 fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var city by remember { mutableStateOf("") }
     var ward by remember { mutableStateOf("") }
@@ -514,7 +515,12 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var activeTask by remember { mutableStateOf<NativeWorkerAssignment?>(null) }
+    var taskEvidence by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var message by remember { mutableStateOf("") }
+    val evidencePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
+        if (picked.size > 5) message = "Choose up to five evidence files."
+        else { taskEvidence = picked; message = "" }
+    }
     var refresh by remember { mutableIntStateOf(0) }
     var selectedSkills by remember { mutableStateOf(setOf("Waste & Sanitation", "Community outreach")) }
     val skills = listOf("Roads & Footpaths", "Waste & Sanitation", "Streetlights", "Water & Drainage", "Public Safety", "Parks & Public Spaces", "Community outreach", "Evidence collection", "Translation & writing", "Digital support")
@@ -535,7 +541,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
             } else status = ""
             if (profile?.status == "active") {
                 assignments = client.from("work_assignments").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw(
-                    "id,status,due_at,worker_note,completion_note,created_at,report:reports(title,public_code,category,address_label)"
+                    "id,status,due_at,worker_note,completion_note,created_at,report:reports(title,public_code,description,category,address_label,latitude,longitude)"
                 )) {
                     filter { eq("worker_id", userId) }
                     order("created_at", Order.DESCENDING)
@@ -633,9 +639,44 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                             Text(task.report?.title ?: "Civic report task", color = FxText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text((task.report?.publicCode ?: "") + " · " + task.status.replace('_', ' '), color = FxMint, fontSize = 11.sp)
                             Text("Category: " + (task.report?.category ?: "Not provided"), color = FxMuted, fontSize = 11.sp)
+                            task.report?.description?.takeIf { it.isNotBlank() }?.let {
+                                Text("Reported issue", color = FxText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Text(it, color = FxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                            }
+                            Text("Location: " + (task.report?.addressLabel?.takeIf { it.isNotBlank() } ?: "Exact address not provided"), color = FxMuted, fontSize = 11.sp)
+                            val taskLat = task.report?.latitude
+                            val taskLon = task.report?.longitude
+                            if (taskLat != null && taskLon != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val uri = Uri.parse("geo:$taskLat,$taskLon?q=$taskLat,$taskLon(" + Uri.encode(task.report?.title ?: "LokPravaah civic issue") + ")")
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Icon(Icons.Outlined.Map, contentDescription = null); Spacer(Modifier.width(7.dp)); Text("Navigate to issue location", color = FxMint) }
+                            } else if (!task.report?.addressLabel.isNullOrBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val uri = Uri.parse("geo:0,0?q=" + Uri.encode(task.report?.addressLabel.orEmpty()))
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Icon(Icons.Outlined.Map, contentDescription = null); Spacer(Modifier.width(7.dp)); Text("Find location on map", color = FxMint) }
+                            } else {
+                                Text("Map location unavailable: ask the admin to add coordinates or a clearer address.", color = FxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                            }
+                            Surface(color = FxCard, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text("On-site checklist", color = FxMint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    workerTaskGuidance(task.report?.category.orEmpty()).forEach { step ->
+                                        Text("• $step", color = FxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                                    }
+                                    Text("Stay safe: do not repair electrical/road infrastructure yourself. Capture evidence only from a safe public place and report hazards to the relevant authority.", color = FxMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                                }
+                            }
                             if (!task.dueAt.isNullOrBlank()) Text("Due: " + fxDate(task.dueAt), color = FxMuted, fontSize = 11.sp)
                             if (task.status in listOf("assigned", "accepted", "in_progress", "changes_requested")) {
-                                OutlinedButton(onClick = { activeTask = task; note = ""; message = "" }, modifier = Modifier.fillMaxWidth()) { Text("Update task", color = FxMint) }
+                                OutlinedButton(onClick = { activeTask = task; note = ""; taskEvidence = emptyList(); message = "" }, modifier = Modifier.fillMaxWidth()) { Text(if (task.status == "in_progress") "Complete task & submit work" else "Open task workflow", color = FxMint) }
                             }
                         }
                     }
@@ -658,7 +699,15 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text("This updates the assigned-work workflow only. It does not change the official civic report's status.")
-                    FxTextField(note, { note = it.take(2000) }, if (action == "submit") "Completion note (15+ characters if no evidence link)" else "Optional note", minLines = 3)
+                    Text(if (action == "submit") "Describe what you checked, what action was taken or why it needs authority follow-up, and attach clear evidence where possible. Admin will review your work." else if (action == "start") "Visit the reported location, follow the checklist, capture evidence safely, then submit your work for admin review." else "Accept this assignment to begin the work workflow.", color = FxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    FxTextField(note, { note = it.take(2000) }, if (action == "submit") "Completion note (15+ characters if no evidence)" else "Optional note", minLines = 3)
+                    if (action == "submit") {
+                        OutlinedButton(onClick = { evidencePicker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime")) }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                            Icon(Icons.Outlined.AttachFile, contentDescription = null); Spacer(Modifier.width(7.dp)); Text(if (taskEvidence.isEmpty()) "Upload photo / video evidence" else "Change evidence files (${taskEvidence.size}/5)")
+                        }
+                        taskEvidence.forEachIndexed { index, uri -> Text("Evidence ${index + 1}: " + queryDonationProofName(uri, context).take(70), color = FxMuted, fontSize = 11.sp) }
+                        Text("Up to 5 files · JPG, PNG, WebP, MP4, WebM or MOV · max 50 MB per file. Upload only evidence related to this task.", color = FxMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
                     if (message.isNotBlank()) Text(message, color = FxRose, fontSize = 11.sp)
                 }
             },
@@ -667,11 +716,20 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                     busy = true
                     scope.launch {
                         try {
+                            val evidencePaths = if (action == "submit") taskEvidence.map { uri ->
+                                val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                                check(mime in setOf("image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime")) { "Use JPG, PNG, WebP, MP4, WebM or MOV evidence files." }
+                                val bytes = readNativeWorkerEvidence(uri, context)
+                                val original = queryDonationProofName(uri, context).replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(90).ifBlank { "evidence" }
+                                val path = "$userId/worker-work/${task.id}/${UUID.randomUUID()}-$original"
+                                client.storage.from("citizen-evidence").upload(path, bytes) { contentType = ContentType.parse(mime); upsert = false }
+                                "storage://citizen-evidence/$path"
+                            } else emptyList()
                             client.postgrest.rpc(
                                 function = "janwatch_worker_update_assignment",
                                 parameters = buildJsonObject {
                                     put("p_assignment_id", task.id); put("p_action", action); put("p_note", note.trim())
-                                    put("p_evidence_urls", buildJsonArray { })
+                                    put("p_evidence_urls", buildJsonArray { evidencePaths.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
                                 }
                             )
                             activeTask = null; message = "Task updated."; refresh++
@@ -1831,6 +1889,60 @@ private data class NativeWorkerProfile(
     val available: Boolean = true, @SerialName("created_at") val createdAt: String = ""
 )
 
+private suspend fun readNativeWorkerEvidence(uri: Uri, context: android.content.Context): ByteArray = withContext(Dispatchers.IO) {
+    val stream = context.contentResolver.openInputStream(uri) ?: throw IOException("The evidence file couldn't be opened.")
+    stream.use { input ->
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > 50 * 1024 * 1024) throw IOException("Each evidence file must be 50 MB or smaller.")
+            output.write(buffer, 0, count)
+        }
+        if (total == 0) throw IOException("The evidence file is empty.")
+        output.toByteArray()
+    }
+}
+
+private fun workerTaskGuidance(category: String): List<String> {
+    val value = category.lowercase()
+    return when {
+        "light" in value || "electric" in value -> listOf(
+            "Confirm the pole/light location and whether the light is off or visibly damaged.",
+            "Take a clear photo from a safe distance; do not touch wires, poles or electrical equipment.",
+            "Record nearby landmark and whether the issue creates a night-time safety risk."
+        )
+        "garbage" in value || "waste" in value || "clean" in value -> listOf(
+            "Check the visible extent of the waste and whether it blocks a footpath or drain.",
+            "Photograph the area without handling hazardous or unknown material.",
+            "Note nearby landmark and any overflow or public-health concern."
+        )
+        "drain" in value || "sewer" in value || "water" in value -> listOf(
+            "Observe whether water is stagnant, overflowing or obstructing passage.",
+            "Take a photo from a safe dry area; do not enter drains or contaminated water.",
+            "Record nearby landmark and whether homes or pedestrian access are affected."
+        )
+        "road" in value || "footpath" in value || "pothole" in value -> listOf(
+            "Record the exact stretch and visible size/severity of the damage.",
+            "Photograph from the footpath or another safe place; do not stand in traffic.",
+            "Note whether pedestrians, wheelchairs or vehicles are obstructed."
+        )
+        "park" in value || "public space" in value -> listOf(
+            "Identify the facility or area affected and describe the visible damage.",
+            "Capture a clear photo from a safe public area.",
+            "Note any access, sanitation or immediate safety concern."
+        )
+        else -> listOf(
+            "Verify the reported issue is at the assigned location without putting yourself at risk.",
+            "Capture clear, relevant evidence from a safe public place.",
+            "Record a nearby landmark and the practical impact on residents."
+        )
+    }
+}
+
 @Serializable
 private data class NativeWorkerAssignment(
     val id: String, val status: String, @SerialName("due_at") val dueAt: String? = null,
@@ -1843,7 +1955,9 @@ private data class NativeWorkerAssignment(
 @Serializable
 private data class NativeWorkerReportSummary(
     val title: String = "", @SerialName("public_code") val publicCode: String = "",
-    val category: String = "", @SerialName("address_label") val addressLabel: String? = null
+    val description: String = "", val category: String = "",
+    @SerialName("address_label") val addressLabel: String? = null,
+    val latitude: Double? = null, val longitude: Double? = null
 )
 
 @Serializable

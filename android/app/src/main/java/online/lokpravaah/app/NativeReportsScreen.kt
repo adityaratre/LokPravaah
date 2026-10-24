@@ -82,6 +82,7 @@ fun NativeReportsScreen(
     var errorMessage by remember { mutableStateOf("") }
     var formMessage by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf("") }
+    var successReport by remember { mutableStateOf<NativeReport?>(null) }
 
     LaunchedEffect(page) {
         onContentDepthChanged(page != NativeReportsPage.LIST)
@@ -171,7 +172,8 @@ fun NativeReportsScreen(
                             selectedReport = created
                             page = NativeReportsPage.LIST
                             refreshing++
-                            toast = "Report submitted. Reference: " + created.publicCode
+                            toast = ""
+                            successReport = created
                         }
                     } catch (error: Exception) {
                         clearSessionIfExpired(client, error)
@@ -209,6 +211,56 @@ fun NativeReportsScreen(
             },
             toast = toast,
             onDismissToast = { toast = "" }
+        )
+    }
+
+    successReport?.let { submitted ->
+        AlertDialog(
+            onDismissRequest = { successReport = null },
+            containerColor = ReportsPanel,
+            shape = RoundedCornerShape(28.dp),
+            icon = {
+                Surface(color = Color(0xFF164B43), shape = RoundedCornerShape(50), modifier = Modifier.size(76.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("✓", color = ReportsMint, fontSize = 42.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            title = {
+                Text("Report submitted!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 23.sp)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Your civic issue has been sent to LokPravaah. You can track updates from My reports.", color = ReportsMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                    Surface(color = ReportsNavy, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("YOUR REFERENCE ID", color = ReportsMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                            Text(submitted.publicCode, color = ReportsMint, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(submitted.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text("Note: this confirms receipt by LokPravaah, not that the issue has already been fixed by a government department.", color = ReportsMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        successReport = null
+                        selectedReport = submitted
+                        reportEvents = emptyList()
+                        errorMessage = ""
+                        page = NativeReportsPage.DETAIL
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ReportsMint, contentColor = ReportsNavy),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("View report details", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { successReport = null }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Back to My reports", color = ReportsMint)
+                }
+            }
         )
     }
 }

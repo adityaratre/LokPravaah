@@ -13,6 +13,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -133,6 +134,8 @@ class NativeReportsRepository(
 
         check(isFeatureEnabled("reporting")) { "New report submissions are temporarily disabled." }
         var uploadedPath: String? = null
+        var insertAttempted = false
+        val submitStartedAt = Instant.now()
         try {
             if (evidence != null) {
                 check(isFeatureEnabled("evidence_upload")) { "Evidence uploads are temporarily disabled." }
@@ -163,13 +166,60 @@ class NativeReportsRepository(
                 evidencePaths = uploadedPath?.let { listOf(it) } ?: emptyList()
             )
             requireCurrentUser(reporterId)
-            return supabase.from("reports").insert(payload).decodeSingle<NativeReport>()
+            // Do not depend on PostgREST returning a decodable row in the INSERT response.
+            // Some deployments commit the row but fail while decoding the response, which
+            // leaves the citizen seeing an error even though the website/admin already has it.
+            insertAttempted = true
+            supabase.from("reports").insert(payload)
+            return findJustSubmittedReport(
+                reporterId = reporterId,
+                title = cleanTitle,
+                description = cleanDescription,
+                category = category,
+                startedAt = submitStartedAt
+            ) ?: throw IOException("Your report may have been saved, but the app could not reload it. Open My reports and refresh before submitting again.")
         } catch (error: Exception) {
-            if (uploadedPath != null) {
+            // Recover a report that was committed server-side if the response was lost or
+            // the follow-up request failed transiently. This prevents duplicate submissions.
+            if (insertAttempted) {
+                try {
+                    val recovered = findJustSubmittedReport(
+                        reporterId = reporterId,
+                        title = cleanTitle,
+                        description = cleanDescription,
+                        category = category,
+                        startedAt = submitStartedAt
+                    )
+                    if (recovered != null) return recovered
+                } catch (_: Exception) {
+                    // Preserve the original failure for the UI's diagnostics.
+                }
+            } else if (uploadedPath != null) {
                 try { supabase.storage.from(EVIDENCE_BUCKET).delete(uploadedPath) } catch (_: Exception) { /* best-effort cleanup */ }
             }
             throw error
         }
+    }
+
+    private suspend fun findJustSubmittedReport(
+        reporterId: String,
+        title: String,
+        description: String,
+        category: String,
+        startedAt: Instant
+    ): NativeReport? {
+        requireCurrentUser(reporterId)
+        return loadMyReports(reporterId)
+            .asSequence()
+            .filter { it.title.trim() == title && it.description.trim() == description && it.category == category }
+            .filter {
+                try {
+                    Instant.parse(it.createdAt).isAfter(startedAt.minusSeconds(15))
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            .maxByOrNull { it.createdAt }
     }
 
     suspend fun signedEvidenceUrl(path: String, reporterId: String): String {
