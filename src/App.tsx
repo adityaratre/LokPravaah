@@ -225,6 +225,7 @@ export default function App() {
   const [siteAnnouncements, setSiteAnnouncements] = useState<SiteAnnouncement[]>([])
   const [showReport, setShowReport] = useState(false)
   const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([])
+  const [submittedReportCode, setSubmittedReportCode] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -855,7 +856,7 @@ export default function App() {
       setShowReport(false); setDuplicateCandidates([]); setReportTitle(''); setReportDetails(''); setReportArea(''); setReportCoordinates(null); setEvidenceFile(null); setReportCategory(CATEGORIES[0])
       setActive('My reports'); setFilter('All reports')
       await refreshData(true)
-      notify(`Report submitted successfully. Reference: ${data.public_code}`)
+      setSubmittedReportCode(String(data.public_code ?? 'Submitted'))
     } catch (error) {
       notify('Your report could not be submitted. Please check the details and try again.')
     } finally {
@@ -1072,6 +1073,20 @@ export default function App() {
           </>}
         </div>
       </main>
+      {submittedReportCode && <div className="duplicate-confirm-backdrop report-success-backdrop" role="presentation">
+        <section className="duplicate-confirm-panel report-success-panel" role="dialog" aria-modal="true" aria-labelledby="report-success-title">
+          <div className="report-success-icon"><Check size={25}/></div>
+          <p className="duplicate-confirm-kicker">LOKPRAVAAH · REPORT RECEIVED</p>
+          <h2 id="report-success-title">Report submitted successfully!</h2>
+          <p className="duplicate-confirm-copy">Your civic report has been submitted. You can track its status anytime from My Reports.</p>
+          <div className="report-success-reference"><span>REFERENCE ID</span><b>{submittedReportCode}</b></div>
+          <div className="duplicate-confirm-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => { setSubmittedReportCode(''); setActive('Overview') }}>Back to overview</button>
+            <button type="button" className="btn btn-primary" onClick={() => { setSubmittedReportCode(''); setActive('My reports'); setFilter('All reports') }}>View my reports <ArrowRight size={16}/></button>
+          </div>
+          <button type="button" className="duplicate-confirm-close" aria-label="Close success message" onClick={() => setSubmittedReportCode('')}><X size={18}/></button>
+        </section>
+      </div>}
       {duplicateCandidates.length > 0 && <div className="duplicate-confirm-backdrop" role="presentation">
         <section className="duplicate-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="duplicate-confirm-title">
           <div className="duplicate-confirm-icon"><AlertTriangle size={23}/></div>
