@@ -502,6 +502,7 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
 
 @Composable
 fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var city by remember { mutableStateOf("") }
     var ward by remember { mutableStateOf("") }
