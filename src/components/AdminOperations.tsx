@@ -142,9 +142,9 @@ export default function AdminOperations({ userId, role, onChanged, notify }: { u
     if (!rewardSettingsResult.error && rewardSettingsResult.data) setRewardSettings({ ...DEFAULT_REWARD_SETTINGS, ...(rewardSettingsResult.data as RewardSettings), max_withdrawal_points: Number(rewardSettingsResult.data.max_withdrawal_points ?? 1000000), enabled_payout_methods: Array.isArray(rewardSettingsResult.data.enabled_payout_methods) && rewardSettingsResult.data.enabled_payout_methods.length ? rewardSettingsResult.data.enabled_payout_methods : ['UPI'], points_per_rupee: Number(rewardSettingsResult.data.points_per_rupee) })
     else if (rewardSettingsResult.error) setError(current => current || 'Reward settings could not be loaded. Please refresh and try again.')
     if (!postsResult.error) setPosts((postsResult.data ?? []) as SitePost[])
+    else if (role === 'super_admin') setError(current => current || `Blog & Updates could not be loaded${postsResult.error.code ? ` (${postsResult.error.code})` : ''}: ${postsResult.error.message}`)
     if (!referralSettingsResult.error && referralSettingsResult.data) setReferralSettings({ enabled: Boolean(referralSettingsResult.data.enabled), bonus_points: Number(referralSettingsResult.data.bonus_points ?? 50), max_qualified_referrals: Number(referralSettingsResult.data.max_qualified_referrals ?? 100) })
     else if (referralSettingsResult.error) setError(current => current || 'Referral programme settings could not be loaded.')
-    else if (role === 'super_admin') setError(current => current || `Blog & Updates could not be loaded${postsResult.error.code ? ` (${postsResult.error.code})` : ''}: ${postsResult.error.message}`)
     setLoading(false)
   }, [role])
 
