@@ -171,7 +171,7 @@ fun NativeReportsScreen(
                             selectedReport = created
                             page = NativeReportsPage.LIST
                             refreshing++
-                            toast = "Report submitted. Reference: " + created.publicCode
+                            toast = "✓ Report submitted successfully! Reference: " + created.publicCode
                         }
                     } catch (error: Exception) {
                         clearSessionIfExpired(client, error)
