@@ -88,6 +88,19 @@ class NativeReportsRepository(
         }.decodeList<NativeReport>()
     }
 
+    /** Recent public reports used only to warn citizens about possible duplicates before submission. */
+    suspend fun loadRecentPublicReports(category: String): List<NativeReport> {
+        requireCurrentUser(supabase.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Please sign in again."))
+        return supabase.from("reports").select {
+            filter {
+                eq("visibility", "public")
+                eq("category", category)
+            }
+            order("created_at", Order.DESCENDING)
+            limit(80)
+        }.decodeList<NativeReport>()
+    }
+
     suspend fun loadReportDetails(reportId: String, reporterId: String): NativeReport {
         requireCurrentUser(reporterId)
         return supabase.from("reports").select {

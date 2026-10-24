@@ -704,3 +704,17 @@ body{overflow-x:clip}
 .ops-referral-fields input { width: 100%; }
 .ops-referral-note { margin-top: .85rem; }
 @media (max-width: 640px) { .ops-referral-fields { grid-template-columns: minmax(0, 1fr); } }
+
+/* Community-work admin collapsible sections */
+.wr-collapsible { display: block; margin: .7rem 0 1rem; border: 1px solid var(--line, rgba(148,163,184,.24)); border-radius: 14px; background: var(--panel, rgba(15,32,51,.45)); overflow: clip; }
+.wr-collapsible > summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .9rem 1rem; cursor: pointer; list-style: none; color: var(--text, inherit); font-weight: 700; }
+.wr-collapsible > summary::-webkit-details-marker { display: none; }
+.wr-collapsible > summary::after { content: '+'; flex: 0 0 auto; font-size: 1.15rem; color: var(--accent, #a7f3d0); }
+.wr-collapsible[open] > summary::after { content: '−'; }
+.wr-collapsible > summary span { margin-left: auto; color: var(--muted, #94a3b8); font-size: .78rem; font-weight: 500; text-align: right; }
+.wr-collapsible[open] > .wr-worker-admin-list { padding: 0 .8rem .8rem; }
+.wr-collapsible[open] > .wr-review-card { border: 0; border-top: 1px solid var(--line, rgba(148,163,184,.2)); border-radius: 0; }
+.wr-automation-explainer { margin: .25rem 0 1rem; padding: 1rem 1.1rem; border: 1px solid var(--line, rgba(148,163,184,.2)); border-radius: 12px; background: var(--panel, rgba(148,163,184,.05)); color: var(--text, inherit); }
+.wr-automation-explainer b { display: block; margin-bottom: .45rem; }
+.wr-automation-explainer ol { margin: 0; padding-left: 1.25rem; color: var(--muted, #94a3b8); font-size: .85rem; line-height: 1.65; }
+@media (max-width: 640px) { .wr-collapsible > summary { align-items: flex-start; flex-wrap: wrap; } .wr-collapsible > summary span { width: 100%; margin-left: 0; text-align: left; } }
