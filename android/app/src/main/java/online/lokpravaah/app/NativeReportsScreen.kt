@@ -115,23 +115,7 @@ fun NativeReportsScreen(
     }
 
     BackHandler(enabled = page != NativeReportsPage.LIST) {
-        suspend fun submitDraft(draft: NativeReportDraft) {
-        val created = repository.submitReport(userId, draft.title, draft.description, draft.category, draft.area, draft.latitude, draft.longitude, draft.evidence)
-        if (client.auth.currentUserOrNull()?.id != userId) {
-            formMessage = "Your session expired before the screen could refresh. Sign in again to check your report."
-        } else {
-            reports = listOf(created) + reports.filterNot { it.id == created.id }
-            selectedReport = created
-            page = NativeReportsPage.LIST
-            refreshing++
-            toast = ""
-            successReport = created
-            pendingReportDraft = null
-            similarReports = emptyList()
-        }
-    }
-
-    when (page) {
+        when (page) {
             NativeReportsPage.CREATE -> if (!saving) { page = NativeReportsPage.LIST; formMessage = "" }
             NativeReportsPage.DETAIL -> { page = NativeReportsPage.LIST; selectedReport = null; reportEvents = emptyList(); errorMessage = "" }
             NativeReportsPage.LIST -> Unit
@@ -183,6 +167,22 @@ fun NativeReportsScreen(
             errorMessage = nativeReportError(error)
         } finally {
             detailLoading = false
+        }
+    }
+
+    suspend fun submitDraft(draft: NativeReportDraft) {
+        val created = repository.submitReport(userId, draft.title, draft.description, draft.category, draft.area, draft.latitude, draft.longitude, draft.evidence)
+        if (client.auth.currentUserOrNull()?.id != userId) {
+            formMessage = "Your session expired before the screen could refresh. Sign in again to check your report."
+        } else {
+            reports = listOf(created) + reports.filterNot { it.id == created.id }
+            selectedReport = created
+            page = NativeReportsPage.LIST
+            refreshing++
+            toast = ""
+            successReport = created
+            pendingReportDraft = null
+            similarReports = emptyList()
         }
     }
 
