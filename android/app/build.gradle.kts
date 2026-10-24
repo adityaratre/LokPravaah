@@ -17,8 +17,8 @@ android {
         applicationId = "online.lokpravaah.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.2.3"
+        versionCode = 10
+        versionName = "1.2.4"
 
         val supabaseUrl = providers.gradleProperty("SUPABASE_URL")
             .orElse(providers.environmentVariable("SUPABASE_URL")).getOrElse("")
@@ -82,9 +82,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation(platform("io.github.jan-tennert.supabase:bom:3.5.0"))
-    implementation("io.github.jan-tennert.supabase:auth-kt")
-    implementation("io.github.jan-tennert.supabase:postgrest-kt")
-    implementation("io.github.jan-tennert.supabase:storage-kt")
+    implementation("io.github.jan-tennert.supabase:auth-kt:3.5.0")
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:3.5.0")
+    implementation("io.github.jan-tennert.supabase:storage-kt:3.5.0")
     implementation("io.ktor:ktor-client-android:3.0.3")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
