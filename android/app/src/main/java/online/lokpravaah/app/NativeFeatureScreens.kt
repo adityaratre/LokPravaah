@@ -535,7 +535,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
             } else status = ""
             if (profile?.status == "active") {
                 assignments = client.from("work_assignments").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw(
-                    "id,status,due_at,worker_note,completion_note,created_at,report:reports(title,public_code,category,address_label)"
+                    "id,status,due_at,worker_note,completion_note,created_at,report:reports(title,public_code,description,category,address_label,latitude,longitude)"
                 )) {
                     filter { eq("worker_id", userId) }
                     order("created_at", Order.DESCENDING)
@@ -633,6 +633,41 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                             Text(task.report?.title ?: "Civic report task", color = FxText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text((task.report?.publicCode ?: "") + " · " + task.status.replace('_', ' '), color = FxMint, fontSize = 11.sp)
                             Text("Category: " + (task.report?.category ?: "Not provided"), color = FxMuted, fontSize = 11.sp)
+                            task.report?.description?.takeIf { it.isNotBlank() }?.let {
+                                Text("Reported issue", color = FxText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Text(it, color = FxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                            }
+                            Text("Location: " + (task.report?.addressLabel?.takeIf { it.isNotBlank() } ?: "Exact address not provided"), color = FxMuted, fontSize = 11.sp)
+                            val taskLat = task.report?.latitude
+                            val taskLon = task.report?.longitude
+                            if (taskLat != null && taskLon != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val uri = Uri.parse("geo:$taskLat,$taskLon?q=$taskLat,$taskLon(" + Uri.encode(task.report?.title ?: "LokPravaah civic issue") + ")")
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Icon(Icons.Outlined.Map, contentDescription = null); Spacer(Modifier.width(7.dp)); Text("Navigate to issue location", color = FxMint) }
+                            } else if (!task.report?.addressLabel.isNullOrBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val uri = Uri.parse("geo:0,0?q=" + Uri.encode(task.report?.addressLabel.orEmpty()))
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Icon(Icons.Outlined.Map, contentDescription = null); Spacer(Modifier.width(7.dp)); Text("Find location on map", color = FxMint) }
+                            } else {
+                                Text("Map location unavailable: ask the admin to add coordinates or a clearer address.", color = FxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                            }
+                            Surface(color = FxCard, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text("On-site checklist", color = FxMint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    workerTaskGuidance(task.report?.category.orEmpty()).forEach { step ->
+                                        Text("• $step", color = FxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                                    }
+                                    Text("Stay safe: do not repair electrical/road infrastructure yourself. Capture evidence only from a safe public place and report hazards to the relevant authority.", color = FxMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                                }
+                            }
                             if (!task.dueAt.isNullOrBlank()) Text("Due: " + fxDate(task.dueAt), color = FxMuted, fontSize = 11.sp)
                             if (task.status in listOf("assigned", "accepted", "in_progress", "changes_requested")) {
                                 OutlinedButton(onClick = { activeTask = task; note = ""; message = "" }, modifier = Modifier.fillMaxWidth()) { Text("Update task", color = FxMint) }
@@ -1831,6 +1866,42 @@ private data class NativeWorkerProfile(
     val available: Boolean = true, @SerialName("created_at") val createdAt: String = ""
 )
 
+private fun workerTaskGuidance(category: String): List<String> {
+    val value = category.lowercase()
+    return when {
+        "light" in value || "electric" in value -> listOf(
+            "Confirm the pole/light location and whether the light is off or visibly damaged.",
+            "Take a clear photo from a safe distance; do not touch wires, poles or electrical equipment.",
+            "Record nearby landmark and whether the issue creates a night-time safety risk."
+        )
+        "garbage" in value || "waste" in value || "clean" in value -> listOf(
+            "Check the visible extent of the waste and whether it blocks a footpath or drain.",
+            "Photograph the area without handling hazardous or unknown material.",
+            "Note nearby landmark and any overflow or public-health concern."
+        )
+        "drain" in value || "sewer" in value || "water" in value -> listOf(
+            "Observe whether water is stagnant, overflowing or obstructing passage.",
+            "Take a photo from a safe dry area; do not enter drains or contaminated water.",
+            "Record nearby landmark and whether homes or pedestrian access are affected."
+        )
+        "road" in value || "footpath" in value || "pothole" in value -> listOf(
+            "Record the exact stretch and visible size/severity of the damage.",
+            "Photograph from the footpath or another safe place; do not stand in traffic.",
+            "Note whether pedestrians, wheelchairs or vehicles are obstructed."
+        )
+        "park" in value || "public space" in value -> listOf(
+            "Identify the facility or area affected and describe the visible damage.",
+            "Capture a clear photo from a safe public area.",
+            "Note any access, sanitation or immediate safety concern."
+        )
+        else -> listOf(
+            "Verify the reported issue is at the assigned location without putting yourself at risk.",
+            "Capture clear, relevant evidence from a safe public place.",
+            "Record a nearby landmark and the practical impact on residents."
+        )
+    }
+}
+
 @Serializable
 private data class NativeWorkerAssignment(
     val id: String, val status: String, @SerialName("due_at") val dueAt: String? = null,
@@ -1843,7 +1914,9 @@ private data class NativeWorkerAssignment(
 @Serializable
 private data class NativeWorkerReportSummary(
     val title: String = "", @SerialName("public_code") val publicCode: String = "",
-    val category: String = "", @SerialName("address_label") val addressLabel: String? = null
+    val description: String = "", val category: String = "",
+    @SerialName("address_label") val addressLabel: String? = null,
+    val latitude: Double? = null, val longitude: Double? = null
 )
 
 @Serializable
