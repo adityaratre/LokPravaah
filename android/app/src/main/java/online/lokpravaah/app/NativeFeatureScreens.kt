@@ -515,7 +515,12 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var activeTask by remember { mutableStateOf<NativeWorkerAssignment?>(null) }
+    var taskEvidence by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var message by remember { mutableStateOf("") }
+    val evidencePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
+        if (picked.size > 5) message = "Choose up to five evidence files."
+        else { taskEvidence = picked; message = "" }
+    }
     var refresh by remember { mutableIntStateOf(0) }
     var selectedSkills by remember { mutableStateOf(setOf("Waste & Sanitation", "Community outreach")) }
     val skills = listOf("Roads & Footpaths", "Waste & Sanitation", "Streetlights", "Water & Drainage", "Public Safety", "Parks & Public Spaces", "Community outreach", "Evidence collection", "Translation & writing", "Digital support")
@@ -671,7 +676,7 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                             }
                             if (!task.dueAt.isNullOrBlank()) Text("Due: " + fxDate(task.dueAt), color = FxMuted, fontSize = 11.sp)
                             if (task.status in listOf("assigned", "accepted", "in_progress", "changes_requested")) {
-                                OutlinedButton(onClick = { activeTask = task; note = ""; message = "" }, modifier = Modifier.fillMaxWidth()) { Text("Update task", color = FxMint) }
+                                OutlinedButton(onClick = { activeTask = task; note = ""; taskEvidence = emptyList(); message = "" }, modifier = Modifier.fillMaxWidth()) { Text(if (task.status == "in_progress") "Complete task & submit work" else "Open task workflow", color = FxMint) }
                             }
                         }
                     }
@@ -694,7 +699,15 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text("This updates the assigned-work workflow only. It does not change the official civic report's status.")
-                    FxTextField(note, { note = it.take(2000) }, if (action == "submit") "Completion note (15+ characters if no evidence link)" else "Optional note", minLines = 3)
+                    Text(if (action == "submit") "Describe what you checked, what action was taken or why it needs authority follow-up, and attach clear evidence where possible. Admin will review your work." else if (action == "start") "Visit the reported location, follow the checklist, capture evidence safely, then submit your work for admin review." else "Accept this assignment to begin the work workflow.", color = FxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    FxTextField(note, { note = it.take(2000) }, if (action == "submit") "Completion note (15+ characters if no evidence)" else "Optional note", minLines = 3)
+                    if (action == "submit") {
+                        OutlinedButton(onClick = { evidencePicker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime")) }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                            Icon(Icons.Outlined.AttachFile, contentDescription = null); Spacer(Modifier.width(7.dp)); Text(if (taskEvidence.isEmpty()) "Upload photo / video evidence" else "Change evidence files (${taskEvidence.size}/5)")
+                        }
+                        taskEvidence.forEachIndexed { index, uri -> Text("Evidence ${index + 1}: " + queryDonationProofName(uri, context).take(70), color = FxMuted, fontSize = 11.sp) }
+                        Text("Up to 5 files · JPG, PNG, WebP, MP4, WebM or MOV · max 50 MB per file. Upload only evidence related to this task.", color = FxMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
                     if (message.isNotBlank()) Text(message, color = FxRose, fontSize = 11.sp)
                 }
             },
@@ -703,11 +716,20 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                     busy = true
                     scope.launch {
                         try {
+                            val evidencePaths = if (action == "submit") taskEvidence.map { uri ->
+                                val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                                check(mime in setOf("image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime")) { "Use JPG, PNG, WebP, MP4, WebM or MOV evidence files." }
+                                val bytes = readNativeWorkerEvidence(uri, context)
+                                val original = queryDonationProofName(uri, context).replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(90).ifBlank { "evidence" }
+                                val path = "$userId/worker-work/${task.id}/${UUID.randomUUID()}-$original"
+                                client.storage.from("citizen-evidence").upload(path, bytes) { contentType = ContentType.parse(mime); upsert = false }
+                                "storage://citizen-evidence/$path"
+                            } else emptyList()
                             client.postgrest.rpc(
                                 function = "janwatch_worker_update_assignment",
                                 parameters = buildJsonObject {
                                     put("p_assignment_id", task.id); put("p_action", action); put("p_note", note.trim())
-                                    put("p_evidence_urls", buildJsonArray { })
+                                    put("p_evidence_urls", buildJsonArray { evidencePaths.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
                                 }
                             )
                             activeTask = null; message = "Task updated."; refresh++
@@ -1866,6 +1888,24 @@ private data class NativeWorkerProfile(
     val ward: String = "", val skills: List<String> = emptyList(), val motivation: String = "",
     val available: Boolean = true, @SerialName("created_at") val createdAt: String = ""
 )
+
+private suspend fun readNativeWorkerEvidence(uri: Uri, context: android.content.Context): ByteArray = withContext(Dispatchers.IO) {
+    val stream = context.contentResolver.openInputStream(uri) ?: throw IOException("The evidence file couldn't be opened.")
+    stream.use { input ->
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > 50 * 1024 * 1024) throw IOException("Each evidence file must be 50 MB or smaller.")
+            output.write(buffer, 0, count)
+        }
+        if (total == 0) throw IOException("The evidence file is empty.")
+        output.toByteArray()
+    }
+}
 
 private fun workerTaskGuidance(category: String): List<String> {
     val value = category.lowercase()
