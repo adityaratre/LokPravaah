@@ -5,7 +5,7 @@ import {
   Activity, AlertTriangle, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
   CircleHelp, Clock3, Compass, FileText, Filter, Globe2, LayoutDashboard,
   Leaf, LogOut, MapPin, Menu, MessageSquareText, Moon, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send,
+  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle, CircleAlert,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
   CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, CircleAlert, UserRound, FileDown, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift, Smartphone, Trash2
@@ -1074,14 +1074,14 @@ export default function App() {
       </main>
       {duplicateCandidates.length > 0 && <div className="duplicate-confirm-backdrop" role="presentation">
         <section className="duplicate-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="duplicate-confirm-title">
-          <div className="duplicate-confirm-icon"><ShieldAlert size={23}/></div>
+          <div className="duplicate-confirm-icon"><AlertTriangle size={23}/></div>
           <p className="duplicate-confirm-kicker">COMMUNITY REPORT CHECK</p>
           <h2 id="duplicate-confirm-title">A similar issue may already be reported</h2>
           <p className="duplicate-confirm-copy">We found reports in the same category with a similar title and location. Please review them before creating another report.</p>
           <div className="duplicate-confirm-list">{duplicateCandidates.map((row: any) => <article className="duplicate-confirm-item" key={row.public_code || row.title}>
             <span>{row.public_code || 'Existing report'}</span><b>{row.title}</b><small>{row.address_label || 'Location not recorded'} · {row.status || 'submitted'}</small>
           </article>)}</div>
-          <div className="duplicate-confirm-note"><Info size={16}/><span>If this is a different or newly occurring issue, you can still submit it separately.</span></div>
+          <div className="duplicate-confirm-note"><CircleAlert size={16}/><span>If this is a different or newly occurring issue, you can still submit it separately.</span></div>
           <div className="duplicate-confirm-actions">
             <button type="button" className="btn btn-secondary" onClick={() => { setDuplicateCandidates([]); setActive('Community'); setShowReport(false) }}>Review community reports</button>
             <button type="button" className="btn btn-primary" disabled={savingReport} onClick={() => { void submitReport({ preventDefault() {} } as FormEvent<HTMLFormElement>, true) }}>{savingReport ? 'Submitting…' : 'Submit as separate report'} <ArrowRight size={16}/></button>
