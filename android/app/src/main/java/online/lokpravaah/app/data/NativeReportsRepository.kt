@@ -221,7 +221,6 @@ class NativeReportsRepository(
             }
             .maxByOrNull { it.createdAt }
     }
-    }
 
     suspend fun signedEvidenceUrl(path: String, reporterId: String): String {
         requireCurrentUser(reporterId)
