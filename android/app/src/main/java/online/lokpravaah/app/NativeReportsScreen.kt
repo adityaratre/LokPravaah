@@ -230,9 +230,6 @@ private fun ReportListPage(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("My reports", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Surface(color = ReportsMint.copy(alpha = 0.12f), shape = RoundedCornerShape(5.dp)) {
-                        Text("BETA", color = ReportsMint, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
-                    }
                 }
                 Text("Track the issues you have submitted.", color = ReportsMuted, fontSize = 12.sp)
             }
