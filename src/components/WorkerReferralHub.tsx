@@ -71,7 +71,7 @@ function normalizeCategoryDifficultyPoints(value: unknown): CategoryDifficultyPo
     for (const difficulty of WORK_DIFFICULTIES) {
       const raw = (row as Record<string, unknown>)[difficulty]
       if (typeof raw === 'number' && Number.isFinite(raw)) defaults[category][difficulty] = Math.max(0, Math.min(100000, Math.trunc(raw)))
-      else if (typeof raw === 'string' && /^\\d+$/.test(raw)) defaults[category][difficulty] = Math.max(0, Math.min(100000, Number(raw)))
+      else if (typeof raw === 'string' && /^\d+$/.test(raw)) defaults[category][difficulty] = Math.max(0, Math.min(100000, Number(raw)))
     }
   }
   return defaults
