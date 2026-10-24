@@ -5,7 +5,7 @@ import {
   Activity, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
   CircleHelp, Clock3, Compass, FileText, Filter, Globe2, LayoutDashboard,
   Leaf, LogOut, MapPin, Menu, MessageSquareText, Moon, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle,
+  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle, CircleAlert,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
   CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, UserRound, FileDown, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift, Smartphone, Trash2
