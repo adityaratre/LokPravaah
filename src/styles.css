@@ -677,3 +677,30 @@ body{overflow-x:clip}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
 }
+
+
+/* Targeted styles for the consolidated worker settings and shared referral controls. */
+.wr-matrix-wrap { margin: 1rem 0; overflow-x: auto; border: 1px solid var(--line, rgba(148,163,184,.22)); border-radius: 14px; }
+.wr-matrix-heading { display: grid; gap: .25rem; padding: .9rem 1rem; border-bottom: 1px solid var(--line, rgba(148,163,184,.22)); }
+.wr-matrix-heading small { color: var(--muted, #94a3b8); font-size: .82rem; line-height: 1.45; }
+.wr-reward-matrix { width: 100%; border-collapse: collapse; min-width: 520px; }
+.wr-reward-matrix th, .wr-reward-matrix td { padding: .65rem .75rem; text-align: left; border-bottom: 1px solid var(--line, rgba(148,163,184,.16)); font-size: .82rem; }
+.wr-reward-matrix thead th { color: var(--muted, #94a3b8); font-weight: 700; }
+.wr-reward-matrix tbody th { min-width: 155px; font-weight: 600; }
+.wr-reward-matrix input { width: 82px; max-width: 100%; min-height: 38px; padding: .45rem .55rem; border: 1px solid var(--line, rgba(148,163,184,.3)); border-radius: 8px; background: var(--panel, transparent); color: inherit; }
+.wr-worker-limit-controls { display: grid; gap: .5rem; width: 100%; margin-top: .6rem; padding-top: .65rem; border-top: 1px solid var(--line, rgba(148,163,184,.18)); }
+.wr-worker-limit-controls label { display: grid; gap: .3rem; font-size: .78rem; }
+.wr-worker-limit-controls input[type="number"] { width: 100%; max-width: 100%; }
+.wr-worker-limit-controls .wr-worker-available-toggle { display: flex; align-items: center; gap: .5rem; }
+.wr-worker-available-toggle span { font-size: .8rem; }
+.wr-automation-card .wr-two-fields { margin: 1rem 0; }
+.ops-referral-settings { padding: clamp(1rem, 2.5vw, 1.5rem); }
+.ops-referral-toggle { display: flex; align-items: flex-start; gap: .75rem; margin: 1.1rem 0; padding: .9rem 1rem; border: 1px solid var(--line, rgba(148,163,184,.22)); border-radius: 12px; }
+.ops-referral-toggle input { margin-top: .2rem; }
+.ops-referral-toggle span { display: grid; gap: .25rem; }
+.ops-referral-toggle small, .ops-referral-note { color: var(--muted, #94a3b8); font-size: .84rem; line-height: 1.5; }
+.ops-referral-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.ops-referral-fields label { display: grid; gap: .45rem; font-size: .85rem; }
+.ops-referral-fields input { width: 100%; }
+.ops-referral-note { margin-top: .85rem; }
+@media (max-width: 640px) { .ops-referral-fields { grid-template-columns: minmax(0, 1fr); } }

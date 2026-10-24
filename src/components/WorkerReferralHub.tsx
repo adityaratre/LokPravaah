@@ -16,6 +16,7 @@ type HubProps = {
   city?: string | null
   ward?: string | null
   notify: Notice
+  adminOnly?: boolean
 }
 
 type WorkerProfile = {
@@ -38,12 +39,46 @@ type WorkTask = {
   worker_note: string | null
   completion_note: string | null
   evidence_urls: string[]
+  difficulty?: 'easy' | 'medium' | 'hard'
+  offer_expires_at?: string | null
   created_at: string
-  report?: { id: string; public_code: string; title: string; description: string; category: string; address_label: string | null; status: string; created_at: string } | null
+  report?: { id: string; public_code: string; title: string; description: string; category: string; address_label: string | null; latitude?: number | null; longitude?: number | null; status: string; created_at: string } | null
 }
 type WorkerOption = WorkerProfile & { profile?: { display_name?: string | null; city?: string | null; ward?: string | null } | null }
-type PublicReport = { id: string; public_code: string; title: string; category: string; address_label: string | null; status: string; created_at: string }
-type ProgrammeSetting = { enabled: boolean; points: number }
+type PublicReport = { id: string; public_code: string; title: string; category: string; address_label: string | null; latitude?: number | null; longitude?: number | null; status: string; created_at: string }
+type WorkerDifficulty = 'easy' | 'medium' | 'hard'
+type CategoryDifficultyPoints = Record<string, Record<WorkerDifficulty, number>>
+type WorkerProgrammeSetting = {
+  enabled: boolean
+  points: number
+  autoAssignmentEnabled: boolean
+  offerTimeoutMinutes: number
+  maxAutoAssignmentsPerRun: number
+  categoryDifficultyPoints: CategoryDifficultyPoints
+}
+const WORK_CATEGORIES = ['Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage', 'Public Safety', 'Parks & Public Spaces', 'Other']
+const WORK_DIFFICULTIES: WorkerDifficulty[] = ['easy', 'medium', 'hard']
+function defaultCategoryDifficultyPoints(): CategoryDifficultyPoints {
+  return Object.fromEntries(WORK_CATEGORIES.map(category => [category, { easy: 10, medium: 25, hard: 50 }])) as CategoryDifficultyPoints
+}
+function normalizeCategoryDifficultyPoints(value: unknown): CategoryDifficultyPoints {
+  const defaults = defaultCategoryDifficultyPoints()
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults
+  const source = value as Record<string, unknown>
+  for (const category of WORK_CATEGORIES) {
+    const row = source[category]
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+    for (const difficulty of WORK_DIFFICULTIES) {
+      const raw = (row as Record<string, unknown>)[difficulty]
+      if (typeof raw === 'number' && Number.isFinite(raw)) defaults[category][difficulty] = Math.max(0, Math.min(100000, Math.trunc(raw)))
+      else if (typeof raw === 'string' && /^\d+$/.test(raw)) defaults[category][difficulty] = Math.max(0, Math.min(100000, Number(raw)))
+    }
+  }
+  return defaults
+}
+function defaultWorkerProgrammeSetting(): WorkerProgrammeSetting {
+  return { enabled: true, points: 25, autoAssignmentEnabled: false, offerTimeoutMinutes: 60, maxAutoAssignmentsPerRun: 25, categoryDifficultyPoints: defaultCategoryDifficultyPoints() }
+}
 type ReferralSummary = {
   code: string
   total: number
@@ -54,7 +89,7 @@ type ReferralSummary = {
   history: { status: string; created_at: string; qualified_at: string | null; bonus_awarded: boolean }[]
 }
 
-const SKILLS = ['Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage', 'Public Safety', 'Parks & Public Spaces', 'Community outreach', 'Evidence collection', 'Translation & writing', 'Digital support']
+const SKILLS = ['Roads & Footpaths', 'Waste & Sanitation', 'Streetlights', 'Water & Drainage', 'Public Safety', 'Parks & Public Spaces', 'Other', 'Community outreach', 'Evidence collection', 'Translation & writing', 'Digital support']
 const ACTIVE_TASK_STATUSES = ['assigned', 'accepted', 'in_progress', 'submitted_for_review', 'changes_requested']
 const emptyReferral: ReferralSummary = { code: '', total: 0, qualified: 0, pending: 0, bonus_points: 0, enabled: false, history: [] }
 
@@ -84,7 +119,7 @@ function readCapturedCode(userMetadata?: Record<string, unknown>): string {
   return /^[A-Z0-9]{8}$/.test(fromMetadata) ? fromMetadata : ''
 }
 
-export default function WorkerReferralHub({ userId, displayName, isAdmin, city, ward, notify }: HubProps) {
+export default function WorkerReferralHub({ userId, displayName, isAdmin, city, ward, notify, adminOnly = false }: HubProps) {
   const client = supabase
   const [worker, setWorker] = useState<WorkerProfile | null>(null)
   const [tasks, setTasks] = useState<WorkTask[]>([])
@@ -109,8 +144,9 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
   const [assignReportId, setAssignReportId] = useState('')
   const [assignWorkerId, setAssignWorkerId] = useState('')
   const [dueDate, setDueDate] = useState('')
-  const [workerProgramme, setWorkerProgramme] = useState<ProgrammeSetting>({ enabled: true, points: 25 })
-  const [referralProgramme, setReferralProgramme] = useState<ProgrammeSetting>({ enabled: true, points: 50 })
+  const [workerProgramme, setWorkerProgramme] = useState<WorkerProgrammeSetting>(defaultWorkerProgrammeSetting)
+  const [assignDifficulty, setAssignDifficulty] = useState<WorkerDifficulty>('medium')
+  const [workerLimitDrafts, setWorkerLimitDrafts] = useState<Record<string, { maxActiveTasks: number; available: boolean }>>({})
   const [settingsAction, setSettingsAction] = useState('')
 
   const load = useCallback(async () => {
@@ -118,7 +154,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     setLoading(true); setPageError('')
     try {
       const workerQuery = client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at').eq('user_id', userId).maybeSingle()
-      const tasksQuery = client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,created_at,report:reports(id,public_code,title,description,category,address_label,status,created_at)').eq('worker_id', userId).order('created_at', { ascending: false }).limit(100)
+      const tasksQuery = client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,difficulty,offer_expires_at,created_at,report:reports(id,public_code,title,description,category,address_label,latitude,longitude,status,created_at)').eq('worker_id', userId).order('created_at', { ascending: false }).limit(100)
       const [workerResult, taskResult] = await Promise.all([workerQuery, tasksQuery])
       if (workerResult.error) throw workerResult.error
       if (taskResult.error) throw taskResult.error
@@ -138,16 +174,17 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       }))
       if (!taskResult.error) setTasks(await hydrateEvidence((taskResult.data || []) as unknown as WorkTask[]))
       if (isAdmin) {
-        const [workersResult, reportsResult, assignmentsResult, reviewTasksResult, workerSettingsResult, referralSettingsResult] = await Promise.all([
+        const [workersResult, reportsResult, assignmentsResult, reviewTasksResult, workerSettingsResult] = await Promise.all([
           client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at,profile:profiles!worker_profiles_user_id_fkey(display_name,city,ward)').order('created_at', { ascending: false }).limit(200),
-          client.from('reports').select('id,public_code,title,category,address_label,status,created_at').eq('visibility', 'public').not('status', 'in', '(resolved,rejected)').order('created_at', { ascending: false }).limit(100),
+          client.from('reports').select('id,public_code,title,category,address_label,latitude,longitude,status,created_at').eq('visibility', 'public').not('status', 'in', '(resolved,rejected)').order('created_at', { ascending: false }).limit(100),
           client.from('work_assignments').select('report_id,worker_id,status').not('status', 'in', '(completed,cancelled)').limit(1000),
-          client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,created_at,report:reports(id,public_code,title,description,category,address_label,status,created_at)').eq('status','submitted_for_review').order('updated_at', { ascending: false }).limit(100),
-          client.from('worker_settings').select('enabled,points_per_approved_task').eq('id', true).maybeSingle(),
-          client.from('referral_settings').select('enabled,bonus_points').eq('id', true).maybeSingle(),
+          client.from('work_assignments').select('id,report_id,status,due_at,worker_note,completion_note,evidence_urls,difficulty,offer_expires_at,created_at,report:reports(id,public_code,title,description,category,address_label,status,created_at)').eq('status','submitted_for_review').order('updated_at', { ascending: false }).limit(100),
+          client.from('worker_settings').select('enabled,points_per_approved_task,auto_assignment_enabled,offer_timeout_minutes,max_auto_assignments_per_run,category_difficulty_points').eq('id', true).maybeSingle(),
         ])
         if (workersResult.error) throw workersResult.error
-        setWorkers(((workersResult.data || []) as unknown as WorkerOption[]).map(option => ({ ...option, profile: Array.isArray(option.profile) ? option.profile[0] : option.profile })))
+        const loadedWorkers = ((workersResult.data || []) as unknown as WorkerOption[]).map(option => ({ ...option, profile: Array.isArray(option.profile) ? option.profile[0] : option.profile }))
+        setWorkers(loadedWorkers)
+        setWorkerLimitDrafts(current => Object.fromEntries(loadedWorkers.map(option => [option.user_id, current[option.user_id] || { maxActiveTasks: option.max_active_tasks, available: option.available }])))
         if (assignmentsResult.error) throw assignmentsResult.error
         const activeAssignments = (assignmentsResult.data || []) as unknown as { report_id: string; worker_id: string }[]
         const loadByWorker: Record<string, number> = {}
@@ -155,9 +192,14 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         setWorkerLoads(loadByWorker)
         if (reviewTasksResult.error) throw reviewTasksResult.error
         if (workerSettingsResult.error) throw workerSettingsResult.error
-        if (referralSettingsResult.error) throw referralSettingsResult.error
-        if (workerSettingsResult.data) setWorkerProgramme({ enabled: Boolean(workerSettingsResult.data.enabled), points: Number(workerSettingsResult.data.points_per_approved_task || 0) })
-        if (referralSettingsResult.data) setReferralProgramme({ enabled: Boolean(referralSettingsResult.data.enabled), points: Number(referralSettingsResult.data.bonus_points || 0) })
+        if (workerSettingsResult.data) setWorkerProgramme({
+          enabled: Boolean(workerSettingsResult.data.enabled),
+          points: Number(workerSettingsResult.data.points_per_approved_task ?? 25),
+          autoAssignmentEnabled: Boolean(workerSettingsResult.data.auto_assignment_enabled),
+          offerTimeoutMinutes: Number(workerSettingsResult.data.offer_timeout_minutes || 60),
+          maxAutoAssignmentsPerRun: Number(workerSettingsResult.data.max_auto_assignments_per_run || 25),
+          categoryDifficultyPoints: normalizeCategoryDifficultyPoints(workerSettingsResult.data.category_difficulty_points),
+        })
         setReviewTasks(await hydrateEvidence((reviewTasksResult.data || []) as unknown as WorkTask[]))
         if (!reportsResult.error) {
           const busyReportIds = new Set(activeAssignments.map(item => item.report_id))
@@ -185,7 +227,17 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     try {
       const { data, error } = await client.rpc('janwatch_worker_apply', { p_city: cityValue.trim(), p_ward: wardValue.trim(), p_skills: skills, p_motivation: motivation.trim(), p_max_active_tasks: Number(taskLimit) })
       if (error) throw error
-      notify(data === 'active' ? 'Your approved worker profile has been updated.' : 'Worker application submitted. It will be reviewed by the operations team.')
+      const returnedStatus = typeof data === 'string' ? data : 'pending'
+      // Update the UI immediately after a successful RPC so the applicant sees the
+      // review state even if a subsequent refresh is temporarily unavailable.
+      setWorker(current => ({
+        user_id: userId,
+        status: (returnedStatus === 'active' || returnedStatus === 'pending' || returnedStatus === 'rejected' || returnedStatus === 'suspended' ? returnedStatus : 'pending') as WorkerProfile['status'],
+        city: cityValue.trim(), ward: wardValue.trim(), skills, motivation: motivation.trim(),
+        max_active_tasks: Number(taskLimit), available: returnedStatus === 'active',
+        admin_note: current?.admin_note || null, created_at: current?.created_at || new Date().toISOString()
+      }))
+      notify(returnedStatus === 'active' ? 'Your approved worker profile has been updated.' : 'Application submitted successfully. Status: In review.')
       await load()
     } catch (error) { notify(`Could not submit worker application: ${errorMessage(error)}`) }
     finally { setSaving(false) }
@@ -209,9 +261,14 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         if (uploadError) throw uploadError
         uploadedPaths.push(`storage://citizen-evidence/${objectPath}`)
       }
-      const { error } = await client.rpc('janwatch_worker_update_assignment', { p_assignment_id: task.id, p_action: action, p_note: note || null, p_evidence_urls: action === 'submit' ? [...urls, ...uploadedPaths] : [] })
+      const { data: updateResult, error } = await client.rpc('janwatch_worker_update_assignment', { p_assignment_id: task.id, p_action: action, p_note: note || null, p_evidence_urls: action === 'submit' ? [...urls, ...uploadedPaths] : [] })
       if (error) throw error
-      notify(action === 'submit' ? 'Work submitted for operations review.' : action === 'accept' ? 'Task accepted.' : 'Task moved to in progress.')
+      if (action === 'accept' && updateResult && typeof updateResult === 'object' && 'status' in updateResult && String((updateResult as { status: unknown }).status) === 'cancelled') {
+        notify('This task offer expired. It has returned to the operations queue.')
+        await load()
+        return
+      }
+      notify(action === 'submit' ? 'Work submitted for operations review.' : action === 'accept' ? 'Task accepted.' : action === 'decline' ? 'Task declined and returned for reassignment.' : 'Task moved to in progress.')
       setCompletionNote(current => ({ ...current, [task.id]: '' })); setEvidenceText(current => ({ ...current, [task.id]: '' })); setEvidenceFiles(current => ({ ...current, [task.id]: [] }))
       await load()
     } catch (error) {
@@ -250,12 +307,37 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     if (!client || !assignReportId || !assignWorkerId) { notify('Choose a report and an approved worker first.'); return }
     setSaving(true)
     try {
-      const { error } = await client.rpc('janwatch_admin_assign_work', { p_report_id: assignReportId, p_worker_id: assignWorkerId, p_due_at: dueDate ? new Date(dueDate).toISOString() : null })
+      const { error } = await client.rpc('janwatch_admin_assign_work_with_options', { p_report_id: assignReportId, p_worker_id: assignWorkerId, p_due_at: dueDate ? new Date(dueDate).toISOString() : null, p_difficulty: assignDifficulty })
       if (error) throw error
-      notify('Work assigned successfully. The worker can now see it in their workspace.')
-      setDueDate(''); await load()
+      notify(`Work assigned successfully at ${assignDifficulty} difficulty. The worker offer expires according to the admin-configured timeout.`)
+      setDueDate(''); setAssignDifficulty('medium'); await load()
     } catch (error) { notify(`Assignment failed: ${errorMessage(error)}`) }
     finally { setSaving(false) }
+  }
+
+  async function runAutoAssignment() {
+    if (!client) return
+    setSettingsAction('auto-assignment')
+    try {
+      const { data, error } = await client.rpc('janwatch_admin_run_auto_assignment', { p_limit: Math.max(1, Math.min(100, Math.trunc(Number(workerProgramme.maxAutoAssignmentsPerRun) || 25))) })
+      if (error) throw error
+      notify(`Automatic matching created ${Number(data || 0)} worker offer${Number(data || 0) === 1 ? '' : 's'}.`)
+      await load()
+    } catch (error) { notify(`Automatic matching failed: ${errorMessage(error)}`) }
+    finally { setSettingsAction('') }
+  }
+
+  async function saveWorkerLimits(option: WorkerOption) {
+    if (!client) return
+    const draft = workerLimitDrafts[option.user_id] || { maxActiveTasks: option.max_active_tasks, available: option.available }
+    setTaskActionId(option.user_id)
+    try {
+      const { error } = await client.rpc('janwatch_admin_set_worker_limits', { p_worker_id: option.user_id, p_max_active_tasks: Math.max(1, Math.min(10, Math.trunc(Number(draft.maxActiveTasks) || 1))), p_available: draft.available })
+      if (error) throw error
+      notify('Worker capacity and availability saved.')
+      await load()
+    } catch (error) { notify(`Could not update worker limits: ${errorMessage(error)}`) }
+    finally { setTaskActionId('') }
   }
 
   async function reviewTask(task: WorkTask, action: string) {
@@ -275,9 +357,25 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     setSettingsAction('worker')
     try {
       const points = Math.max(0, Math.min(100000, Math.trunc(Number(workerProgramme.points) || 0)))
-      const { error } = await client.from('worker_settings').update({ enabled: workerProgramme.enabled, points_per_approved_task: points, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', true)
+      const offerTimeoutMinutes = Math.max(5, Math.min(10080, Math.trunc(Number(workerProgramme.offerTimeoutMinutes) || 60)))
+      const maxAutoAssignmentsPerRun = Math.max(1, Math.min(100, Math.trunc(Number(workerProgramme.maxAutoAssignmentsPerRun) || 25)))
+      const categoryDifficultyPoints = Object.fromEntries(WORK_CATEGORIES.map(category => [category,
+        Object.fromEntries(WORK_DIFFICULTIES.map(difficulty => [difficulty,
+          Math.max(0, Math.min(100000, Math.trunc(Number(workerProgramme.categoryDifficultyPoints[category]?.[difficulty]) || 0)))
+        ]))
+      ])) as CategoryDifficultyPoints
+      const { error } = await client.from('worker_settings').update({
+        enabled: workerProgramme.enabled,
+        points_per_approved_task: points,
+        auto_assignment_enabled: workerProgramme.autoAssignmentEnabled,
+        offer_timeout_minutes: offerTimeoutMinutes,
+        max_auto_assignments_per_run: maxAutoAssignmentsPerRun,
+        category_difficulty_points: categoryDifficultyPoints,
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      }).eq('id', true)
       if (error) throw error
-      setWorkerProgramme(current => ({ ...current, points }))
+      setWorkerProgramme(current => ({ ...current, points, offerTimeoutMinutes, maxAutoAssignmentsPerRun, categoryDifficultyPoints }))
       notify('Worker programme rules saved.')
       await load()
     } catch (error) { notify(`Could not save worker rules: ${errorMessage(error)}`) }
@@ -296,35 +394,10 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     finally { setSettingsAction('') }
   }
 
-  async function saveReferralProgramme() {
-    if (!client) return
-    setSettingsAction('referral')
-    try {
-      const points = Math.max(0, Math.min(100000, Math.trunc(Number(referralProgramme.points) || 0)))
-      const { error } = await client.from('referral_settings').update({ enabled: referralProgramme.enabled, bonus_points: points, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', true)
-      if (error) throw error
-      setReferralProgramme(current => ({ ...current, points }))
-      notify('Referral programme rules saved.')
-      await load()
-    } catch (error) { notify(`Could not save referral rules: ${errorMessage(error)}`) }
-    finally { setSettingsAction('') }
-  }
-
-  async function awardPendingReferralBonuses() {
-    if (!client) return
-    setSettingsAction('reconcile')
-    try {
-      const { data, error } = await client.rpc('janwatch_admin_award_pending_referral_bonuses')
-      if (error) throw error
-      notify(`${Number(data || 0)} pending qualified referral bonus${Number(data || 0) === 1 ? '' : 'es'} awarded.`)
-      await load()
-    } catch (error) { notify(`Could not reconcile referral bonuses: ${errorMessage(error)}`) }
-    finally { setSettingsAction('') }
-  }
-
   const statusText = worker?.status === 'active' ? 'Approved volunteer' : worker?.status === 'pending' ? 'Application under review' : worker?.status === 'suspended' ? 'Access suspended' : 'Volunteer application'
 
   return <div className="wr-hub page-enter">
+    {!adminOnly && <>
     <section className="wr-hero">
       <div className="wr-hero-glow" aria-hidden="true" />
       <div className="wr-hero-copy"><div className="section-kicker"><HandHeart size={14}/> CITIZEN-POWERED ACTION</div><h1>Make change <span>happen.</span></h1><p>Good to have you here, {displayName || 'volunteer'}. Coordinate real community work, keep every hand-off visible, and recognise meaningful contributions.</p><div className="wr-hero-tags"><span><ShieldCheck size={14}/> Reviewed access</span><span><Activity size={14}/> Trackable tasks</span><span><Gift size={14}/> Contribution points</span></div></div>
@@ -359,11 +432,11 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
           {tasks.length === 0 && !loading ? <div className="wr-empty"><div className="wr-empty-icon"><ClipboardCheck size={22}/></div><h3>You're ready for your first task</h3><p>Nothing has been assigned to you yet. The operations team can match public reports to your skills and area.</p></div> : <div className="wr-task-list">{tasks.map(task => <article key={task.id} className="wr-task-card">
             <div className="wr-task-top"><span className={`wr-status-pill wr-pill-${task.status}`}>{prettyStatus(task.status)}</span><small>{task.report?.public_code || 'Civic report'} · {formatDate(task.created_at)}</small></div>
             <h3>{task.report?.title || 'Report details unavailable'}</h3><p>{task.report?.description || 'No additional description was provided.'}</p>
-            <div className="wr-task-meta"><span><MapPin size={14}/>{task.report?.address_label || 'Location not specified'}</span><span><ClipboardCheck size={14}/>{task.report?.category || 'Community task'}</span><span><CalendarClock size={14}/>Due: {formatDate(task.due_at)}</span></div>
-            {task.report?.address_label && <a className="btn btn-secondary wr-route-link" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(task.report.address_label)}`} target="_blank" rel="noopener noreferrer"><MapPin size={15}/> Open route in Google Maps <ExternalLink size={13}/></a>}
+            <div className="wr-task-meta"><span><MapPin size={14}/>{task.report?.address_label || 'Location not specified'}</span><span><ClipboardCheck size={14}/>{task.report?.category || 'Community task'}</span><span><Activity size={14}/>{prettyStatus(task.difficulty || 'medium')} difficulty</span><span><CalendarClock size={14}/>Due: {formatDate(task.due_at)}</span>{task.status === 'assigned' && task.offer_expires_at && <span><Clock3 size={14}/>Offer expires: {new Date(task.offer_expires_at).toLocaleString()}</span>}</div>
+            {(task.report?.address_label || (task.report?.latitude != null && task.report?.longitude != null)) && <a className="btn btn-secondary wr-route-link" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(task.report?.latitude != null && task.report?.longitude != null ? `${task.report.latitude},${task.report.longitude}` : (task.report?.address_label || ''))}`} target="_blank" rel="noopener noreferrer"><MapPin size={15}/> Open route in Google Maps <ExternalLink size={13}/></a>}
             {task.completion_note && <div className="wr-completion-note"><b>Previous submission</b><p>{task.completion_note}</p></div>}
             {task.evidence_urls?.length > 0 && <div className="wr-evidence-links">{task.evidence_urls.map((url, index) => <a href={url} target="_blank" rel="noreferrer" key={`${url}-${index}`}><ExternalLink size={13}/> Evidence link {index + 1}</a>)}</div>}
-            {task.status === 'assigned' && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'accept')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <CheckCircle2 size={15}/>} Accept task</button></div>}
+            {task.status === 'assigned' && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'accept')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <CheckCircle2 size={15}/>} Accept task</button><button className="btn btn-secondary" disabled={taskActionId === task.id} onClick={() => { if (window.confirm('Decline this assignment? It will return to the operations queue for reassignment.')) void updateTask(task, 'decline') }}><XCircle size={15}/> Decline</button></div>}
             {(task.status === 'accepted' || task.status === 'changes_requested') && <div className="wr-task-actions"><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'start')}><Zap size={15}/> Start work</button></div>}
             {task.status === 'in_progress' && <div className="wr-completion-form"><label>Completion note <textarea rows={3} maxLength={2000} value={completionNote[task.id] || ''} onChange={e => setCompletionNote(current => ({ ...current, [task.id]: e.target.value }))} placeholder="Describe what you did, when, and what changed."/></label><label>Evidence links (optional, HTTPS only; one per line)<textarea rows={2} value={evidenceText[task.id] || ''} onChange={e => setEvidenceText(current => ({ ...current, [task.id]: e.target.value }))} placeholder="https://…"/></label><label className="wr-evidence-upload"><span><b>Photos and videos</b><small>Up to 5 total links/files · 50 MB per file · images, MP4, WebM or MOV</small></span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" multiple onChange={e => setEvidenceFiles(current => ({ ...current, [task.id]: Array.from(e.target.files || []).slice(0, 5) }))}/>{(evidenceFiles[task.id] || []).length > 0 && <small>{evidenceFiles[task.id].map(file => file.name).join(', ')}</small>}</label><button className="btn btn-primary" disabled={taskActionId === task.id} onClick={() => void updateTask(task, 'submit')}>{taskActionId === task.id ? <LoaderCircle size={15} className="wr-spin"/> : <Send size={15}/>} Submit evidence for review <ArrowRight size={15}/></button></div>}
             {task.status === 'submitted_for_review' && <div className="wr-review-wait"><Clock3 size={16}/><span>Submitted for review. Your work will be approved or returned with feedback.</span></div>}
@@ -378,29 +451,38 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       </aside>
     </div>
 
-    {isAdmin && <section className="wr-admin-zone">
+    </>}
+
+    {isAdmin && adminOnly && <section className="wr-admin-zone">
       <div className="wr-section-head"><div><div className="section-kicker">OPERATIONS CONSOLE</div><h2>Manage community work.</h2><p>Review volunteer applications and assign eligible public reports. Admin actions are audited.</p></div><span className="wr-admin-label"><ShieldCheck size={14}/> Admin tools</span></div>
       <div className="wr-tabs"><button className={activeTab === 'my-work' ? 'active' : ''} onClick={() => setActiveTab('my-work')}><Users size={15}/> Worker applications <span>{workers.filter(item => item.status === 'pending').length}</span></button><button className={activeTab === 'manage' ? 'active' : ''} onClick={() => setActiveTab('manage')}><ClipboardCheck size={15}/> Assign & review work</button></div>
       {activeTab === 'my-work' ? <div className="wr-worker-admin-list">{workers.length === 0 && !loading ? <div className="wr-empty"><h3>No volunteer applications yet</h3><p>New applications will appear here once citizens apply.</p></div> : workers.map(option => <article key={option.user_id} className="wr-worker-admin-card">
-        <div className="wr-worker-avatar">{(option.profile?.display_name || 'V').slice(0,1).toUpperCase()}</div><div className="wr-worker-admin-copy"><div className="wr-worker-name-row"><b>{workerName(option)}</b><span className={`wr-status-pill wr-pill-${option.status}`}>{prettyStatus(option.status)}</span></div><small><MapPin size={13}/>{option.city}, {option.ward} · {workerLoads[option.user_id] || 0}/{option.max_active_tasks} active tasks</small><div className="wr-worker-skills">{(option.skills || []).map(skill => <span key={skill}>{skill}</span>)}</div>{option.motivation && <p>{option.motivation}</p>}{option.admin_note && <small className="wr-note-muted">Last admin note: {option.admin_note}</small>}</div><div className="wr-worker-admin-actions">{option.status !== 'active' && option.status !== 'suspended' && <button className="btn btn-primary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'approve')}><Check size={14}/> Approve</button>}{option.status === 'pending' && <button className="btn btn-secondary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'reject')}>Reject</button>}{option.status === 'active' && <button className="btn btn-secondary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'suspend')}>Suspend</button>}{option.status === 'suspended' && <button className="btn btn-primary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'reactivate')}>Reactivate</button>}<input aria-label={`Optional note for ${workerName(option)}`} value={adminNote[option.user_id] || ''} onChange={e => setAdminNote(current => ({ ...current, [option.user_id]: e.target.value }))} placeholder="Optional admin note" maxLength={500}/></div>
-      </article>)}</div> : <div className="wr-manage-grid"><section className="wr-panel wr-assign-card"><div className="wr-card-heading"><div className="wr-heading-icon"><ArrowDownRight size={19}/></div><div><h3>Assign a report</h3><p>Only approved, available workers with open capacity can be assigned to public unresolved reports.</p></div></div><form className="wr-form" onSubmit={assignWork}><label>Public report<select value={assignReportId} onChange={e => setAssignReportId(e.target.value)} required><option value="">Choose report…</option>{reports.map(report => <option key={report.id} value={report.id}>{report.public_code} · {report.title} ({report.category})</option>)}</select></label><label>Approved worker<select value={assignWorkerId} onChange={e => setAssignWorkerId(e.target.value)} required><option value="">Choose worker…</option>{eligibleWorkers.map(option => <option key={option.user_id} value={option.user_id}>{workerName(option)} · {option.city}/{option.ward} · {workerLoads[option.user_id] || 0}/{option.max_active_tasks} tasks</option>)}</select></label><label>Optional due date<input type="datetime-local" value={dueDate} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000 + 60000).toISOString().slice(0,16)} onChange={e => setDueDate(e.target.value)}/></label><button type="submit" className="btn btn-primary" disabled={saving || !reports.length || !eligibleWorkers.length}>{saving ? <LoaderCircle size={15} className="wr-spin"/> : <Send size={15}/>} Assign task</button><p className="wr-form-footnote">Capacity and duplicate-assignment checks run again on the database before saving.</p></form>{reports.length === 0 && <p className="wr-note-muted">No unassigned public reports are available right now.</p>}</section>
+        <div className="wr-worker-avatar">{(option.profile?.display_name || 'V').slice(0,1).toUpperCase()}</div><div className="wr-worker-admin-copy"><div className="wr-worker-name-row"><b>{workerName(option)}</b><span className={`wr-status-pill wr-pill-${option.status}`}>{prettyStatus(option.status)}</span></div><small><MapPin size={13}/>{option.city}, {option.ward} · {workerLoads[option.user_id] || 0}/{option.max_active_tasks} active tasks</small><div className="wr-worker-skills">{(option.skills || []).map(skill => <span key={skill}>{skill}</span>)}</div>{option.motivation && <p>{option.motivation}</p>}{option.admin_note && <small className="wr-note-muted">Last admin note: {option.admin_note}</small>}</div><div className="wr-worker-admin-actions">{option.status !== 'active' && option.status !== 'suspended' && <button className="btn btn-primary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'approve')}><Check size={14}/> Approve</button>}{option.status === 'pending' && <button className="btn btn-secondary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'reject')}>Reject</button>}{option.status === 'active' && <button className="btn btn-secondary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'suspend')}>Suspend</button>}{option.status === 'suspended' && <button className="btn btn-primary" disabled={taskActionId === option.user_id} onClick={() => void reviewWorker(option, 'reactivate')}>Reactivate</button>}<input aria-label={`Optional note for ${workerName(option)}`} value={adminNote[option.user_id] || ''} onChange={e => setAdminNote(current => ({ ...current, [option.user_id]: e.target.value }))} placeholder="Optional admin note" maxLength={500}/><div className="wr-worker-limit-controls"><label>Max active tasks<input type="number" min="1" max="10" value={workerLimitDrafts[option.user_id]?.maxActiveTasks ?? option.max_active_tasks} onChange={e => setWorkerLimitDrafts(current => ({...current,[option.user_id]:{maxActiveTasks:Number(e.target.value),available:current[option.user_id]?.available ?? option.available}}))}/></label><label className="wr-setting-toggle wr-worker-available-toggle"><input type="checkbox" checked={workerLimitDrafts[option.user_id]?.available ?? option.available} onChange={e => setWorkerLimitDrafts(current => ({...current,[option.user_id]:{maxActiveTasks:current[option.user_id]?.maxActiveTasks ?? option.max_active_tasks,available:e.target.checked}}))}/><span>Available for offers</span></label><button className="btn btn-secondary" disabled={taskActionId === option.user_id} onClick={() => void saveWorkerLimits(option)}>Save limits</button></div></div>
+      </article>)}</div> : <div className="wr-manage-grid"><section className="wr-panel wr-assign-card"><div className="wr-card-heading"><div className="wr-heading-icon"><ArrowDownRight size={19}/></div><div><h3>Assign a report</h3><p>Only approved, available workers with open capacity can be assigned to public unresolved reports.</p></div></div><form className="wr-form" onSubmit={assignWork}><label>Public report<select value={assignReportId} onChange={e => setAssignReportId(e.target.value)} required><option value="">Choose report…</option>{reports.map(report => <option key={report.id} value={report.id}>{report.public_code} · {report.title} ({report.category})</option>)}</select></label><label>Approved worker<select value={assignWorkerId} onChange={e => setAssignWorkerId(e.target.value)} required><option value="">Choose worker…</option>{eligibleWorkers.map(option => <option key={option.user_id} value={option.user_id}>{workerName(option)} · {option.city}/{option.ward} · {workerLoads[option.user_id] || 0}/{option.max_active_tasks} tasks</option>)}</select></label><label>Task difficulty<select value={assignDifficulty} onChange={e => setAssignDifficulty(e.target.value as WorkerDifficulty)}>{WORK_DIFFICULTIES.map(difficulty => <option key={difficulty} value={difficulty}>{prettyStatus(difficulty)}</option>)}</select></label><label>Optional due date<input type="datetime-local" value={dueDate} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000 + 60000).toISOString().slice(0,16)} onChange={e => setDueDate(e.target.value)}/></label><button type="submit" className="btn btn-primary" disabled={saving || !reports.length || !eligibleWorkers.length}>{saving ? <LoaderCircle size={15} className="wr-spin"/> : <Send size={15}/>} Assign task</button><p className="wr-form-footnote">Capacity and duplicate-assignment checks run again on the database before saving.</p></form>{reports.length === 0 && <p className="wr-note-muted">No unassigned public reports are available right now.</p>}</section>
         <section className="wr-panel wr-review-card"><div className="wr-card-heading"><div className="wr-heading-icon"><ClipboardCheck size={19}/></div><div><h3>Submitted work to review</h3><p>Approval closes the task and may award contribution points.</p></div></div>{reviewTasks.length === 0 ? <div className="wr-empty wr-empty-compact"><p>No submitted volunteer tasks are waiting for operations review. Refresh after a worker submits one.</p></div> : reviewTasks.map(task => <article className="wr-review-item" key={task.id}><b>{task.report?.title || task.report?.public_code || 'Submitted task'}</b><small>{task.report?.public_code} · Submitted {formatDate(task.created_at)}</small><p>{task.completion_note || 'No completion note.'}</p>{task.evidence_urls?.map((url,index) => <a href={url} target="_blank" rel="noreferrer" key={`${url}-${index}`}><ExternalLink size={12}/> Evidence {index+1}</a>)}<label>Review note<input value={adminNote[task.id] || ''} onChange={e => setAdminNote(current => ({...current,[task.id]:e.target.value}))} placeholder="Feedback for worker" maxLength={500}/></label><div className="wr-review-buttons"><button className="btn btn-primary" disabled={taskActionId===task.id} onClick={() => void reviewTask(task,'approve')}><Check size={14}/> Approve</button><button className="btn btn-secondary" disabled={taskActionId===task.id} onClick={() => void reviewTask(task,'request_changes')}>Request changes</button><button className="btn btn-secondary" disabled={taskActionId===task.id} onClick={() => void reviewTask(task,'cancel')}>Cancel</button></div></article>)}</section></div>}
+      <section className="wr-programme-settings">
+        <div className="wr-section-head"><div><div className="section-kicker">AUTOMATIC OFFERS</div><h2>Assignment automation.</h2><p>When enabled, new eligible public reports can create worker offers automatically. Matching uses declared skills and prioritises ward/city text matches and lower active workload.</p></div><span className="wr-admin-label"><ShieldCheck size={14}/> Admin only</span></div>
+        <div className="wr-panel wr-settings-card wr-automation-card">
+          <label className="wr-setting-toggle"><input type="checkbox" checked={workerProgramme.autoAssignmentEnabled} onChange={e => setWorkerProgramme(current => ({...current, autoAssignmentEnabled:e.target.checked}))}/><span><b>Enable automatic worker offers</b><small>Only active, available workers with a matching skill and remaining task capacity are eligible. Disabled by default.</small></span></label>
+          <div className="wr-two-fields">
+            <label>Offer timeout (minutes)<input type="number" min="5" max="10080" step="1" value={workerProgramme.offerTimeoutMinutes} onChange={e => setWorkerProgramme(current => ({...current, offerTimeoutMinutes:Number(e.target.value)}))}/><small>Expired, unaccepted offers return to the unassigned queue.</small></label>
+            <label>Maximum reports per manual run<input type="number" min="1" max="100" step="1" value={workerProgramme.maxAutoAssignmentsPerRun} onChange={e => setWorkerProgramme(current => ({...current, maxAutoAssignmentsPerRun:Number(e.target.value)}))}/><small>Limits the backlog batch when you run matching manually.</small></label>
+          </div>
+          <div className="wr-settings-actions"><button className="btn btn-primary" disabled={settingsAction !== '' || loading} onClick={() => void saveWorkerProgramme()}>{settingsAction === 'worker' ? <LoaderCircle size={15} className="wr-spin"/> : <Check size={15}/>} Save assignment settings</button><button className="btn btn-secondary" disabled={settingsAction !== '' || loading || !workerProgramme.autoAssignmentEnabled} onClick={() => void runAutoAssignment()}>{settingsAction === 'auto-assignment' ? <LoaderCircle size={15} className="wr-spin"/> : <RefreshCw size={15}/>} Run matching now</button></div>
+          <p className="wr-settings-footnote">This setting controls automatic offers on new/reclassified reports and the manual backlog runner. Location preferences are based on report address text, not GPS distance.</p>
+        </div>
+      </section>
       <section className="wr-programme-settings">
         <div className="wr-section-head"><div><div className="section-kicker">REWARD CONTROLS</div><h2>Programme settings.</h2><p>These limits are enforced by database rules, not just the interface.</p></div><span className="wr-admin-label"><ShieldCheck size={14}/> Admin only</span></div>
         <div className="wr-settings-grid">
           <article className="wr-panel wr-settings-card">
             <div className="wr-card-heading"><div className="wr-heading-icon"><HandHeart size={19}/></div><div><h3>Volunteer contribution points</h3><p>Points are credited only after an admin approves submitted work and all reward switches are enabled.</p></div></div>
-            <label className="wr-setting-toggle"><input type="checkbox" checked={workerProgramme.enabled} onChange={e => setWorkerProgramme(current => ({...current, enabled:e.target.checked}))}/><span><b>Enable worker programme rewards</b><small>Workers can still complete tasks while point rewards are paused.</small></span></label>
-            <label className="wr-setting-points">Points per approved task<input type="number" min="0" max="100000" step="1" value={workerProgramme.points} onChange={e => setWorkerProgramme(current => ({...current, points:Number(e.target.value)}))}/></label>
-            <div className="wr-settings-actions"><button className="btn btn-primary" disabled={settingsAction !== '' || loading} onClick={() => void saveWorkerProgramme()}>{settingsAction === 'worker' ? <LoaderCircle size={15} className="wr-spin"/> : <Check size={15}/>} Save worker rules</button><button className="btn btn-secondary" disabled={settingsAction !== '' || loading || !workerProgramme.enabled} onClick={() => void awardPendingWorkerPoints()}>{settingsAction === 'worker-reconcile' ? <LoaderCircle size={15} className="wr-spin"/> : <RefreshCw size={15}/>} Award pending points</button></div>
+            <label className="wr-setting-toggle"><input type="checkbox" checked={workerProgramme.enabled} onChange={e => setWorkerProgramme(current => ({...current, enabled:e.target.checked}))}/><span><b>Enable worker contribution rewards</b><small>Workers can still complete tasks while point rewards are paused. Main Rewards must also be enabled.</small></span></label>
+            <label className="wr-setting-points">Fallback points per approved task<input type="number" min="0" max="100000" step="1" value={workerProgramme.points} onChange={e => setWorkerProgramme(current => ({...current, points:Number(e.target.value)}))}/><small>Used only if a task category/difficulty has no matching configured value.</small></label>
+            <div className="wr-matrix-wrap"><div className="wr-matrix-heading"><b>Points by civic category and task difficulty</b><small>These values are read by the database when an administrator approves work.</small></div><table className="wr-reward-matrix"><thead><tr><th>Civic category</th>{WORK_DIFFICULTIES.map(difficulty => <th key={difficulty}>{prettyStatus(difficulty)}</th>)}</tr></thead><tbody>{WORK_CATEGORIES.map(category => <tr key={category}><th scope="row">{category}</th>{WORK_DIFFICULTIES.map(difficulty => <td key={difficulty}><input aria-label={category+' '+difficulty+' reward points'} type="number" min="0" max="100000" step="1" value={workerProgramme.categoryDifficultyPoints[category]?.[difficulty] ?? 0} onChange={e => setWorkerProgramme(current => ({...current, categoryDifficultyPoints: ({...current.categoryDifficultyPoints, [category]: {...current.categoryDifficultyPoints[category], [difficulty]: Number(e.target.value)}} as CategoryDifficultyPoints)}))}/></td>)}</tr>)}</tbody></table></div>
+            <div className="wr-settings-actions"><button className="btn btn-primary" disabled={settingsAction !== '' || loading} onClick={() => void saveWorkerProgramme()}>{settingsAction === 'worker' ? <LoaderCircle size={15} className="wr-spin"/> : <Check size={15}/>} Save worker reward rules</button><button className="btn btn-secondary" disabled={settingsAction !== '' || loading || !workerProgramme.enabled} onClick={() => void awardPendingWorkerPoints()}>{settingsAction === 'worker-reconcile' ? <LoaderCircle size={15} className="wr-spin"/> : <RefreshCw size={15}/>} Award pending points</button></div>
           </article>
-          <article className="wr-panel wr-settings-card">
-            <div className="wr-card-heading"><div className="wr-heading-icon"><Gift size={19}/></div><div><h3>Referral bonus rules</h3><p>A referral must be new, email-verified, and have a completed city/ward profile before it qualifies for points.</p></div></div>
-            <label className="wr-setting-toggle"><input type="checkbox" checked={referralProgramme.enabled} onChange={e => setReferralProgramme(current => ({...current, enabled:e.target.checked}))}/><span><b>Enable referral bonus rewards</b><small>Referral activity can still be recorded while bonus points are paused.</small></span></label>
-            <label className="wr-setting-points">Points per qualified referral<input type="number" min="0" max="100000" step="1" value={referralProgramme.points} onChange={e => setReferralProgramme(current => ({...current, points:Number(e.target.value)}))}/></label>
-            <div className="wr-settings-actions"><button className="btn btn-primary" disabled={settingsAction !== '' || loading} onClick={() => void saveReferralProgramme()}>{settingsAction === 'referral' ? <LoaderCircle size={15} className="wr-spin"/> : <Check size={15}/>} Save referral rules</button><button className="btn btn-secondary" disabled={settingsAction !== '' || loading || !referralProgramme.enabled} onClick={() => void awardPendingReferralBonuses()}>{settingsAction === 'reconcile' ? <LoaderCircle size={15} className="wr-spin"/> : <RefreshCw size={15}/>} Award pending bonuses</button></div>
-            <p className="wr-settings-footnote">The reconcile action pays only qualified, not-yet-awarded referrals and enforces the configured per-referrer limit.</p>
-          </article>
+
         </div>
       </section>
     </section>}
