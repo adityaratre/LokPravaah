@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { User } from '@supabase/supabase-js'
 import {
-  Activity, AlertTriangle, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
+  Activity, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
   CircleHelp, Clock3, Compass, FileText, Filter, Globe2, LayoutDashboard,
   Leaf, LogOut, MapPin, Menu, MessageSquareText, Moon, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle, CircleAlert,
+  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
-  CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, CircleAlert, UserRound, FileDown, ClipboardCheck,
+  CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, UserRound, FileDown, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift, Smartphone, Trash2
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
