@@ -122,6 +122,7 @@ function readCapturedCode(userMetadata?: Record<string, unknown>): string {
 export default function WorkerReferralHub({ userId, displayName, isAdmin, city, ward, notify, adminOnly = false }: HubProps) {
   const client = supabase
   const [worker, setWorker] = useState<WorkerProfile | null>(null)
+  const [topWorker, setTopWorker] = useState<{ worker_name: string; completed_tasks: number } | null>(null)
   const [tasks, setTasks] = useState<WorkTask[]>([])
   const [reviewTasks, setReviewTasks] = useState<WorkTask[]>([])
   const [workers, setWorkers] = useState<WorkerOption[]>([])
@@ -173,6 +174,15 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
         return { ...task, evidence_urls: urls.filter(Boolean), report: Array.isArray(task.report) ? task.report[0] : task.report }
       }))
       if (!taskResult.error) setTasks(await hydrateEvidence((taskResult.data || []) as unknown as WorkTask[]))
+      try {
+        const { data: topWorkerData, error: topWorkerError } = await client.rpc('janwatch_get_top_community_worker')
+        if (!topWorkerError && topWorkerData && typeof topWorkerData === 'object') {
+          const row = topWorkerData as { worker_name?: unknown; completed_tasks?: unknown }
+          const workerName = typeof row.worker_name === 'string' ? row.worker_name.trim() : ''
+          const completed = Number(row.completed_tasks || 0)
+          setTopWorker(workerName && Number.isFinite(completed) && completed > 0 ? { worker_name: workerName, completed_tasks: completed } : null)
+        } else setTopWorker(null)
+      } catch { setTopWorker(null) }
       if (isAdmin) {
         const [workersResult, reportsResult, assignmentsResult, reviewTasksResult, workerSettingsResult] = await Promise.all([
           client.from('worker_profiles').select('user_id,status,city,ward,skills,motivation,max_active_tasks,available,admin_note,created_at,profile:profiles!worker_profiles_user_id_fkey(display_name,city,ward)').order('created_at', { ascending: false }).limit(200),
@@ -402,6 +412,19 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       <div className="wr-hero-glow" aria-hidden="true" />
       <div className="wr-hero-copy"><div className="section-kicker"><HandHeart size={14}/> CITIZEN-POWERED ACTION</div><h1>Make change <span>happen.</span></h1><p>Good to have you here, {displayName || 'volunteer'}. Coordinate real community work, keep every hand-off visible, and recognise meaningful contributions.</p><div className="wr-hero-tags"><span><ShieldCheck size={14}/> Reviewed access</span><span><Activity size={14}/> Trackable tasks</span><span><Gift size={14}/> Contribution points</span></div></div>
       <div className="wr-hero-art" aria-hidden="true"><div className="wr-orbit wr-orbit-one"/><div className="wr-orbit wr-orbit-two"/><div className="wr-hero-core"><UsersRound size={34}/></div><span className="wr-float wr-float-a"><CheckCircle2 size={14}/> Assign</span><span className="wr-float wr-float-b"><Sparkles size={14}/> Contribute</span></div>
+    </section>
+
+    <section className="wr-panel" aria-label="Top community worker" style={{ marginTop: 18, marginBottom: 18, borderColor: 'rgba(242,198,93,.38)', background: 'linear-gradient(120deg, rgba(20,59,49,.96), rgba(12,28,37,.98))' }}>
+      <div className="wr-card-heading">
+        <div className="wr-heading-icon" style={{ background: 'rgba(242,198,93,.16)', color: '#F2C65D' }}><BadgeCheck size={21}/></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="section-kicker" style={{ color: '#9DE5C2' }}>TOP WORKER · #1</div>
+          <h3 style={{ color: '#FFFFFF' }}>{topWorker ? topWorker.worker_name : 'The first community champion'}</h3>
+          <p style={{ color: '#C2E5D6' }}>{topWorker ? `${topWorker.completed_tasks} approved ${topWorker.completed_tasks === 1 ? 'task' : 'tasks'} completed` : 'The #1 spot will appear after the first task is approved as completed.'}</p>
+        </div>
+        <span aria-hidden="true" style={{ fontSize: 26 }}>🏆</span>
+      </div>
+      <p className="wr-form-footnote" style={{ color: '#C2E5D6', marginTop: 10 }}>Ranked from completed work assignments reviewed by LokPravaah operations.</p>
     </section>
 
     <div className="wr-stats-grid">
