@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { User } from '@supabase/supabase-js'
 import {
-  Activity, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
+  Activity, AlertTriangle, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown,
   CircleHelp, Clock3, Compass, FileText, Filter, Globe2, LayoutDashboard,
   Leaf, LogOut, MapPin, Menu, MessageSquareText, Moon, Plus, Search, Settings,
-  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send, AlertTriangle, CircleAlert,
+  ShieldCheck, Sparkles, Sun, ThumbsUp, Users, Waves, X, Zap, Camera, Send,
   BadgeCheck, LocateFixed, ExternalLink, Eye, RefreshCw, LockKeyhole, Mail,
-  CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, UserRound, FileDown, ClipboardCheck,
+  CheckCircle2, Map as MapIcon, Image as ImageIcon, LoaderCircle, CircleAlert, UserRound, FileDown, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen, Coins, Wallet, BellRing, CirclePower, HandHeart, Gift, Smartphone, Trash2
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
@@ -224,8 +224,6 @@ export default function App() {
   const [featureFlags, setFeatureFlags] = useState<Record<FeatureKey, boolean>>(DEFAULT_FEATURE_FLAGS)
   const [siteAnnouncements, setSiteAnnouncements] = useState<SiteAnnouncement[]>([])
   const [showReport, setShowReport] = useState(false)
-  const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([])
-  const [submittedReportCode, setSubmittedReportCode] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -697,6 +695,7 @@ export default function App() {
     if (nameValue.length < 2) { setAuthError('Enter your full name.'); return }
     if (cityValue.length < 2) { setAuthError('Enter your city or town.'); return }
     if (wardValue.length < 1) { setAuthError('Enter your ward or local area.'); return }
+    if (phoneValue.replace(/\D/g, '').length < 10) { setAuthError('Enter a valid contact number (at least 10 digits).'); return }
     setSavingOnboarding(true); setAuthError('')
     try {
       const details = {
@@ -793,7 +792,7 @@ export default function App() {
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
   }
 
-  async function submitReport(event: FormEvent<HTMLFormElement>, skipDuplicateCheck = false) {
+  async function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!client || !user) { notify('Sign in is required to submit a report.'); return }
     if (reportTitle.trim().length < 6) { notify('Report title must contain at least 6 characters.'); return }
@@ -811,8 +810,8 @@ export default function App() {
     setSavingReport(true)
     let evidencePath: string | null = null
     try {
-      // Lightweight rule-based duplicate screening: show a branded confirmation instead of a browser alert.
-      const { data: recentCandidates, error: duplicateCheckError } = skipDuplicateCheck ? { data: [], error: null } : await client.from('reports')
+      // Lightweight rule-based duplicate screening: it finds candidates, never blocks by itself.
+      const { data: recentCandidates, error: duplicateCheckError } = await client.from('reports')
         .select('public_code,title,category,status,suggested_severity,address_label,created_at')
         .eq('visibility', 'public').eq('category', reportCategory)
         .order('created_at', { ascending: false }).limit(80)
@@ -830,9 +829,9 @@ export default function App() {
         }).filter((candidate: any) => candidate.titleOverlap >= 0.48 && candidate.areaOverlap >= 0.25)
           .sort((a: any, b: any) => b.score - a.score).slice(0, 3)
         if (candidates.length) {
-          setDuplicateCandidates(candidates.map((candidate: any) => candidate.row))
-          setSavingReport(false)
-          return
+          const summary = candidates.map((c: any) => `• ${c.row.public_code || 'Existing report'} — ${c.row.title} (${c.row.address_label || 'location not recorded'})`).join('\n')
+          const proceed = window.confirm(`These existing reports may describe the same issue:\n\n${summary}\n\nReview the community report list first, or choose OK to submit this as a separate report.`)
+          if (!proceed) { setSavingReport(false); return }
         }
       }
       if (evidenceFile) {
@@ -853,10 +852,10 @@ export default function App() {
         if (evidencePath) await client.storage.from('citizen-evidence').remove([evidencePath]).catch(() => undefined)
         throw error
       }
-      setShowReport(false); setDuplicateCandidates([]); setReportTitle(''); setReportDetails(''); setReportArea(''); setReportCoordinates(null); setEvidenceFile(null); setReportCategory(CATEGORIES[0])
+      setShowReport(false); setReportTitle(''); setReportDetails(''); setReportArea(''); setReportCoordinates(null); setEvidenceFile(null); setReportCategory(CATEGORIES[0])
       setActive('My reports'); setFilter('All reports')
       await refreshData(true)
-      setSubmittedReportCode(String(data.public_code ?? 'Submitted'))
+      notify(`Report submitted successfully. Reference: ${data.public_code}`)
     } catch (error) {
       notify('Your report could not be submitted. Please check the details and try again.')
     } finally {
@@ -1073,37 +1072,6 @@ export default function App() {
           </>}
         </div>
       </main>
-      {submittedReportCode && <div className="duplicate-confirm-backdrop report-success-backdrop" role="presentation">
-        <section className="duplicate-confirm-panel report-success-panel" role="dialog" aria-modal="true" aria-labelledby="report-success-title">
-          <div className="report-success-icon"><Check size={25}/></div>
-          <p className="duplicate-confirm-kicker">LOKPRAVAAH · REPORT RECEIVED</p>
-          <h2 id="report-success-title">Report submitted successfully!</h2>
-          <p className="duplicate-confirm-copy">Your civic report has been submitted. You can track its status anytime from My Reports.</p>
-          <div className="report-success-reference"><span>REFERENCE ID</span><b>{submittedReportCode}</b></div>
-          <div className="duplicate-confirm-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => { setSubmittedReportCode(''); setActive('Overview') }}>Back to overview</button>
-            <button type="button" className="btn btn-primary" onClick={() => { setSubmittedReportCode(''); setActive('My reports'); setFilter('All reports') }}>View my reports <ArrowRight size={16}/></button>
-          </div>
-          <button type="button" className="duplicate-confirm-close" aria-label="Close success message" onClick={() => setSubmittedReportCode('')}><X size={18}/></button>
-        </section>
-      </div>}
-      {duplicateCandidates.length > 0 && <div className="duplicate-confirm-backdrop" role="presentation">
-        <section className="duplicate-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="duplicate-confirm-title">
-          <div className="duplicate-confirm-icon"><AlertTriangle size={23}/></div>
-          <p className="duplicate-confirm-kicker">COMMUNITY REPORT CHECK</p>
-          <h2 id="duplicate-confirm-title">A similar issue may already be reported</h2>
-          <p className="duplicate-confirm-copy">We found reports in the same category with a similar title and location. Please review them before creating another report.</p>
-          <div className="duplicate-confirm-list">{duplicateCandidates.map((row: any) => <article className="duplicate-confirm-item" key={row.public_code || row.title}>
-            <span>{row.public_code || 'Existing report'}</span><b>{row.title}</b><small>{row.address_label || 'Location not recorded'} · {row.status || 'submitted'}</small>
-          </article>)}</div>
-          <div className="duplicate-confirm-note"><CircleAlert size={16}/><span>If this is a different or newly occurring issue, you can still submit it separately.</span></div>
-          <div className="duplicate-confirm-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => { setDuplicateCandidates([]); setActive('Community'); setShowReport(false) }}>Review community reports</button>
-            <button type="button" className="btn btn-primary" disabled={savingReport} onClick={() => { void submitReport({ preventDefault() {} } as FormEvent<HTMLFormElement>, true) }}>{savingReport ? 'Submitting…' : 'Submit as separate report'} <ArrowRight size={16}/></button>
-          </div>
-          <button type="button" className="duplicate-confirm-close" aria-label="Close confirmation" onClick={() => setDuplicateCandidates([])}><X size={18}/></button>
-        </section>
-      </div>}
       {showReport && <ReportModal evidenceEnabled={featureFlags.evidence_upload} title={reportTitle} setTitle={setReportTitle} category={reportCategory} setCategory={setReportCategory} details={reportDetails} setDetails={setReportDetails} area={reportArea} setArea={setReportArea} coordinates={reportCoordinates} file={evidenceFile} setFile={setEvidenceFile} saving={savingReport} locating={locating} onLocate={() => void useCurrentLocation()} onClose={() => setShowReport(false)} onSubmit={submitReport}/>}
       {selectedIssue && <IssueDetail issue={selectedIssue} events={issueEvents} isOwner={selectedIssue.reporterId === user.id} isAdmin={['admin', 'super_admin'].includes(adminRole)} evidenceUrl={signedEvidenceUrl} onClose={() => { setSelectedIssue(null); setSignedEvidenceUrl(''); setIssueEvents([]) }} onSupport={() => void supportIssue(selectedIssue)} onMap={() => focusIssueOnMap(selectedIssue)} onDraft={() => downloadComplaintDraft(selectedIssue, userName, profile?.city || '', profile?.ward || '')} onAdminStatus={status => void updateReportStatus(selectedIssue, status)}/>}
       {showSettings && <SettingsModal name={userName} email={user.email ?? ''} isAdmin={hasConsoleAccess} consoleLabel={adminRole === 'moderator' ? 'Open moderation console' : 'Open admin console'} dark={dark} language={language} onTheme={next => { setDark(next); try { localStorage.setItem('janwatch.theme', next) } catch { /* optional */ } }} onLanguage={() => void toggleLanguage()} onAdmin={() => void openAdmin()} onSignOut={() => void signOut()} onClose={() => setShowSettings(false)}/>}
@@ -1235,7 +1203,7 @@ function AuthScreen({ dark, setDark, language, setLanguage, isConfigured, busy, 
 }
 
 function OnboardingScreen({ mode, dark, userEmail, fullName, setFullName, phone, setPhone, city, setCity, ward, setWard, accountType, setAccountType, preferredService, setPreferredService, saving, error, onSubmit, onBack }: { mode: 'setup' | 'edit'; dark: Theme; userEmail: string; fullName: string; setFullName: (v: string) => void; phone: string; setPhone: (v: string) => void; city: string; setCity: (v: string) => void; ward: string; setWard: (v: string) => void; accountType: AccountType; setAccountType: (v: AccountType) => void; preferredService: string; setPreferredService: (v: string) => void; saving: boolean; error: string; onSubmit: (e: FormEvent<HTMLFormElement>) => void; onBack: () => void }) {
-  return <div className={`auth-screen theme-${dark}`}><div className="auth-nav"><button className="back-home" type="button" onClick={onBack}><ArrowRight size={15} className="back-arrow"/> Back to welcome</button><Brand/><span className="secure-pill"><ShieldCheck size={13}/> {mode === 'edit' ? 'EDIT PROFILE' : 'PROFILE SETUP'}</span></div><div className="onboarding-wrap"><div className="onboarding-heading"><div className="onboarding-step">{mode === 'edit' ? 'YOUR ACCOUNT · EDIT DETAILS' : 'STEP 1 OF 1 · YOUR CITIZEN PROFILE'}</div><h1>{mode === 'edit' ? 'Keep your profile current.' : 'Let’s make this personal.'}</h1><p>These details help organise your reports by local area. Your account type does not grant administrator permissions.</p><div className="onboarding-email"><Mail size={16}/>{userEmail}</div></div><form className="onboarding-card" onSubmit={onSubmit}><div className="onboarding-form-head"><span><Users size={20}/></span><div><b>Profile details</b><small>Fields marked with * are required.</small></div></div><label>Full name *<input autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} minLength={2} maxLength={100} required placeholder="e.g. Aditya Ratre"/></label><div className="onboarding-two"><label>City or town *<input autoComplete="address-level2" value={city} onChange={e=>setCity(e.target.value)} minLength={2} maxLength={100} required placeholder="Your city / town"/></label><label>Ward or local area *<input value={ward} onChange={e=>setWard(e.target.value)} maxLength={100} required placeholder="Ward number / neighbourhood"/></label></div><label>Phone number *<input type="tel" autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value)} maxLength={20} required placeholder="Enter contact number"/></label>{error&&<div className="auth-error"><CircleAlert size={16}/><span>{error}</span></div>}<div className="onboarding-privacy"><LockKeyhole size={15}/><span>Your profile details are stored in your LokPravaah profile. Do not submit passwords, identity numbers or sensitive personal information here.</span></div><button className="btn btn-primary auth-submit" type="submit" disabled={saving}>{saving?<LoaderCircle size={16} className="spin"/>:<CheckCircle2 size={16}/>} {saving ? (mode === 'edit' ? 'Saving changes…' : 'Saving your profile…') : (mode === 'edit' ? 'Save profile changes' : 'Save profile and open dashboard')} <ArrowRight size={16}/></button></form></div></div>
+  return <div className={`auth-screen theme-${dark}`}><div className="auth-nav"><button className="back-home" type="button" onClick={onBack}><ArrowRight size={15} className="back-arrow"/> Back to welcome</button><Brand/><span className="secure-pill"><ShieldCheck size={13}/> {mode === 'edit' ? 'EDIT PROFILE' : 'PROFILE SETUP'}</span></div><div className="onboarding-wrap"><div className="onboarding-heading"><div className="onboarding-step">{mode === 'edit' ? 'YOUR ACCOUNT · EDIT DETAILS' : 'STEP 1 OF 1 · YOUR CITIZEN PROFILE'}</div><h1>{mode === 'edit' ? 'Keep your profile current.' : 'Let’s make this personal.'}</h1><p>These details help organise your reports by local area. Your account type does not grant administrator permissions.</p><div className="onboarding-email"><Mail size={16}/>{userEmail}</div></div><form className="onboarding-card" onSubmit={onSubmit}><div className="onboarding-form-head"><span><Users size={20}/></span><div><b>Profile details</b><small>Fields marked with * are required.</small></div></div><label>Full name *<input autoComplete="name" value={fullName} onChange={e=>setFullName(e.target.value)} minLength={2} maxLength={100} required placeholder="e.g. Aditya Ratre"/></label><div className="onboarding-two"><label>City or town *<input autoComplete="address-level2" value={city} onChange={e=>setCity(e.target.value)} minLength={2} maxLength={100} required placeholder="Your city / town"/></label><label>Ward or local area *<input value={ward} onChange={e=>setWard(e.target.value)} maxLength={100} required placeholder="Ward number / neighbourhood"/></label></div><label>Phone number *<input type="tel" autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value.replace(/[^0-9+()\- ]/g, '').slice(0, 20))} maxLength={20} minLength={10} required placeholder="Enter contact number"/></label>{error&&<div className="auth-error"><CircleAlert size={16}/><span>{error}</span></div>}<div className="onboarding-privacy"><LockKeyhole size={15}/><span>Your profile details are stored in your LokPravaah profile. Do not submit passwords, identity numbers or sensitive personal information here.</span></div><button className="btn btn-primary auth-submit" type="submit" disabled={saving}>{saving?<LoaderCircle size={16} className="spin"/>:<CheckCircle2 size={16}/>} {saving ? (mode === 'edit' ? 'Saving changes…' : 'Saving your profile…') : (mode === 'edit' ? 'Save profile changes' : 'Save profile and open dashboard')} <ArrowRight size={16}/></button></form></div></div>
 }
 
 function AuthLoading({ dark }: { dark: Theme }) {
