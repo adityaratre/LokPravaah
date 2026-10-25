@@ -435,23 +435,6 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                 }
             }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
-            item {
-                Surface(color = Color(0xFF153B32), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                        Surface(color = Color(0xFFF2C65D), shape = RoundedCornerShape(16.dp), modifier = Modifier.size(54.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Outlined.EmojiEvents, contentDescription = "Top worker", tint = Color(0xFF17372F), modifier = Modifier.size(29.dp))
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("TOP WORKER · #1", color = Color(0xFF9DE5C2), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
-                            Text(if (topWorkerName.isBlank()) "Community champion loading…" else topWorkerName, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                            Text(if (topWorkerCompleted > 0) "$topWorkerCompleted approved " + (if (topWorkerCompleted == 1) "task" else "tasks") + " completed" else "First approved completed task earns the #1 spot", color = Color(0xFFC2E5D6), fontSize = 12.sp)
-                        }
-                        Text("🏆", fontSize = 22.sp)
-                    }
-                }
-            }
             if (error.isNotBlank()) item { FxErrorCard(error) { refresh++ } }
             if (supportNotice.isNotBlank()) item { Text(supportNotice, color = FxMint, fontSize = 11.sp) }
             if (!loading && error.isBlank() && visible.isEmpty()) item { FxEmptyCard("No public reports found", "Refresh later or change the status filter.") }
@@ -598,6 +581,23 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { FxHeader("Worker Hub", "Help with verified community tasks", Icons.Outlined.VolunteerActivism, onRefresh = { refresh++ }, loading = loading) }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
+            item {
+                Surface(color = Color(0xFF153B32), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Surface(color = Color(0xFFF2C65D), shape = RoundedCornerShape(16.dp), modifier = Modifier.size(54.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.EmojiEvents, contentDescription = "Top worker", tint = Color(0xFF17372F), modifier = Modifier.size(29.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TOP WORKER · #1", color = Color(0xFF9DE5C2), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
+                            Text(if (topWorkerName.isBlank()) "Community champion loading…" else topWorkerName, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(if (topWorkerCompleted > 0) "$topWorkerCompleted approved " + (if (topWorkerCompleted == 1) "task" else "tasks") + " completed" else "First approved completed task earns the #1 spot", color = Color(0xFFC2E5D6), fontSize = 12.sp)
+                        }
+                        Text("🏆", fontSize = 22.sp)
+                    }
+                }
+            }
             if (!loading && !enabled) item { FxEmptyCard("Worker programme paused", "New worker applications are temporarily unavailable. Please try again later.") }
             if (message.isNotBlank()) item { FxErrorCard(message) { refresh++ } }
             if (!loading && enabled && status != "active") {
