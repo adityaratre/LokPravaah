@@ -697,6 +697,7 @@ export default function App() {
     if (nameValue.length < 2) { setAuthError('Enter your full name.'); return }
     if (cityValue.length < 2) { setAuthError('Enter your city or town.'); return }
     if (wardValue.length < 1) { setAuthError('Enter your ward or local area.'); return }
+    if (phoneValue.replace(/\D/g, '').length < 10) { setAuthError('Enter a valid contact number (at least 10 digits).'); return }
     setSavingOnboarding(true); setAuthError('')
     try {
       const details = {
