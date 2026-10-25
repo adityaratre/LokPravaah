@@ -59,30 +59,6 @@ private val ReportsLine = Color(0xFF28415A)
 
 private enum class NativeReportsPage { LIST, CREATE, DETAIL }
 
-private data class NativeReportDraft(
-    val title: String,
-    val description: String,
-    val category: String,
-    val area: String,
-    val latitude: Double?,
-    val longitude: Double?,
-    val evidence: NativePickedEvidence?
-)
-
-private fun duplicateTerms(value: String): Set<String> =
-    value.lowercase().split(Regex("[^a-z0-9]+"))
-        .filter { it.length >= 3 && it !in setOf("the", "and", "for", "with", "near", "from", "road", "area", "issue", "broken", "problem") }
-        .toSet()
-
-private fun overlapRatio(left: Set<String>, right: Set<String>): Double =
-    if (left.isEmpty() || right.isEmpty()) 0.0 else left.intersect(right).size.toDouble() / minOf(left.size, right.size)
-
-private fun mayDescribeSameIssue(report: NativeReport, title: String, area: String): Boolean {
-    val titleOverlap = overlapRatio(duplicateTerms(title), duplicateTerms(report.title))
-    val areaOverlap = overlapRatio(duplicateTerms(area), duplicateTerms(report.addressLabel.orEmpty()))
-    return titleOverlap >= 0.48 && areaOverlap >= 0.25
-}
-
 @Composable
 fun NativeReportsScreen(
     client: SupabaseClient,
@@ -107,8 +83,6 @@ fun NativeReportsScreen(
     var formMessage by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf("") }
     var successReport by remember { mutableStateOf<NativeReport?>(null) }
-    var similarReports by remember { mutableStateOf<List<NativeReport>>(emptyList()) }
-    var pendingReportDraft by remember { mutableStateOf<NativeReportDraft?>(null) }
 
     LaunchedEffect(page) {
         onContentDepthChanged(page != NativeReportsPage.LIST)
@@ -170,22 +144,6 @@ fun NativeReportsScreen(
         }
     }
 
-    suspend fun submitDraft(draft: NativeReportDraft) {
-        val created = repository.submitReport(userId, draft.title, draft.description, draft.category, draft.area, draft.latitude, draft.longitude, draft.evidence)
-        if (client.auth.currentUserOrNull()?.id != userId) {
-            formMessage = "Your session expired before the screen could refresh. Sign in again to check your report."
-        } else {
-            reports = listOf(created) + reports.filterNot { it.id == created.id }
-            selectedReport = created
-            page = NativeReportsPage.LIST
-            refreshing++
-            toast = ""
-            successReport = created
-            pendingReportDraft = null
-            similarReports = emptyList()
-        }
-    }
-
     when (page) {
         NativeReportsPage.LIST -> ReportListPage(
             reports = reports,
@@ -206,16 +164,16 @@ fun NativeReportsScreen(
                 formMessage = ""
                 scope.launch {
                     try {
-                        val candidates = repository.loadRecentPublicReports(category)
-                            .filter { mayDescribeSameIssue(it, title, area) }
-                            .sortedByDescending { it.createdAt }
-                            .take(3)
-                        val draft = NativeReportDraft(title, description, category, area, lat, lon, evidence)
-                        if (candidates.isNotEmpty()) {
-                            similarReports = candidates
-                            pendingReportDraft = draft
+                        val created = repository.submitReport(userId, title, description, category, area, lat, lon, evidence)
+                        if (client.auth.currentUserOrNull()?.id != userId) {
+                            formMessage = "Your session expired before the screen could refresh. Sign in again to check your report."
                         } else {
-                            submitDraft(draft)
+                            reports = listOf(created) + reports.filterNot { it.id == created.id }
+                            selectedReport = created
+                            page = NativeReportsPage.LIST
+                            refreshing++
+                            toast = ""
+                            successReport = created
                         }
                     } catch (error: Exception) {
                         clearSessionIfExpired(client, error)
@@ -253,51 +211,6 @@ fun NativeReportsScreen(
             },
             toast = toast,
             onDismissToast = { toast = "" }
-        )
-    }
-
-    pendingReportDraft?.let { draft ->
-        AlertDialog(
-            onDismissRequest = { if (!saving) { pendingReportDraft = null; similarReports = emptyList() } },
-            containerColor = ReportsPanel,
-            shape = RoundedCornerShape(28.dp),
-            icon = {
-                Surface(color = Color(0xFF4A351B), shape = RoundedCornerShape(50), modifier = Modifier.size(66.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("!", color = Color(0xFFFFD38B), fontSize = 38.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            title = { Text("A similar issue may already be reported", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 21.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text("We found public reports in the same category with similar titles and locations. Please review them before submitting another report.", color = ReportsMuted, fontSize = 14.sp, lineHeight = 20.sp)
-                    similarReports.forEach { match ->
-                        Surface(color = ReportsNavy, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(match.publicCode + " — " + match.title, color = ReportsMint, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Text((match.addressLabel ?: "Location not recorded") + " · " + match.category, color = ReportsMuted, fontSize = 11.sp)
-                            }
-                        }
-                    }
-                    Text("If this is a different or newly occurring issue, you can still submit it separately.", color = Color.White, fontSize = 12.sp, lineHeight = 17.sp)
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !saving, onClick = {
-                    val confirmed = pendingReportDraft ?: return@TextButton
-                    scope.launch {
-                        saving = true
-                        formMessage = ""
-                        try { submitDraft(confirmed) }
-                        catch (error: Exception) { clearSessionIfExpired(client, error); formMessage = nativeReportError(error) }
-                        finally { saving = false }
-                    }
-                }) { Text(if (saving) "Submitting…" else "Submit as separate report", color = ReportsMint) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingReportDraft = null; similarReports = emptyList() }) { Text("Review reports first", color = ReportsMuted) }
-            }
         )
     }
 
@@ -939,15 +852,8 @@ private fun nativeReportError(error: Throwable): String {
             "New report submissions are temporarily disabled by the administrator."
         lower.contains("evidence_upload") || lower.contains("evidence uploads") ->
             "Evidence upload is currently unavailable or disabled. Remove the file or try again later."
-        lower.contains("network") || lower.contains("timeout") || lower.contains("unable to resolve host") || lower.contains("failed to connect") ->
-            "Connection to LokPravaah failed. Check your internet connection and retry."
-        lower.contains("citizen-evidence") || lower.contains("storage") || lower.contains("bucket") ->
-            "Evidence storage failed. Check that the private citizen-evidence bucket exists and allows uploads to the signed-in user's own folder."
         lower.contains("50 mb") || lower.contains("must be between") || lower.contains("valid report category") || lower.contains("enter an area") || lower.contains("coordinates") || lower.contains("title") || lower.contains("description") ->
             raw
-        else -> {
-            val detail = raw.replace(Regex("\\s+"), " ").trim().take(220)
-            if (detail.isNotBlank()) "Report failed: $detail" else "Report failed without an error detail. Check your connection and Supabase reports/storage permissions, then retry."
-        }
+        else -> "The report action failed. Check your connection and current Supabase permissions, then retry."
     }
 }
