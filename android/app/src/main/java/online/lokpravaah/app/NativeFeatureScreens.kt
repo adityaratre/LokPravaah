@@ -435,6 +435,23 @@ fun NativeExploreScreen(client: SupabaseClient, userId: String) {
                 }
             }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
+            item {
+                Surface(color = Color(0xFF153B32), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Surface(color = Color(0xFFF2C65D), shape = RoundedCornerShape(16.dp), modifier = Modifier.size(54.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.EmojiEvents, contentDescription = "Top worker", tint = Color(0xFF17372F), modifier = Modifier.size(29.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TOP WORKER · #1", color = Color(0xFF9DE5C2), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
+                            Text(if (topWorkerName.isBlank()) "Community champion loading…" else topWorkerName, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(if (topWorkerCompleted > 0) "$topWorkerCompleted approved " + (if (topWorkerCompleted == 1) "task" else "tasks") + " completed" else "First approved completed task earns the #1 spot", color = Color(0xFFC2E5D6), fontSize = 12.sp)
+                        }
+                        Text("🏆", fontSize = 22.sp)
+                    }
+                }
+            }
             if (error.isNotBlank()) item { FxErrorCard(error) { refresh++ } }
             if (supportNotice.isNotBlank()) item { Text(supportNotice, color = FxMint, fontSize = 11.sp) }
             if (!loading && error.isBlank() && visible.isEmpty()) item { FxEmptyCard("No public reports found", "Refresh later or change the status filter.") }
@@ -511,6 +528,8 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
     var available by remember { mutableStateOf(false) }
     var enabled by remember { mutableStateOf(true) }
     var assignments by remember { mutableStateOf<List<NativeWorkerAssignment>>(emptyList()) }
+    var topWorkerName by remember { mutableStateOf("") }
+    var topWorkerCompleted by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
@@ -548,6 +567,28 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
                     limit(30)
                 }.decodeList<NativeWorkerAssignment>()
             } else assignments = emptyList()
+
+            val completedRows = client.from("work_assignments").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("worker_id")) {
+                filter { eq("status", "completed") }
+                limit(5000)
+            }.decodeList<NativeCompletedWorkerRow>()
+            val ranking = completedRows.groupingBy { it.workerId }.eachCount().entries
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            if (ranking.isNotEmpty()) {
+                val workerProfiles = client.from("worker_profiles").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw(
+                    "user_id,profile:profiles!worker_profiles_user_id_fkey(display_name)"
+                )) {
+                    filter { isIn("user_id", ranking.map { it.key }) }
+                    limit(5000)
+                }.decodeList<NativeWorkerLeaderboardProfile>()
+                val names = workerProfiles.associate { it.userId to it.profile?.displayName?.trim().orEmpty() }
+                val winner = ranking.firstOrNull { !names[it.key].isNullOrBlank() } ?: ranking.first()
+                topWorkerName = names[winner.key]?.takeIf { it.isNotBlank() } ?: "LokPravaah Volunteer " + winner.key.take(6)
+                topWorkerCompleted = winner.value
+            } else {
+                topWorkerName = ""
+                topWorkerCompleted = 0
+            }
         } catch (exception: Exception) {
             message = "Worker Hub could not load. Check your connection and the worker programme migration."
         } finally { loading = false }
@@ -1881,6 +1922,18 @@ private data class NativeReportVoteInsert(
 
 @Serializable
 private data class NativeWorkerSetting(val enabled: Boolean = false)
+
+@Serializable
+private data class NativeCompletedWorkerRow(@SerialName("worker_id") val workerId: String)
+
+@Serializable
+private data class NativeWorkerLeaderboardProfile(
+    @SerialName("user_id") val userId: String,
+    val profile: NativeWorkerLeaderboardName? = null
+)
+
+@Serializable
+private data class NativeWorkerLeaderboardName(@SerialName("display_name") val displayName: String? = null)
 
 @Serializable
 private data class NativeWorkerProfile(
