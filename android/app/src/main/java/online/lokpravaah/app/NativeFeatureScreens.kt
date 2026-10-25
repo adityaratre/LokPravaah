@@ -529,21 +529,10 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
 
     LaunchedEffect(userId) {
         try {
-            val completed = client.from("work_assignments").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("worker_id,status")) {
-                filter { eq("status", "completed") }
-                limit(2000)
-            }.decodeList<NativeCompletedWorkerAssignment>()
-            val champion = completed.groupingBy { it.workerId }.eachCount().entries.maxByOrNull { it.value }
-            if (champion != null && champion.value > 0) {
-                val displayName = try {
-                    client.from("profiles").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("display_name")) {
-                        filter { eq("id", champion.key) }
-                        limit(1)
-                    }.decodeList<NativeWorkerDisplayName>().firstOrNull()?.displayName?.takeIf { it.isNotBlank() }
-                } catch (_: Exception) { null }
-                topWorkerName = displayName ?: "Community worker"
-                topWorkerCompleted = champion.value
-            }
+            val response = client.postgrest.rpc("janwatch_get_top_community_worker")
+            val champion = Json.parseToJsonElement(response.data).jsonObject
+            topWorkerName = champion["worker_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: ""
+            topWorkerCompleted = champion["completed_tasks"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
         } catch (_: Exception) {
             // Optional public statistics must not block worker tasks.
         }
@@ -2035,17 +2024,6 @@ private data class NativeTopDonor(
     @SerialName("donor_name") val donorName: String,
     @SerialName("total_paise") val totalPaise: Long,
     @SerialName("donations_count") val donationsCount: Int
-)
-
-@Serializable
-private data class NativeCompletedWorkerAssignment(
-    @SerialName("worker_id") val workerId: String,
-    val status: String
-)
-
-@Serializable
-private data class NativeWorkerDisplayName(
-    @SerialName("display_name") val displayName: String = ""
 )
 
 @Serializable
