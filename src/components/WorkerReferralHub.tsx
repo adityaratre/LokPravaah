@@ -4,7 +4,7 @@ import {
   Activity, ArrowDownRight, ArrowRight, BadgeCheck, CalendarClock, Check, CheckCircle2,
   ChevronRight, CircleAlert, ClipboardCheck, Clock3, Copy, ExternalLink, Gift,
   HandHeart, Info, LoaderCircle, MapPin, RefreshCw, Send, ShieldCheck, Sparkles,
-  UserCheck, Users, UsersRound, Wallet, XCircle, Zap
+  UserCheck, Users, UsersRound, Wallet, XCircle, Zap, Trophy, Crown
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -134,6 +134,8 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
   const client = supabase
   const [worker, setWorker] = useState<WorkerProfile | null>(null)
   const [tasks, setTasks] = useState<WorkTask[]>([])
+  const [topWorker, setTopWorker] = useState<{ name: string; completed: number } | null>(null)
+  const [topWorkerLoading, setTopWorkerLoading] = useState(true)
   const [reviewTasks, setReviewTasks] = useState<WorkTask[]>([])
   const [workers, setWorkers] = useState<WorkerOption[]>([])
   const [workerLoads, setWorkerLoads] = useState<Record<string, number>>({})
@@ -225,6 +227,39 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
   }, [client, userId, isAdmin])
 
   useEffect(() => { void load() }, [load])
+
+  // Public recognition is based only on operations-approved completed assignments.
+  useEffect(() => {
+    let cancelled = false
+    const loadTopWorker = async () => {
+      if (!client) { setTopWorkerLoading(false); return }
+      setTopWorkerLoading(true)
+      try {
+        const { data: completedRows, error: completedError } = await client
+          .from('work_assignments').select('worker_id').eq('status', 'completed').limit(5000)
+        if (completedError) throw completedError
+        const counts = new Map<string, number>()
+        ;(completedRows || []).forEach((row: { worker_id: string }) => counts.set(row.worker_id, (counts.get(row.worker_id) || 0) + 1))
+        const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        if (!ranked.length) { if (!cancelled) setTopWorker(null); return }
+        const { data: profiles, error: profileError } = await client.from('worker_profiles')
+          .select('user_id,profile:profiles!worker_profiles_user_id_fkey(display_name)')
+          .in('user_id', ranked.map(([id]) => id))
+        if (profileError) throw profileError
+        const profileMap = new Map<string, string>()
+        ;(profiles || []).forEach((row: { user_id: string; profile?: { display_name?: string | null } | { display_name?: string | null }[] | null }) => {
+          const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile
+          if (profile?.display_name?.trim()) profileMap.set(row.user_id, profile.display_name.trim())
+        })
+        const winner = ranked.find(([id]) => profileMap.has(id)) || ranked[0]
+        if (!cancelled) setTopWorker({ name: profileMap.get(winner[0]) || `LokPravaah Volunteer ${winner[0].slice(0, 6)}`, completed: winner[1] })
+      } catch {
+        if (!cancelled) setTopWorker(null)
+      } finally { if (!cancelled) setTopWorkerLoading(false) }
+    }
+    void loadTopWorker()
+    return () => { cancelled = true }
+  }, [client])
   const activeTasks = useMemo(() => tasks.filter(task => ACTIVE_TASK_STATUSES.includes(task.status)), [tasks])
   const completedTasks = useMemo(() => tasks.filter(task => task.status === 'completed'), [tasks])
   const eligibleWorkers = useMemo(() => workers.filter(item => item.status === 'active' && item.available && (workerLoads[item.user_id] || 0) < item.max_active_tasks), [workers, workerLoads])
@@ -420,6 +455,15 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
       <article className="wr-stat"><span className="wr-stat-icon"><BadgeCheck size={18}/></span><small>Approved work</small><strong>{loading ? '—' : completedTasks.length}</strong><span className="wr-stat-foot">Reviewed by operations</span></article>
       <article className="wr-stat"><span className="wr-stat-icon"><MapPin size={18}/></span><small>Your work area</small><strong className="wr-stat-location">{worker?.city || city || 'Set area'}</strong><span className="wr-stat-foot">{worker?.ward || ward || 'City & ward'}</span></article>
     </div>
+
+    <section className="wr-panel" style={{ marginBottom: 22, display: 'flex', alignItems: 'center', gap: 16, background: 'linear-gradient(120deg, #102d29, #153f35)', borderColor: 'rgba(128,235,184,.32)' }}>
+      <div aria-hidden="true" style={{ width: 54, height: 54, minWidth: 54, borderRadius: 17, display: 'grid', placeItems: 'center', color: '#102d29', background: 'linear-gradient(145deg,#f8d978,#e8ad38)' }}><Crown size={27}/></div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="section-kicker" style={{ color: '#a9edce' }}><Trophy size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 5 }}/> TOP WORKER · #1</div>
+        {topWorkerLoading ? <h3 style={{ margin: '5px 0 3px', color: '#fff' }}>Finding our community champion…</h3> : topWorker ? <><h3 style={{ margin: '5px 0 3px', color: '#fff', overflowWrap: 'anywhere' }}>{topWorker.name}</h3><p style={{ margin: 0, color: '#c4e8d8', fontSize: 13 }}>{topWorker.completed} approved {topWorker.completed === 1 ? 'task' : 'tasks'} completed</p></> : <><h3 style={{ margin: '5px 0 3px', color: '#fff' }}>Your name could be here</h3><p style={{ margin: 0, color: '#c4e8d8', fontSize: 13 }}>The first worker with an approved completed task will earn the #1 spot.</p></>}
+      </div>
+      <span style={{ alignSelf: 'flex-start', borderRadius: 999, padding: '5px 9px', fontSize: 10, fontWeight: 800, color: '#f8d978', background: 'rgba(248,217,120,.12)', whiteSpace: 'nowrap' }}>HALL OF FAME</span>
+    </section>
 
     <div className="wr-section-head"><div><div className="section-kicker">VOLUNTEER WORKSPACE</div><h2>Contribute with purpose.</h2><p>Apply to help, complete assigned tasks, and send evidence back for review.</p></div><button className="btn btn-secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={15} className={loading ? 'wr-spin' : ''}/> Refresh</button></div>
     {pageError && <div className="wr-error"><CircleAlert size={17}/><span>{pageError}</span><button className="btn btn-secondary" onClick={() => void load()}>Retry</button></div>}
