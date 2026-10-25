@@ -228,31 +228,21 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
 
   useEffect(() => { void load() }, [load])
 
-  // Public recognition is based only on operations-approved completed assignments.
+  // Use the same privacy-safe public ranking RPC as the native app.
   useEffect(() => {
     let cancelled = false
     const loadTopWorker = async () => {
       if (!client) { setTopWorkerLoading(false); return }
       setTopWorkerLoading(true)
       try {
-        const { data: completedRows, error: completedError } = await client
-          .from('work_assignments').select('worker_id').eq('status', 'completed').limit(5000)
-        if (completedError) throw completedError
-        const counts = new Map<string, number>()
-        ;(completedRows || []).forEach((row: { worker_id: string }) => counts.set(row.worker_id, (counts.get(row.worker_id) || 0) + 1))
-        const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        if (!ranked.length) { if (!cancelled) setTopWorker(null); return }
-        const { data: profiles, error: profileError } = await client.from('worker_profiles')
-          .select('user_id,profile:profiles!worker_profiles_user_id_fkey(display_name)')
-          .in('user_id', ranked.map(([id]) => id))
-        if (profileError) throw profileError
-        const profileMap = new Map<string, string>()
-        ;(profiles || []).forEach((row: { user_id: string; profile?: { display_name?: string | null } | { display_name?: string | null }[] | null }) => {
-          const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile
-          if (profile?.display_name?.trim()) profileMap.set(row.user_id, profile.display_name.trim())
-        })
-        const winner = ranked.find(([id]) => profileMap.has(id)) || ranked[0]
-        if (!cancelled) setTopWorker({ name: profileMap.get(winner[0]) || `LokPravaah Volunteer ${winner[0].slice(0, 6)}`, completed: winner[1] })
+        const { data, error } = await client.rpc('janwatch_get_top_community_worker')
+        if (error) throw error
+        const payload = data as { worker_name?: string; completed_tasks?: number } | null
+        const completed = Number(payload?.completed_tasks || 0)
+        if (!cancelled) setTopWorker(completed > 0 ? {
+          name: String(payload?.worker_name || 'LokPravaah Volunteer'),
+          completed
+        } : null)
       } catch {
         if (!cancelled) setTopWorker(null)
       } finally { if (!cancelled) setTopWorkerLoading(false) }
@@ -260,6 +250,7 @@ export default function WorkerReferralHub({ userId, displayName, isAdmin, city, 
     void loadTopWorker()
     return () => { cancelled = true }
   }, [client])
+
   const activeTasks = useMemo(() => tasks.filter(task => ACTIVE_TASK_STATUSES.includes(task.status)), [tasks])
   const completedTasks = useMemo(() => tasks.filter(task => task.status === 'completed'), [tasks])
   const eligibleWorkers = useMemo(() => workers.filter(item => item.status === 'active' && item.available && (workerLoads[item.user_id] || 0) < item.max_active_tasks), [workers, workerLoads])
