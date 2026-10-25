@@ -522,8 +522,32 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
         else { taskEvidence = picked; message = "" }
     }
     var refresh by remember { mutableIntStateOf(0) }
+    var topWorkerName by remember { mutableStateOf("") }
+    var topWorkerCompleted by remember { mutableIntStateOf(0) }
     var selectedSkills by remember { mutableStateOf(setOf("Waste & Sanitation", "Community outreach")) }
     val skills = listOf("Roads & Footpaths", "Waste & Sanitation", "Streetlights", "Water & Drainage", "Public Safety", "Parks & Public Spaces", "Community outreach", "Evidence collection", "Translation & writing", "Digital support")
+
+    LaunchedEffect(userId) {
+        try {
+            val completed = client.from("work_assignments").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("worker_id,status")) {
+                filter { eq("status", "completed") }
+                limit(2000)
+            }.decodeList<NativeCompletedWorkerAssignment>()
+            val champion = completed.groupingBy { it.workerId }.eachCount().entries.maxByOrNull { it.value }
+            if (champion != null && champion.value > 0) {
+                val displayName = try {
+                    client.from("profiles").select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("display_name")) {
+                        filter { eq("id", champion.key) }
+                        limit(1)
+                    }.decodeList<NativeWorkerDisplayName>().firstOrNull()?.displayName?.takeIf { it.isNotBlank() }
+                } catch (_: Exception) { null }
+                topWorkerName = displayName ?: "Community worker"
+                topWorkerCompleted = champion.value
+            }
+        } catch (_: Exception) {
+            // Optional public statistics must not block worker tasks.
+        }
+    }
 
     LaunchedEffect(userId, refresh) {
         loading = true; message = ""
@@ -556,6 +580,23 @@ fun NativeWorkerScreen(client: SupabaseClient, userId: String) {
     Column(Modifier.fillMaxSize().background(FxNavy)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { FxHeader("Worker Hub", "Help with verified community tasks", Icons.Outlined.VolunteerActivism, onRefresh = { refresh++ }, loading = loading) }
+            if (topWorkerCompleted > 0) {
+                item {
+                    Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.background(Brush.linearGradient(listOf(Color(0xFF1B3B42), FxSurface))).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Surface(color = FxAmber, shape = CircleShape, modifier = Modifier.size(52.dp)) {
+                                Box(contentAlignment = Alignment.Center) { Text("#1", color = FxNavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("TOP COMMUNITY WORKER", color = FxAmber, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                                Text(topWorkerName, color = FxText, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                                Text("$topWorkerCompleted completed ${if (topWorkerCompleted == 1) "task" else "tasks"}", color = FxMint, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = FxAmber, modifier = Modifier.size(26.dp))
+                        }
+                    }
+                }
+            }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = FxMint, trackColor = FxCard) }
             if (!loading && !enabled) item { FxEmptyCard("Worker programme paused", "New worker applications are temporarily unavailable. Please try again later.") }
             if (message.isNotBlank()) item { FxErrorCard(message) { refresh++ } }
@@ -857,6 +898,8 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
     var goal by remember { mutableStateOf(0L) }
     var total by remember { mutableStateOf(0L) }
     var count by remember { mutableIntStateOf(0) }
+    var leaderboardEnabled by remember { mutableStateOf(true) }
+    var topDonors by remember { mutableStateOf<List<NativeTopDonor>>(emptyList()) }
     var minimumPaise by remember { mutableStateOf(100L) }
     var maximumPaise by remember { mutableStateOf(10_000_000L) }
     var suggested by remember { mutableStateOf(listOf(51, 101, 251, 501, 1001, 2100)) }
@@ -922,6 +965,17 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
             goal = settings?.get("campaign_goal_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             total = obj["total_raised_paise"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             count = obj["successful_donations"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+            leaderboardEnabled = settings?.get("leaderboard_enabled")?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true
+            topDonors = obj["top_donors"]?.jsonArray?.mapNotNull { item ->
+                val donor = item.jsonObject
+                val name = donor["donor_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                NativeTopDonor(
+                    rank = donor["rank"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                    donorName = name,
+                    totalPaise = donor["total_paise"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                    donationsCount = donor["donations_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                )
+            }?.filter { it.rank > 0 && it.totalPaise > 0L }?.sortedBy { it.rank } ?: emptyList()
             minimumPaise = settings?.get("min_amount_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 100L
             maximumPaise = settings?.get("max_amount_paise")?.jsonPrimitive?.content?.toLongOrNull() ?: 10_000_000L
             val currentSuggested = settings?.get("suggested_amounts")?.jsonArray?.mapNotNull {
@@ -1013,6 +1067,38 @@ fun NativeDonateScreen(client: SupabaseClient, userId: String) {
                             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = Color(0xFF0D5944), trackColor = Color(0xFF90D8B8))
                             Text(if (goalInRupees > 0) "Goal: ₹" + String.format(Locale.ROOT, "%.0f", goalInRupees) else "Campaign goal not set", color = Color(0xFF245546), fontSize = 11.sp)
                             Text(count.toString() + " verified contributions", color = Color(0xFF245546), fontSize = 11.sp)
+                        }
+                    }
+                }
+                if (leaderboardEnabled && topDonors.isNotEmpty()) {
+                    item {
+                        val champion = topDonors.first()
+                        Surface(color = FxSurface, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("TOP SUPPORTER", color = FxAmber, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, letterSpacing = 1.2.sp)
+                                Surface(color = Color(0xFF24364A), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Surface(color = FxAmber, shape = CircleShape, modifier = Modifier.size(48.dp)) {
+                                            Box(contentAlignment = Alignment.Center) { Text("#1", color = FxNavy, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
+                                        }
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(champion.donorName, color = FxText, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                                            Text(champion.donationsCount.toString() + if (champion.donationsCount == 1) " verified contribution" else " verified contributions", color = FxMuted, fontSize = 11.sp)
+                                        }
+                                        Text("₹" + String.format(Locale.ROOT, "%.0f", champion.totalPaise / 100.0), color = FxMint, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                                Text("DONATION LEADERBOARD", color = FxMuted, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
+                                topDonors.take(5).forEachIndexed { index, donor ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("#" + donor.rank, color = if (donor.rank == 1) FxAmber else FxMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(34.dp))
+                                        Text(donor.donorName, color = FxText, fontWeight = if (donor.rank == 1) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                        Text("₹" + String.format(Locale.ROOT, "%.0f", donor.totalPaise / 100.0), color = FxMint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                    if (index < topDonors.take(5).lastIndex) HorizontalDivider(color = FxLine)
+                                }
+                                Text("Only verified, publicly listed contributions appear here.", color = FxMuted, fontSize = 10.sp)
+                            }
                         }
                     }
                 }
@@ -1942,6 +2028,25 @@ private fun workerTaskGuidance(category: String): List<String> {
         )
     }
 }
+
+@Serializable
+private data class NativeTopDonor(
+    val rank: Int,
+    @SerialName("donor_name") val donorName: String,
+    @SerialName("total_paise") val totalPaise: Long,
+    @SerialName("donations_count") val donationsCount: Int
+)
+
+@Serializable
+private data class NativeCompletedWorkerAssignment(
+    @SerialName("worker_id") val workerId: String,
+    val status: String
+)
+
+@Serializable
+private data class NativeWorkerDisplayName(
+    @SerialName("display_name") val displayName: String = ""
+)
 
 @Serializable
 private data class NativeWorkerAssignment(
